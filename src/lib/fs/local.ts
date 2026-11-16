@@ -52,7 +52,7 @@ export type LocalFs = {
 };
 
 /** 既定のアプリで開くための、項目の URL（画面の <a href> に入る。押しは本体が受けて、Rust の fs_open を呼ぶ） */
-const OPEN_SCHEME = 'disrect-open:';
+const OPEN_SCHEME = 'fixplor-open:';
 export function openHref(path: string): string {
   return OPEN_SCHEME + encodeURIComponent(path);
 }

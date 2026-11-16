@@ -1,4 +1,4 @@
-# disrect
+# fixplor
 
 ファイルエクスプローラー（Windows のエクスプローラー・Ubuntu の Nautilus にあたるもの）。Tauri 2 + Svelte 5。
 
@@ -10,17 +10,17 @@ Disnans のサーバーの共有フォルダも、あとで「場所」の 1 つ
 
 ## インストール
 
-[最新のリリース](https://github.com/3pino/disrect/releases/latest)から、デバイスに合ったファイルをダウンロードします。
+[最新のリリース](https://github.com/3pino/fixplor/releases/latest)から、デバイスに合ったファイルをダウンロードします。
 
 | デバイス | ファイル | 入れ方 |
 |---|---|---|
-| Windows | `disrect_*_x64-setup.exe` | 実行してインストールする。「Windows によって PC が保護されました」と出たら「詳細情報」→「実行」 |
-| Linux（Ubuntu / Debian） | `disrect_*_amd64.deb` | `sudo apt install ./disrect_*_amd64.deb` |
-| Linux（その他） | `disrect_*_amd64.AppImage` | `chmod +x` で実行権限を付けて起動する |
+| Windows | `fixplor_*_x64-setup.exe` | 実行してインストールする。「Windows によって PC が保護されました」と出たら「詳細情報」→「実行」 |
+| Linux（Ubuntu / Debian） | `fixplor_*_amd64.deb` | `sudo apt install ./fixplor_*_amd64.deb` |
+| Linux（その他） | `fixplor_*_amd64.AppImage` | `chmod +x` で実行権限を付けて起動する |
 
 - 署名していないので、Windows では上のような警告が出ます。
 - 自動更新はありません。新しい版が出たら、同じ手順で入れ直してください（設定は残ります）。
-- アンインストール: Windows は「設定」→「アプリ」から。Linux の `.deb` は `sudo apt remove disrect`。AppImage は、ファイルを消すだけです。
+- アンインストール: Windows は「設定」→「アプリ」から。Linux の `.deb` は `sudo apt remove fixplor`。AppImage は、ファイルを消すだけです。
 - 隠しファイルの表示や、フォルダごとの表示方法は、この端末に保存されます。
 
 ## 使い方
@@ -35,7 +35,7 @@ Disnans のサーバーの共有フォルダも、あとで「場所」の 1 つ
 
 画面の本体（一覧・アイコン表示・選択・コピー／切り取り／貼り付け・ドラッグでの移動・名前の変更・ゴミ箱・プロパティ）は、
 共有の部品 [@3pino/explorer-kit](https://github.com/3pino/explorer-kit) です。[disnans](https://github.com/3pino/disnans) の共有フォルダの画面と同じもので、
-disnans はそこへ「サーバーの共有フォルダ」を、disrect は「この端末」を、置き場所として渡しています。全体の設計と進め方は [docs/design.md](docs/design.md)。
+disnans はそこへ「サーバーの共有フォルダ」を、fixplor は「この端末」を、置き場所として渡しています。全体の設計と進め方は [docs/design.md](docs/design.md)。
 
 ### 動かす
 
@@ -54,7 +54,7 @@ npm run build
 (cd src-tauri && cargo test && cargo clippy --all-targets)    # ファイル操作の試験
 ```
 
-起動して Rust まで届いているかは、`DISRECT_TRACE=1` を付けて起動すると、呼ばれたコマンドの名前と結果が標準エラーに出ます（パスや中身は出しません）。
+起動して Rust まで届いているかは、`FIXPLOR_TRACE=1` を付けて起動すると、呼ばれたコマンドの名前と結果が標準エラーに出ます（パスや中身は出しません）。
 
 GitHub Actions: `CI`（型・試験・ビルド、Rust は Linux と Windows）、`Release`（`v` で始まるタグを打つと、Linux の deb・AppImage と Windows のインストーラーを作って GitHub のリリースに載せる。手で動かすと、作るだけ）。
 

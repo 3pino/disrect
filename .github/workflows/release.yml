@@ -61,10 +61,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: disrect ${{ github.ref_name }}
+          releaseName: fixplor ${{ github.ref_name }}
           releaseBody: |
             配布物:
-            - Windows: `disrect_*_x64-setup.exe`（署名していないので、SmartScreen の警告が出ます）
+            - Windows: `fixplor_*_x64-setup.exe`（署名していないので、SmartScreen の警告が出ます）
             - Linux: `.deb`（Debian・Ubuntu）、`.AppImage`
           releaseDraft: false
           prerelease: false
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         with:
-          name: disrect-${{ runner.os }}
+          name: fixplor-${{ runner.os }}
           path: |
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/appimage/*.AppImage

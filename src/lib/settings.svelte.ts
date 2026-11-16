@@ -1,6 +1,6 @@
 // この端末の設定（localStorage）。隠しファイルを出すか・フォルダごとの表示方法と並び順。
 
-const KEYS = { showHidden: 'disrect.showHidden', dirs: 'disrect.dirs' } as const;
+const KEYS = { showHidden: 'fixplor.showHidden', dirs: 'fixplor.dirs' } as const;
 
 function read(key: string): string | null {
   try {

@@ -11,12 +11,12 @@ fn read(path: &Path) -> String {
     stdfs::read_to_string(path).unwrap()
 }
 
-/// 一時のファイル（.disrect-*.part）が残っていないこと
+/// 一時のファイル（.fixplor-*.part）が残っていないこと
 fn no_leftovers(dir: &Path) {
     let left: Vec<_> = stdfs::read_dir(dir)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|n| n.starts_with(".disrect-"))
+        .filter(|n| n.starts_with(".fixplor-"))
         .collect();
     assert!(left.is_empty(), "一時のファイルが残っています: {left:?}");
 }

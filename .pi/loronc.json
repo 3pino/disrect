@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "preset": {
+    ".default": {
+      "system-prompt": "仲間とは crew_send で相談できます。",
+      "model": "anthropic/claude-sonnet-5-5",
+      "permissions": {
+        "allow": [
+          "read",
+          "bash",
+          "edit",
+          "write",
+          "grep",
+          "find",
+          "ls",
+          "crew_list",
+          "crew_send"
+        ],
+        "deny": []
+      }
+    }
+  },
+  "crews": [
+    {
+      "name": "chief",
+      "preset": ".default",
+      "append-system-prompt": "",
+      "profile": ""
+    },
+    {
+      "name": "helper-1",
+      "preset": ".default",
+      "append-system-prompt": "chief からの指示に従うこと。 crew_send で話すことができる。",
+      "profile": "プログラミングをします。"
+    }
+  ]
+}

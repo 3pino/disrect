@@ -182,7 +182,7 @@ fn temp_sibling(to: &Path) -> FsResult<PathBuf> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
-    Ok(parent.join(format!(".disrect-{}-{n}-{nanos}.part", std::process::id())))
+    Ok(parent.join(format!(".fixplor-{}-{n}-{nanos}.part", std::process::id())))
 }
 
 /// 一時の名前へ写し終えてから、宛先の名前へ付け替える。失敗したら一時のものを片付ける

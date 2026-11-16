@@ -5,11 +5,11 @@ use tauri_plugin_opener::OpenerExt;
 
 // コマンドは、ファイルの読み書きで画面を止めないよう、別のスレッドで動かす。
 // パスは絶対パスだけを受ける（fs::abs）。
-// 環境変数 DISRECT_TRACE があると、コマンドの名前と結果（ok か、失敗の code）だけを標準エラーに出す
+// 環境変数 FIXPLOR_TRACE があると、コマンドの名前と結果（ok か、失敗の code）だけを標準エラーに出す
 // （パスや中身は出さない。起動の確認・不具合の切り分け用）。
 
 fn trace<T>(name: &str, result: &FsResult<T>) {
-    if std::env::var_os("DISRECT_TRACE").is_none() {
+    if std::env::var_os("FIXPLOR_TRACE").is_none() {
         return;
     }
     match result {
@@ -123,5 +123,5 @@ pub fn run() {
             fs_open
         ])
         .run(tauri::generate_context!())
-        .expect("disrect を起動できませんでした");
+        .expect("fixplor を起動できませんでした");
 }

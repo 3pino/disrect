@@ -1,12 +1,12 @@
 [package]
-name = "disrect"
+name = "fixplor"
 version = "0.1.0"
-description = "disrect: ファイルエクスプローラー"
+description = "fixplor: ファイルエクスプローラー"
 edition = "2021"
 publish = false
 
 [lib]
-name = "disrect_lib"
+name = "fixplor_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

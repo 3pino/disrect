@@ -76,7 +76,7 @@ const row = (name: string): HTMLElement => {
   return el;
 };
 
-describe('disrect の画面（この端末のファイル）', () => {
+describe('fixplor の画面（この端末のファイル）', () => {
   it('ホームを開いて並べる。隠しファイルは出さない。場所の欄は OS のパス', async () => {
     app = mount(App, { target });
     await settle();
@@ -92,7 +92,7 @@ describe('disrect の画面（この端末のファイル）', () => {
     button('隠しファイルを表示').click();
     await settle();
     expect(names()).toEqual(['docs', '.env', 'a.txt']);
-    expect(localStorage.getItem('disrect.showHidden')).toBe('1');
+    expect(localStorage.getItem('fixplor.showHidden')).toBe('1');
   });
 
   it('上のフォルダへ・戻る・場所の欄に打って開く', async () => {
