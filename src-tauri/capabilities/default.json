@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "メインウィンドウの権限。ファイルの操作は本体のコマンド（fs_*）だけで行う（fs プラグインは入れない）",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

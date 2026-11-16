@@ -1,0 +1,132 @@
+use serde::Serialize;
+use std::path::PathBuf;
+
+/// 左の一覧に出す場所。名前は画面が `kind` から決める（volume だけ `name` を使う）
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Place {
+    /// home / desktop / documents / downloads / pictures / music / videos / root / volume
+    pub kind: &'static str,
+    pub path: String,
+    /// volume の表示名（マウント先の最後の名前・ドライブ文字）。ほかは空
+    pub name: String,
+}
+
+pub fn places() -> Vec<Place> {
+    let mut out = Vec::new();
+    let mut known = |kind: &'static str, path: Option<PathBuf>| {
+        // 設定されていても、実際に無いフォルダは出さない
+        if let Some(p) = path.filter(|p| p.is_dir()) {
+            out.push(Place { kind, path: p.to_string_lossy().into_owned(), name: String::new() });
+        }
+    };
+    known("home", dirs::home_dir());
+    known("desktop", dirs::desktop_dir());
+    known("documents", dirs::document_dir());
+    known("downloads", dirs::download_dir());
+    known("pictures", dirs::picture_dir());
+    known("music", dirs::audio_dir());
+    known("videos", dirs::video_dir());
+    out.extend(volumes());
+    out
+}
+
+/// 最初に開く場所（ホーム。取れなければルート）
+pub fn start_dir() -> String {
+    dirs::home_dir()
+        .filter(|p| p.is_dir())
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| root_path().to_string())
+}
+
+#[cfg(windows)]
+fn root_path() -> &'static str {
+    "C:\\"
+}
+
+#[cfg(not(windows))]
+fn root_path() -> &'static str {
+    "/"
+}
+
+#[cfg(windows)]
+fn volumes() -> Vec<Place> {
+    ('A'..='Z')
+        .map(|c| format!("{c}:\\"))
+        .filter(|p| std::path::Path::new(p).is_dir())
+        .map(|p| Place { kind: "volume", name: p[..2].to_string(), path: p })
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn volumes() -> Vec<Place> {
+    let mut out = vec![Place { kind: "root", path: "/".into(), name: String::new() }];
+    // Linux: 取り外せるメディアなどのマウント先。読めなければ（ほかの OS など）ルートだけ
+    if let Ok(text) = std::fs::read_to_string("/proc/self/mounts") {
+        for path in removable_mounts(&text) {
+            let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+            out.push(Place { kind: "volume", path, name });
+        }
+    }
+    out
+}
+
+/// `/proc/self/mounts` から、利用者が差したメディアなどのマウント先（/media・/run/media・/mnt の下）を取り出す
+#[cfg_attr(windows, allow(dead_code))]
+pub fn removable_mounts(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let Some(raw) = line.split(' ').nth(1) else { continue };
+        let path = unescape_mount(raw);
+        let user_mount = ["/media/", "/run/media/", "/mnt/"].iter().any(|p| path.starts_with(p));
+        if user_mount && !out.contains(&path) {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// mounts の中の `\040`（空白）などの 8 進の書き方を戻す
+fn unescape_mount(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 3 < bytes.len() && bytes[i + 1..i + 4].iter().all(|b| (b'0'..=b'7').contains(b)) {
+            let v = (bytes[i + 1] - b'0') as u32 * 64 + (bytes[i + 2] - b'0') as u32 * 8 + (bytes[i + 3] - b'0') as u32;
+            if let Ok(b) = u8::try_from(v) {
+                out.push(b);
+                i += 4;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picks_user_mounts_and_unescapes_spaces() {
+        let text = "\
+/dev/nvme0n1p2 / ext4 rw 0 0
+proc /proc proc rw 0 0
+/dev/sda1 /media/me/USB\\040DISK vfat rw 0 0
+/dev/sdb1 /run/media/me/backup ext4 rw 0 0
+//nas/share /mnt/nas cifs rw 0 0
+/dev/sda1 /media/me/USB\\040DISK vfat rw 0 0
+tmpfs /run/user/1000 tmpfs rw 0 0
+";
+        assert_eq!(removable_mounts(text), vec!["/media/me/USB DISK", "/run/media/me/backup", "/mnt/nas"]);
+    }
+
+    #[test]
+    fn a_trailing_backslash_is_kept_as_is() {
+        assert_eq!(unescape_mount("/mnt/a\\"), "/mnt/a\\");
+        assert_eq!(unescape_mount("/mnt/a\\04"), "/mnt/a\\04");
+        assert_eq!(unescape_mount("/mnt/a\\134b"), "/mnt/a\\b");
+    }
+}

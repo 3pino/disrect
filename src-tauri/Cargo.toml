@@ -1,0 +1,32 @@
+[package]
+name = "disrect"
+version = "0.1.0"
+description = "disrect: ファイルエクスプローラー"
+edition = "2021"
+publish = false
+
+[lib]
+name = "disrect_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# protocol-asset: 画像のサムネイルを、ファイルから直接読む（asset の URL）
+tauri = { version = "2", features = ["devtools", "protocol-asset"] }
+# ファイルを既定のアプリで開く
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# ホーム・デスクトップ・ダウンロードなどの場所
+dirs = "6"
+# 書き込みのパス（ヘッダーで受ける）の復号
+percent-encoding = "2"
+
+# OS のゴミ箱（Linux: freedesktop の Trash、Windows: ごみ箱）。Android には無い
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+trash = "5"
+
+[dev-dependencies]
+tempfile = "3"
