@@ -27,7 +27,7 @@ npm run build
 
 起動して Rust まで届いているかは、`DISRECT_TRACE=1` を付けて起動すると、呼ばれたコマンドの名前と結果が標準エラーに出ます（パスや中身は出しません）。
 
-GitHub Actions: `CI`（型・試験・ビルド、Rust は Linux と Windows）、`Build`（配布物。手で動かすか、`v` で始まるタグ）。
+GitHub Actions: `CI`（型・試験・ビルド、Rust は Linux と Windows）、`Release`（`v` で始まるタグを打つと、Linux の deb・AppImage と Windows のインストーラーを作って GitHub のリリースに載せる。手で動かすと、作るだけ）。
 
 ## 構成
 
@@ -39,3 +39,14 @@ GitHub Actions: `CI`（型・試験・ビルド、Rust は Linux と Windows）�
 | `src/lib/fs/mapping.ts` | 画面のパス（相対・区切り `/`）と OS の絶対パスの対応（POSIX・Windows） |
 | `src/lib/host.svelte.ts` | 共有の部品へ貸す本体の機能（通知・確認・戻る・ファイルを開く・クリップボード） |
 | `src/App.svelte` | 外枠（上のバー・左の場所の一覧）。見た目は仮 |
+
+## リリース
+
+版は `package.json`・`src-tauri/tauri.conf.json`・`src-tauri/Cargo.toml` の 3 か所を同じ値にして、同じ版のタグを打ちます（違うと `Release` が止まります）。
+
+```sh
+# 例: 0.1.1 を出す
+git commit -am "v0.1.1: ..." && git tag v0.1.1 && git push origin main v0.1.1
+```
+
+署名はしていません（Windows は SmartScreen の警告が出ます）。自動更新も未対応です。
