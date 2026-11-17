@@ -27,8 +27,8 @@ describe('この端末の置き場所（POSIX）', () => {
     const fs = await createLocalFs({ call });
     expect([fs.windows, fs.start]).toEqual([false, 'home/me']);
     expect(await fs.api.list('home/me')).toEqual([
-      { name: 'a.txt', path: 'home/me/a.txt', kind: 'file', size: 3, modified: 5, mime: null, message_id: null, file_id: null },
-      { name: 'sub', path: 'home/me/sub', kind: 'dir', size: 0, modified: 0, mime: null, message_id: null, file_id: null },
+      { name: 'a.txt', path: 'home/me/a.txt', kind: 'file', size: 3, modified: 5, mime: null },
+      { name: 'sub', path: 'home/me/sub', kind: 'dir', size: 0, modified: 0, mime: null },
     ]);
     expect((await fs.api.move('home/me/a.txt', 'home/me/b.txt')).path).toBe('home/me/b.txt');
     expect(calls.slice(1)).toEqual([
@@ -80,12 +80,12 @@ describe('この端末の置き場所（POSIX）', () => {
     expect(fs.rules.nameError('', 'a:b?.txt')).toBeNull();
     expect(fs.rules.nameError('', 'a/b')).not.toBeNull();
     expect(fs.rules.nameError('', ' ')).not.toBeNull();
-    expect(fs.rules.attachmentsDir).toBeNull();
+    expect(fs.rules.specialDir).toBeNull();
   });
 
   it('画像だけ、サムネイルの URL を持つ', async () => {
     const fs = await createLocalFs({ call: fake({}).call });
-    const e = { name: 'a.png', path: 'p/a.png', kind: 'file' as const, size: 1, modified: 0, mime: null, message_id: null, file_id: null };
+    const e = { name: 'a.png', path: 'p/a.png', kind: 'file' as const, size: 1, modified: 0, mime: null };
     expect(fs.urls.thumbUrl(e)).toBe('asset:///p/a.png');
     expect(fs.urls.thumbUrl({ ...e, name: 'a.txt' })).toBeNull();
     expect(pathOfOpenHref(fs.urls.href(e))).toBe('p/a.png');

@@ -94,8 +94,6 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
       size: raw.size ?? 0,
       modified: raw.modified ?? 0,
       mime: null,
-      message_id: null,
-      file_id: null,
     };
   };
   const places = async (): Promise<FsPlace[]> => (await run<FsPlace[]>('fs_places')).map((p) => ({ ...p, path: fromOs(p.path) }));
@@ -105,7 +103,7 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
       const abs = toOs(path, windows);
       // Windows のいちばん上は、ドライブの一覧
       if (abs === null) {
-        return (await places()).filter((p) => p.kind === 'volume').map((p) => ({ name: p.path, path: p.path, kind: 'dir', size: 0, modified: 0, mime: null, message_id: null, file_id: null }));
+        return (await places()).filter((p) => p.kind === 'volume').map((p) => ({ name: p.path, path: p.path, kind: 'dir', size: 0, modified: 0, mime: null }));
       }
       const all = await run<FsEntry[]>('fs_list', { path: abs });
       return (showHidden() ? all : all.filter((e) => !e.hidden)).map(entry);
@@ -147,7 +145,7 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
   };
 
   const rules: Rules = {
-    attachmentsDir: null,
+    specialDir: null,
     nameError(_dir, name) {
       const basic = basicNameError(name);
       if (basic) return basic;

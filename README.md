@@ -3,10 +3,10 @@
 ファイルエクスプローラー（Windows のエクスプローラー・Ubuntu の Nautilus にあたるもの）。Tauri 2 + Svelte 5。
 
 - この端末のファイルを見る・選ぶ・コピー・移動・名前の変更・ゴミ箱へ移す。
-- Disnans のサーバーは要りません。Tailscale のアカウントも要りません。
+- アカウントやサーバーは要りません（この端末のファイルだけで動きます）。
 - 対応: Windows / Linux（Android は未対応）
 
-Disnans のサーバーの共有フォルダも、あとで「場所」の 1 つとして足す予定です。
+WebDAV などのネットワークドライブも、あとで「場所」の 1 つとして足す予定です。
 
 ## インストール
 
@@ -34,8 +34,9 @@ Disnans のサーバーの共有フォルダも、あとで「場所」の 1 つ
 ## 開発
 
 画面の本体（一覧・アイコン表示・選択・コピー／切り取り／貼り付け・ドラッグでの移動・名前の変更・ゴミ箱・プロパティ）は、
-共有の部品 [@3pino/explorer-kit](https://github.com/3pino/explorer-kit) です。[disnans](https://github.com/3pino/disnans) の共有フォルダの画面と同じもので、
-disnans はそこへ「サーバーの共有フォルダ」を、fixplor は「この端末」を、置き場所として渡しています。全体の設計と進め方は [docs/design.md](docs/design.md)。
+共有の部品 [@3pino/explorer-kit](https://github.com/3pino/explorer-kit) です。
+部品を使うアプリは、置き場所（一覧・書き込み・移動・ゴミ箱など）と、本体から借りる機能（通知・確認・クリップボードなど）を渡します。
+fixplor は「この端末」を置き場所として渡しています（ほかのアプリも、同じ部品に自分の置き場所を渡せます）。全体の設計と進め方は [docs/design.md](docs/design.md)。
 
 ### 動かす
 

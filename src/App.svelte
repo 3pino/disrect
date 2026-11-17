@@ -16,7 +16,7 @@
   import { settings } from './lib/settings.svelte';
 
   // 外枠（上のバー・左の場所の一覧）と、エクスプローラーの本体。
-  // 本体は共有の部品（@3pino/explorer-kit。Disnans の共有フォルダの画面と同じもの）に、この端末という置き場所を渡したもの。
+  // 本体は共有の部品（@3pino/explorer-kit）に、この端末という置き場所を渡したもの。
   // 外枠の見た目は仮（利用者の確認を取っていない）。
   const host = new HostState();
   let local = $state.raw<LocalFs | null>(null);
