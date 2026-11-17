@@ -14,7 +14,8 @@
     "tauri:build": "tauri build",
     "tauri:icon": "tauri icon src-tauri/icons/icon-manifest.json",
     "build:plugin": "vite build -c plugins/fixplor/vite.config.ts && node plugins/fixplor/scripts/pack.mjs",
-    "check:plugin": "node plugins/fixplor/scripts/check-boundary.mjs"
+    "check:plugin": "node plugins/fixplor/scripts/check-boundary.mjs",
+    "check:host": "node plugins/fixplor/scripts/host-check.mjs"
   },
   "dependencies": {
     "@3pino/app-kit-web": "git+https://github.com/3pino/app-kit-web.git#v0.1.1",

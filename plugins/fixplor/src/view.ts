@@ -8,15 +8,26 @@ import { createViewStore } from './store.svelte';
 import { createUrls } from './urls';
 import type { HostGlobal, HostPluginBase, HostView } from './sdk';
 
-/** 本体の旧い保存先の中身（段 5 の F）。プラグインが初めて開くときだけ、本体が渡す */
-export type PluginDeps = { plugin: HostPluginBase; disnans: HostGlobal; legacyData?: unknown };
+/** 開いている画面（エクスプローラー）と、開くフォルダの引き継ぎ（本文のリンクから開くとき） */
+export type Shelf = {
+  /** いま開いている画面のエクスプローラー（無ければ null） */
+  current: Explorer | null;
+  /** 次に開く画面が、最初に出すフォルダ（開いたら 1 度だけ使う） */
+  pendingDir: string | null;
+};
+
+export function createShelf(): Shelf {
+  return { current: null, pendingDir: null };
+}
+
+export type PluginDeps = { plugin: HostPluginBase; disnans: HostGlobal; shelf?: Shelf };
 
 /**
  * 共有フォルダのエクスプローラー（本体のパネルの中身）。画面と決まりは共有の部品（@3pino/explorer-kit）。
  * ここは、その 2 つの口へ本体の実装（`this.files`・`disnans.ui`）を渡して、`containerEl` に載せるだけ。
  */
-export function createExplorerView({ plugin, disnans, legacyData }: PluginDeps): HostView & { explorer: Explorer | null } {
-  const persisted = createViewStore(plugin, legacyData);
+export function createExplorerView({ plugin, disnans, shelf = createShelf() }: PluginDeps): HostView & { explorer: Explorer | null } {
+  const persisted = createViewStore(plugin, () => plugin.legacyData);
   let component: ReturnType<typeof mount> | null = null;
   let off: (() => void) | null = null;
   let generation = 0;
@@ -39,7 +50,7 @@ export function createExplorerView({ plugin, disnans, legacyData }: PluginDeps):
         urls: createUrls(files),
         rules: createRules(caps.attachmentsDir),
         labels: { root: '共有フォルダ', upload: 'アップロード', scope: 'サーバー' },
-        host: createHost(disnans, { isMobile: plugin.app.isMobile }),
+        host: createHost(disnans, { platform: plugin.app.platform }),
         caps: { trash: caps.trash, restore: caps.restore },
         scope: {
           key: () => String(generation),
@@ -50,9 +61,14 @@ export function createExplorerView({ plugin, disnans, legacyData }: PluginDeps):
         },
         viewStore: persisted.store,
       });
+      if (shelf.pendingDir !== null) {
+        explorer.nav.dir = shelf.pendingDir;
+        shelf.pendingDir = null;
+      }
       // 共有フォルダの変更（どの端末の変更でも）は、一覧の写しへ伝える
       const offChange = files.onChange((ev) => explorer.index.invalidate(ev.path));
       view.explorer = explorer;
+      shelf.current = explorer;
       component = mount(FileExplorer, { target: containerEl, props: { explorer } });
       off = () => {
         offChange();
@@ -64,6 +80,7 @@ export function createExplorerView({ plugin, disnans, legacyData }: PluginDeps):
       off = null;
       if (component) void unmount(component);
       component = null;
+      if (shelf.current === view.explorer) shelf.current = null;
       view.explorer = null;
       void persisted.flush().catch(() => {});
     },

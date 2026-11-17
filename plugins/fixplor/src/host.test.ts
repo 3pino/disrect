@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { clipboardTextName, createHost } from './host';
+import { createHost } from './host';
 import { fakeUi } from './test-support/fakeHost';
 import { errorText } from './errors';
 
 // プラグインの口（disnans.ui）が、エクスプローラーの部品が借りる機能（ExplorerHost）になること。
 
-function make(opts: { isMobile?: boolean } = {}) {
+function make() {
   const ui = fakeUi();
-  const host = createHost({ ui }, { isMobile: opts.isMobile ?? false });
+  const host = createHost({ ui }, { platform: { tauri: true, os: 'linux', linuxDesktop: true } });
   return { ui, host };
 }
 
@@ -56,7 +56,7 @@ describe('拡大表示・種類', () => {
 });
 
 describe('クリップボード・保存', () => {
-  it('文字のコピーは成否を返す。貼り付けは中身を確かめない（unknown）。画像は File にする', async () => {
+  it('文字のコピーは成否を返す。中身の種類・ファイル名は本体の口。画像は File にする（kit の 2 つの口とも、本体の readImage）', async () => {
     const { ui, host } = make();
     expect(await host.clipboard.copyText('x')).toBe(true);
     expect(ui.clipboardText).toEqual(['x']);
@@ -64,44 +64,41 @@ describe('クリップボード・保存', () => {
       throw new Error('denied');
     };
     expect(await host.clipboard.copyText('y')).toBe(false);
-    expect(await host.clipboard.peek()).toBe('unknown');
+    expect(await host.clipboard.peek()).toEqual({ text: true, image: false });
+    expect(host.clipboard.textName()).toBe('clipboard-fake.txt');
     ui.clipboard.readImage = async () => new Blob(['i'], { type: 'image/png' });
-    const f = await host.clipboard.readImage();
-    expect(f).toBeInstanceOf(File);
-    expect(f!.type).toBe('image/png');
+    for (const read of [host.clipboard.readImage, host.clipboard.readNativeImage]) {
+      const f = await read();
+      expect(f).toBeInstanceOf(File);
+      expect(f!.type).toBe('image/png');
+    }
     ui.clipboard.readImage = async () => null;
     expect(await host.clipboard.readImage()).toBeNull();
     expect(await host.clipboard.readNativeImage()).toBeNull();
   });
 
-  it('保存は、URL を読んで本体の saveBlob へ。押しを横取りして、開いたままにしない。読めなければ失敗を知らせる', async () => {
+  it('保存・押しの差し替えは、本体の保存（ui.download・ui.interceptDownload）へそのまま渡す', async () => {
     const { ui, host } = make();
-    const fetchMock = vi.fn(async (url: string) => (url.endsWith('ng') ? new Response('', { status: 404 }) : new Response('hello')));
-    vi.stubGlobal('fetch', fetchMock);
-    try {
-      await host.download.file({ url: 'https://srv/shared/a.txt', name: 'a.txt' });
-      expect(ui.saved).toEqual([{ name: 'a.txt', size: 5 }]);
-      const ev = new MouseEvent('click', { cancelable: true });
-      expect(host.download.intercept(ev, { url: 'https://srv/ng', name: 'ng' })).toBe(true);
-      expect(ev.defaultPrevented).toBe(true);
-      await vi.waitFor(() => expect(ui.toasts.at(-1)).toMatchObject({ kind: 'error' }));
-      expect(ui.toasts.at(-1)!.text).toContain('保存できませんでした');
-      await expect(host.download.file({ url: 'https://srv/ng', name: 'ng' })).rejects.toThrow('HTTP 404');
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('貼り付けた文字のファイル名は clipboard-日時.txt', () => {
-    expect(clipboardTextName(new Date(2025, 0, 2, 3, 4, 5))).toBe('clipboard-20250102-030405.txt');
+    await host.download.file({ url: 'https://srv/shared/a.txt', name: 'a.txt' });
+    const ev = new MouseEvent('click', { cancelable: true });
+    expect(host.download.intercept(ev, { url: 'https://srv/shared/b.txt', name: 'b.txt' })).toBe(true);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(ui.downloads).toEqual([
+      { url: 'https://srv/shared/a.txt', name: 'a.txt' },
+      { url: 'https://srv/shared/b.txt', name: 'b.txt' },
+    ]);
   });
 });
 
 describe('この端末の種類', () => {
-  it('モバイルでなければ PC（Tauri）とみなす。モバイルなら選択モードの画面', () => {
-    expect(make({ isMobile: false }).host.platform.isTauri()).toBe(true);
-    expect(make({ isMobile: true }).host.platform.isTauri()).toBe(false);
-    expect(make({ isMobile: true }).host.platform.isLinuxDesktop()).toBe(false);
+  it('本体が教える値（app.platform）をそのまま返す', () => {
+    const ui = fakeUi();
+    const pc = createHost({ ui }, { platform: { tauri: true, os: 'linux', linuxDesktop: true } });
+    expect([pc.platform.isTauri(), pc.platform.osName(), pc.platform.isLinuxDesktop()]).toEqual([true, 'linux', true]);
+    const phone = createHost({ ui }, { platform: { tauri: true, os: 'android', linuxDesktop: false } });
+    expect([phone.platform.isTauri(), phone.platform.osName(), phone.platform.isLinuxDesktop()]).toEqual([true, 'android', false]);
+    const browser = createHost({ ui }, { platform: { tauri: false, os: '', linuxDesktop: false } });
+    expect([browser.platform.isTauri(), browser.platform.osName(), browser.platform.isLinuxDesktop()]).toEqual([false, '', false]);
   });
 });
 

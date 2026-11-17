@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
-import { createExplorerView } from './view';
+import { createExplorerView, createShelf, type Shelf } from './view';
 import { SAVE_DELAY_MS } from './store.svelte';
 import { HostError, fakeDisnans, fakeFiles, type FakeDisnans } from './test-support/fakeHost';
 import type { HostPluginBase } from './sdk';
@@ -19,11 +19,13 @@ const tick = async (n = 6): Promise<void> => {
 type Booted = Awaited<ReturnType<typeof boot>>;
 let booted: Booted | undefined;
 
-async function boot(d: FakeDisnans, legacyData?: unknown) {
+async function boot(d: FakeDisnans, shelf?: Shelf) {
   const counter = { saves: 0 };
   const plugin = {
     files: d.files,
-    app: { isMobile: d.isMobile },
+    app: { isMobile: d.isMobile, platform: { tauri: !d.isMobile, os: d.isMobile ? 'android' : 'linux', linuxDesktop: !d.isMobile } },
+    legacyData: d.legacy,
+    openView: () => {},
     loadData: async () => d.saved.data,
     saveData: async (data: unknown) => {
       counter.saves++;
@@ -32,7 +34,7 @@ async function boot(d: FakeDisnans, legacyData?: unknown) {
     registerView: () => {},
     register: () => {},
   } satisfies HostPluginBase;
-  const view = createExplorerView({ plugin, disnans: d.global, legacyData });
+  const view = createExplorerView({ plugin, disnans: d.global, shelf });
   const target = document.createElement('div');
   document.body.append(target);
   const panel = { setTitle: vi.fn(), setIcon: vi.fn() };
@@ -249,6 +251,23 @@ describe('変更の知らせ・接続先の切り替え', () => {
   });
 });
 
+describe('開くフォルダの引き継ぎ（本文のリンクから）', () => {
+  it('次に開く画面は、渡されたフォルダから始まる（1 度だけ）。開いている間は棚に載る', async () => {
+    const shelf: Shelf = createShelf();
+    shelf.pendingDir = 'docs';
+    const first = await boot(fakeDisnans(fakeFiles(tree)), shelf);
+    expect(first.view.explorer!.nav.dir).toBe('docs');
+    expect(first.names()).toEqual(['inner.txt']);
+    expect(shelf.pendingDir).toBeNull();
+    expect(shelf.current).toBe(first.view.explorer);
+    first.close();
+    expect(shelf.current).toBeNull();
+    booted = undefined;
+    const second = await boot(fakeDisnans(fakeFiles(tree)), shelf);
+    expect(second.view.explorer!.nav.dir).toBe('');
+  });
+});
+
 describe('フォルダごとの表示の保存（プラグインのデータ）', () => {
   it('変えた表示は、少し待ってから saveData へ（続けた変更は 1 回にまとめる）。閉じるときは今すぐ。次に開くと戻る', async () => {
     const d = fakeDisnans(fakeFiles(tree));
@@ -280,11 +299,11 @@ describe('フォルダごとの表示の保存（プラグインのデータ）'
 
   it('プラグインの保存が空のときだけ、本体の旧い保存先の中身（legacyData）を使う', async () => {
     const legacy = { docs: { view: 'grid', sortKey: 'name', sortOrder: 'asc' } };
-    const first = await boot(fakeDisnans(fakeFiles(tree)), legacy);
+    const first = await boot(fakeDisnans(fakeFiles(tree), { legacy }));
     expect(first.view.explorer!.view.of('docs').view).toBe('grid');
     first.close();
     booted = undefined;
-    const own = await boot(fakeDisnans(fakeFiles(tree), { data: { explorerDirs: {} } }), legacy);
+    const own = await boot(fakeDisnans(fakeFiles(tree), { data: { explorerDirs: {} }, legacy }));
     expect(own.view.explorer!.view.of('docs').view).not.toBe('grid');
   });
 });

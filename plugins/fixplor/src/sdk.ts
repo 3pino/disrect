@@ -27,9 +27,12 @@ export type SharedTrash = {
   trash_path?: string;
 };
 
-import type { ExplorerHost } from '@3pino/explorer-kit';
+import type { ClipboardPeek, ExplorerHost } from '@3pino/explorer-kit';
 
 export type Cleanup = () => void;
+
+/** この端末の環境（`disnans.app.platform`。読み取りのみ） */
+export type HostPlatform = { readonly tauri: boolean; readonly os: string; readonly linuxDesktop: boolean };
 
 /** `this.files`（共有フォルダ。permissions に "files" が要る） */
 export interface HostFiles {
@@ -68,11 +71,24 @@ export interface HostUi {
   openLightbox(item: LightboxItem, gallery?: () => LightboxItem[]): void;
   /** PDF の 1 ページ目のサムネイルを el に描く（本体の部品）。source は URL。戻り値で片付ける */
   renderPdfThumb(el: HTMLElement, source: string, opts?: { key?: string }): Cleanup;
-  saveBlob(blob: Blob, name: string): Promise<void>;
+  /** 本体の保存（サーバーの URL）。Tauri は直接保存、ブラウザーは <a download> */
+  download(req: { url: string; name: string }): Promise<void>;
+  interceptDownload(ev: MouseEvent, req: { url: string; name: string }): boolean;
   openSearch(query?: string): void;
-  clipboard: { copyText(text: string): Promise<boolean>; readText(): Promise<string | null>; readImage(): Promise<Blob | null> };
+  clipboard: {
+    copyText(text: string): Promise<boolean>;
+    readText(): Promise<string | null>;
+    readImage(): Promise<Blob | null>;
+    peek(): Promise<ClipboardPeek>;
+    textName(): string;
+  };
   /** OS からのドロップ（explorer-kit の osDrop と同じ形） */
   osDrop: ExplorerHost['osDrop'];
+}
+
+/** `disnans.chat`（本文のファイルリンクの「開く」を任せる口） */
+export interface HostChat {
+  registerLinkOpener(handle: (path: string, alias: string | null) => void): Cleanup;
 }
 
 export interface HostSession {
@@ -89,11 +105,15 @@ export type HostView = {
 /** `Plugin` の基底（本体が渡す）。このプラグインが使う分 */
 export interface HostPluginBase {
   readonly files: HostFiles;
-  readonly app: { readonly isMobile: boolean };
+  readonly app: { readonly isMobile: boolean; readonly platform: HostPlatform };
+  /** 旧い保存先の値（最初の saveData まで。対象でなければ null） */
+  readonly legacyData: unknown;
   loadData(): Promise<unknown>;
   saveData(data: unknown): Promise<void>;
   /** セッションのない view（factory には session が null で渡る） */
   registerView(type: string, factory: (session: unknown | null) => HostView): void;
+  /** セッションのない view をパネルに開く */
+  openView(type: string): void;
   register(cleanup: Cleanup): void;
 }
 
@@ -104,6 +124,7 @@ export interface HostGlobal {
   Plugin: PluginConstructor;
   ui: HostUi;
   session?: HostSession;
+  chat?: HostChat;
 }
 
 export function hostGlobal(): HostGlobal {

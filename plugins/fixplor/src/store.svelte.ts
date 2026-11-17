@@ -14,9 +14,9 @@ export const SAVE_DELAY_MS = 400;
 /**
  * フォルダごとの表示（並び・見せ方）を保存する先。部品は同期で読み書きするので、開くときに一度だけ読み（load）、
  * 書きは手元を先に更新して、あとでまとめて保存する（flush で今すぐ）。
- * legacy は、本体の旧い保存先の中身（段 5 の F。プラグインの保存が空のときだけ使う）。
+ * legacy は、本体の旧い保存先の中身を返す関数（段 5 の F。プラグインの保存が空のときだけ使う）。
  */
-export function createViewStore(persist: Persist, legacy?: unknown) {
+export function createViewStore(persist: Persist, legacy?: () => unknown) {
   // 画面が読むので、リアクティブにする（書いたら、表示がすぐ変わる）
   let value = $state.raw<unknown>(undefined);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -42,7 +42,8 @@ export function createViewStore(persist: Persist, legacy?: unknown) {
 
   async function load(): Promise<void> {
     const data = (await persist.loadData()) as Saved | null | undefined;
-    value = data?.explorerDirs ?? legacy;
+    // 旧い保存先は、読むのを開くときまで待つ（本体が、最初の saveData まで渡すもの）
+    value = data?.explorerDirs ?? legacy?.();
   }
 
   return { store, load, flush };

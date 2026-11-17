@@ -212,7 +212,7 @@ export type FakeUi = HostUi & {
   /** 拡大表示の呼び出し。gallery は読んだときに並びを作る（本体も、必要になってから読む） */
   lightbox: { item: LightboxItem; items: () => LightboxItem[]; readonly gallery: LightboxItem[] }[];
   thumbs: { el: HTMLElement; url: string; key: string; stopped: boolean }[];
-  saved: { name: string; size: number }[];
+  downloads: { url: string; name: string }[];
   searches: (string | undefined)[];
   clipboardText: string[];
   navItems: (NavItemOptions & { closed: boolean })[];
@@ -226,7 +226,7 @@ export function fakeUi(): FakeUi {
     backs: [],
     lightbox: [],
     thumbs: [],
-    saved: [],
+    downloads: [],
     searches: [],
     clipboardText: [],
     navItems: [],
@@ -262,12 +262,19 @@ export function fakeUi(): FakeUi {
       ui.thumbs.push(rec);
       return () => void (rec.stopped = true);
     },
-    saveBlob: async (blob, name) => void ui.saved.push({ name, size: blob.size }),
+    download: async (req) => void ui.downloads.push(req),
+    interceptDownload(ev, req) {
+      ev.preventDefault();
+      ui.downloads.push(req);
+      return true;
+    },
     openSearch: (q) => void ui.searches.push(q),
     clipboard: {
       copyText: async (t) => (ui.clipboardText.push(t), true),
       readText: async () => null,
       readImage: async () => null,
+      peek: async () => ({ text: true, image: false }),
+      textName: () => 'clipboard-fake.txt',
     },
   };
   return ui;
@@ -283,6 +290,11 @@ export type FakeDisnans = {
   switchServer(): void;
   serverListeners: number;
   isMobile: boolean;
+  legacy: unknown;
+  /** openView(type) で開いた view */
+  opened: string[];
+  /** 本文のファイルリンクの開き手 */
+  linkOpeners: ((path: string, alias: string | null) => void)[];
   /** this.register で渡された後始末（プラグインを外すときに、本体が呼ぶ） */
   registered: (() => void)[];
   /** 外す（登録した後始末を呼ぶ） */
@@ -290,7 +302,7 @@ export type FakeDisnans = {
 };
 
 /** グローバルの `disnans` の偽物。Plugin の基底は、`this.files`・`loadData`・`saveData`・`registerView` だけを持つ */
-export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unknown; isMobile?: boolean } = {}): FakeDisnans {
+export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unknown; isMobile?: boolean; legacy?: unknown } = {}): FakeDisnans {
   const ui = fakeUi();
   const views = new Map<string, (session: unknown | null) => HostView>();
   const saved: { data: unknown } = { data: opts.data ?? null };
@@ -298,7 +310,8 @@ export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unkno
   const registered: (() => void)[] = [];
   class Plugin {
     readonly files = files;
-    readonly app = { isMobile: opts.isMobile ?? false };
+    readonly legacyData: unknown = opts.legacy ?? null;
+    readonly app = { isMobile: opts.isMobile ?? false, platform: { tauri: !(opts.isMobile ?? false), os: opts.isMobile ? 'android' : 'linux', linuxDesktop: !opts.isMobile } };
     async loadData(): Promise<unknown> {
       return saved.data;
     }
@@ -307,6 +320,9 @@ export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unkno
     }
     registerView(type: string, factory: (session: unknown | null) => HostView): void {
       views.set(type, factory);
+    }
+    openView(type: string): void {
+      d.opened.push(type);
     }
     register(cleanup: () => void): void {
       registered.push(cleanup);
@@ -317,6 +333,12 @@ export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unkno
     global: {
       Plugin: Plugin as unknown as HostGlobal['Plugin'],
       ui,
+      chat: {
+        registerLinkOpener(handle) {
+          d.linkOpeners.push(handle);
+          return () => void d.linkOpeners.splice(d.linkOpeners.indexOf(handle), 1);
+        },
+      },
       session: {
         onServerChange(cb) {
           serverCbs.add(cb);
@@ -333,6 +355,9 @@ export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unkno
       return serverCbs.size;
     },
     isMobile: opts.isMobile ?? false,
+    legacy: opts.legacy ?? null,
+    opened: [],
+    linkOpeners: [],
     registered: [],
     unload: () => registered.splice(0).forEach((f) => f()),
   };
