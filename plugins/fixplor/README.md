@@ -25,11 +25,9 @@ npx vitest run plugins     # 本体の偽物（src/test-support/fakeHost.ts）�
 `plugin-fixplor-vX.Y.Z` のタグを打つと、`.github/workflows/plugin.yml` が成果物をそのタグのリリースに載せる（タグと `manifest.json` の版は同じに）。
 Disnans は、このタグと `SHA256SUMS` の値を `core-plugins.lock.json` に固定して取り込む。
 
-## 本体に求める口（API 19）
+## 本体の口（API 19）
 
-型は `src/sdk.ts`（使う分だけを写してある。正は Disnans の `packages/plugin-sdk/index.d.ts`）。足りない口は、そこに「API 19 で足す」と書いてある。
-- セッションを持たない view（共有フォルダはセッションを作らない）
-- `files`: `url(entry, {thumb?})`（同期・項目を渡す）・`upload`（進み・signal）・`size`・`caps`・`trash`・`restore`・`purge`
-- `ui`: `toast(text, kind, action?)`・`openLightbox`・`renderPdfThumb`・`saveBlob`・`openSearch`・`clipboard`
-- `disnans.session.onServerChange`
-- 未対応（本体の口が出来るまで）: OS からのドロップ（`osDrop` は空）、ナビバーの入口（本体が出す）
+型は `src/sdk.ts`（使う分だけを写してある。Disnans の `packages/plugin-sdk/index.d.ts` の API 19 に合わせてある）。
+使う口: セッションのない view（`registerView` の factory に null・`ui.navItem` の `view`）、`files`（`url`・`upload`・`size`・`caps`・`trash`・`restore`・`purge`）、
+`ui`（`toast` の action・`openLightbox`・`renderPdfThumb`・`saveBlob`・`openSearch`・`clipboard`・`osDrop`）、`disnans.session.onServerChange`。
+未対応: 本文のファイルリンクの開き（`chat.registerLinkOpener`）・添付の選択（`ui.pickSharedFiles`）・チャットからのドラッグ（`ui.dragType`）。本体側が出来てから足す。

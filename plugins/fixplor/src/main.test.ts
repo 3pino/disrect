@@ -35,6 +35,15 @@ describe('プラグインの入口', () => {
     expect(typeof a.onClose).toBe('function');
   });
 
+  it('ナビバーの項目を足す（選ぶと、この view を開く）。プラグインを外すと、項目も外れる', async () => {
+    const { d, Plugin } = await load();
+    const p = new (Plugin as unknown as new () => { onload(): void })();
+    p.onload();
+    expect(d.ui.navItems).toMatchObject([{ id: 'fixplor', label: 'ファイル', icon: 'folder', view: 'fixplor', closed: false }]);
+    d.unload();
+    expect(d.ui.navItems[0].closed).toBe(true);
+  });
+
   it('本体の口（disnans）が無ければ、分かる言葉で失敗する', async () => {
     vi.resetModules();
     await expect(import('./main')).rejects.toThrow('disnans（本体の口）がありません');

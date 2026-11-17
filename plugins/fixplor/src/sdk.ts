@@ -1,6 +1,5 @@
 // プラグインが本体（グローバルの `disnans`）から使う口の型。使う分だけを、ここに写してある。
-// 本体の正は packages/plugin-sdk/index.d.ts（Disnans のリポジトリ）。API 19 の追加分（`files` の url・upload など、`ui` の openLightbox など）の
-// 形が確定したら、ここを正に合わせる（合わせ方の食い違いは、本体側へ知らせる）。
+// 本体の正は packages/plugin-sdk/index.d.ts（Disnans のリポジトリ。API 19 の形に合わせてある）。食い違いが分かったら、本体側へ知らせる。
 // この型は import しても実行時には何も残らない（型だけ）。
 
 export type EntryKind = 'file' | 'dir';
@@ -28,6 +27,8 @@ export type SharedTrash = {
   trash_path?: string;
 };
 
+import type { ExplorerHost } from '@3pino/explorer-kit';
+
 export type Cleanup = () => void;
 
 /** `this.files`（共有フォルダ。permissions に "files" が要る） */
@@ -41,7 +42,7 @@ export interface HostFiles {
   move(from: string, to: string, opts?: { overwrite?: boolean }): Promise<SharedEntry>;
   copy(from: string, to: string, opts?: { overwrite?: boolean }): Promise<SharedEntry>;
   onChange(cb: (ev: { path: string }) => void): Cleanup;
-  // ---- API 19 で足す（段 5） ----
+  // ---- API 19 ----
   /** `<img>`・保存に使う URL（同期。項目を渡す: 添付は ID の URL・ゴミ箱の中身はパスの URL） */
   url(entry: SharedEntry, opts?: { thumb?: boolean }): string;
   upload(path: string, data: Blob, opts?: { onProgress?(sent: number, total: number): void; signal?: AbortSignal }): Promise<SharedEntry>;
@@ -52,20 +53,26 @@ export interface HostFiles {
   purge(id: string): Promise<void>;
 }
 
-export type LightboxItem = { src: string; alt: string; downloadUrl?: string; kind?: string };
+export type LightboxItem = { src: string; alt: string; downloadUrl?: string; kind?: 'image' | 'pdf' | (string & {}) };
+
+export type NavItemOptions = { id: string; label: string; icon: string; view?: string; onOpen?(): void; badge?: number | string | null };
 
 /** `disnans.ui` のうち、このプラグインが使う分 */
 export interface HostUi {
   toast(text: string, kind?: 'info' | 'error', action?: { label: string; run: () => void }): void;
   confirm(opts: { title: string; body?: string; okLabel?: string; ngLabel?: string; danger?: boolean }): Promise<boolean>;
   onBack(handler: () => void): Cleanup;
-  // ---- API 19 で足す（段 5） ----
-  openLightbox(item: LightboxItem, gallery?: { items(): LightboxItem[] }): void;
-  /** PDF の 1 ページ目のサムネイルを el に描く（画面に入ってから作る）。戻り値で片付ける */
-  renderPdfThumb(el: HTMLElement, opts: { url: string; key: string }): Cleanup;
+  // ---- API 19 ----
+  navItem(opts: NavItemOptions): { setBadge(badge: number | string | null): void; close(): void };
+  /** gallery は、呼ぶたびに今の並びを返す */
+  openLightbox(item: LightboxItem, gallery?: () => LightboxItem[]): void;
+  /** PDF の 1 ページ目のサムネイルを el に描く（本体の部品）。source は URL。戻り値で片付ける */
+  renderPdfThumb(el: HTMLElement, source: string, opts?: { key?: string }): Cleanup;
   saveBlob(blob: Blob, name: string): Promise<void>;
   openSearch(query?: string): void;
-  clipboard: { copyText(text: string): Promise<void>; readText(): Promise<string | null>; readImage(): Promise<Blob | null> };
+  clipboard: { copyText(text: string): Promise<boolean>; readText(): Promise<string | null>; readImage(): Promise<Blob | null> };
+  /** OS からのドロップ（explorer-kit の osDrop と同じ形） */
+  osDrop: ExplorerHost['osDrop'];
 }
 
 export interface HostSession {
@@ -85,7 +92,8 @@ export interface HostPluginBase {
   readonly app: { readonly isMobile: boolean };
   loadData(): Promise<unknown>;
   saveData(data: unknown): Promise<void>;
-  registerView(type: string, factory: (session: unknown) => HostView): void;
+  /** セッションのない view（factory には session が null で渡る） */
+  registerView(type: string, factory: (session: unknown | null) => HostView): void;
   register(cleanup: Cleanup): void;
 }
 

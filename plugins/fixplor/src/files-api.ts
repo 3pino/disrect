@@ -1,6 +1,14 @@
 import type { Entry, ExplorerApi, TrashEntry } from '@3pino/explorer-kit';
 import type { HostFiles } from './sdk';
 
+function isAbort(e: unknown): boolean {
+  return !!e && typeof e === 'object' && ((e as { name?: unknown }).name === 'AbortError' || (e as { code?: unknown }).code === 'aborted');
+}
+
+function abortedError(): Error {
+  return Object.assign(new Error('中止しました'), { code: 'aborted' });
+}
+
 /**
  * 共有フォルダ（`this.files`）を、エクスプローラーの置き場所の口（ExplorerApi）にする。
  * 引数は渡されたとおりに送る（省いた引数を足さない）。同名の決まりは本体（サーバー）が決める:
@@ -24,7 +32,8 @@ export function createFilesApi(files: HostFiles): ExplorerApi {
         onProgress: onProgress ? (sent, total) => onProgress(total > 0 ? sent / total : 0) : undefined,
         signal: ac.signal,
       });
-      return { promise, abort: () => ac.abort() };
+      // 中止は、部品が見分ける code「aborted」にそろえる（本体は AbortError で知らせる）
+      return { promise: promise.catch((e: unknown) => Promise.reject(ac.signal.aborted || isAbort(e) ? abortedError() : e)), abort: () => ac.abort() };
     },
   };
 }

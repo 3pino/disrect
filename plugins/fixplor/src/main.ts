@@ -3,10 +3,16 @@ import { hostGlobal, type HostPluginBase } from './sdk';
 
 const disnans = hostGlobal();
 
-/** 共有フォルダのエクスプローラー。本体の画面から開く入口は、本体が出す（ナビの項目など。段 5 の A） */
+/** プラグインの ID（view の type・ナビの項目の id と同じ） */
+export const ID = 'fixplor';
+
+/** 共有フォルダのエクスプローラー */
 export default class FixplorPlugin extends disnans.Plugin {
   onload(): void {
-    // type はプラグイン ID と同じ。セッションを持たない view（共有フォルダは誰のものでもない）
-    this.registerView('fixplor', () => createExplorerView({ plugin: this as unknown as HostPluginBase, disnans }));
+    // セッションを持たない view（共有フォルダは誰のものでもない。カードも作らない）
+    this.registerView(ID, () => createExplorerView({ plugin: this as unknown as HostPluginBase, disnans }));
+    // ナビバーの入口（選ぶと、この view をパネルに開く）
+    const nav = disnans.ui.navItem({ id: ID, label: 'ファイル', icon: 'folder', view: ID });
+    this.register(() => nav.close());
   }
 }

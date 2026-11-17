@@ -1,6 +1,6 @@
 // 試験用の、本体の偽物（グローバルの `disnans`・`this.files`・`disnans.ui`）。メモリの中の共有フォルダで、サーバーと同じ決まりで動く:
 // 同名の作成は exists、親が無ければ parent_missing、move・copy は overwrite が真のときだけファイルを置き換える、ゴミ箱は id で戻す。
-import type { HostFiles, HostGlobal, HostUi, HostView, LightboxItem, SharedEntry, SharedTrash } from '../sdk';
+import type { HostFiles, HostGlobal, HostUi, HostView, LightboxItem, NavItemOptions, SharedEntry, SharedTrash } from '../sdk';
 
 export class HostError extends Error {
   constructor(readonly code: string, message = code) {
@@ -215,6 +215,7 @@ export type FakeUi = HostUi & {
   saved: { name: string; size: number }[];
   searches: (string | undefined)[];
   clipboardText: string[];
+  navItems: (NavItemOptions & { closed: boolean })[];
 };
 
 export function fakeUi(): FakeUi {
@@ -228,6 +229,20 @@ export function fakeUi(): FakeUi {
     saved: [],
     searches: [],
     clipboardText: [],
+    navItems: [],
+    osDrop: {
+      listenNative: async () => () => {},
+      listen: async () => () => {},
+      entries: async () => ({ entries: [], skipped: [] }),
+      release: async () => {},
+      rootsOf: () => [],
+      entriesFromRoots: async () => [],
+    },
+    navItem(o) {
+      const rec = { ...o, closed: false };
+      ui.navItems.push(rec);
+      return { setBadge: () => {}, close: () => void (rec.closed = true) };
+    },
     toast: (text, kind, action) => void ui.toasts.push({ text, kind, action }),
     confirm: async (o) => (ui.confirms.push(o), ui.answer),
     onBack(handler) {
@@ -237,20 +252,20 @@ export function fakeUi(): FakeUi {
     openLightbox: (item, gallery) =>
       void ui.lightbox.push({
         item,
-        items: () => gallery?.items() ?? [],
+        items: () => gallery?.() ?? [],
         get gallery() {
           return this.items();
         },
       }),
-    renderPdfThumb(el, o) {
-      const rec = { el, url: o.url, key: o.key, stopped: false };
+    renderPdfThumb(el, source, o) {
+      const rec = { el, url: source, key: o?.key ?? '', stopped: false };
       ui.thumbs.push(rec);
       return () => void (rec.stopped = true);
     },
     saveBlob: async (blob, name) => void ui.saved.push({ name, size: blob.size }),
     openSearch: (q) => void ui.searches.push(q),
     clipboard: {
-      copyText: async (t) => void ui.clipboardText.push(t),
+      copyText: async (t) => (ui.clipboardText.push(t), true),
       readText: async () => null,
       readImage: async () => null,
     },
@@ -262,18 +277,22 @@ export type FakeDisnans = {
   global: HostGlobal;
   ui: FakeUi;
   files: FakeFiles;
-  views: Map<string, (session: unknown) => HostView>;
+  views: Map<string, (session: unknown | null) => HostView>;
   saved: { data: unknown };
   /** サーバーの切り替えを知らせる */
   switchServer(): void;
   serverListeners: number;
   isMobile: boolean;
+  /** this.register で渡された後始末（プラグインを外すときに、本体が呼ぶ） */
+  registered: (() => void)[];
+  /** 外す（登録した後始末を呼ぶ） */
+  unload(): void;
 };
 
 /** グローバルの `disnans` の偽物。Plugin の基底は、`this.files`・`loadData`・`saveData`・`registerView` だけを持つ */
 export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unknown; isMobile?: boolean } = {}): FakeDisnans {
   const ui = fakeUi();
-  const views = new Map<string, (session: unknown) => HostView>();
+  const views = new Map<string, (session: unknown | null) => HostView>();
   const saved: { data: unknown } = { data: opts.data ?? null };
   const serverCbs = new Set<() => void>();
   const registered: (() => void)[] = [];
@@ -286,11 +305,12 @@ export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unkno
     async saveData(data: unknown): Promise<void> {
       saved.data = data;
     }
-    registerView(type: string, factory: (session: unknown) => HostView): void {
+    registerView(type: string, factory: (session: unknown | null) => HostView): void {
       views.set(type, factory);
     }
     register(cleanup: () => void): void {
       registered.push(cleanup);
+      d.registered.push(cleanup);
     }
   }
   const d: FakeDisnans = {
@@ -313,6 +333,8 @@ export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unkno
       return serverCbs.size;
     },
     isMobile: opts.isMobile ?? false,
+    registered: [],
+    unload: () => registered.splice(0).forEach((f) => f()),
   };
   return d;
 }

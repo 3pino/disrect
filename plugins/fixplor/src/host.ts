@@ -26,7 +26,7 @@ function osName(): string {
  */
 export function createHost(disnans: Pick<HostGlobal, 'ui'>, opts: { isMobile: boolean }): ExplorerHost {
   const ui = disnans.ui;
-  bridge.render = (el, o) => ui.renderPdfThumb(el, o);
+  bridge.render = (el, o) => ui.renderPdfThumb(el, o.url, { key: o.key });
   const saveFrom = async (req: { url: string; name: string }): Promise<void> => {
     const res = await fetch(req.url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -36,7 +36,7 @@ export function createHost(disnans: Pick<HostGlobal, 'ui'>, opts: { isMobile: bo
     toast: (text, kind, action) => ui.toast(text, kind, action),
     confirm: (o) => ui.confirm(o),
     addBack: (run) => ui.onBack(run),
-    openViewer: (item, gallery) => ui.openLightbox(item, { items: gallery }),
+    openViewer: (item, gallery) => ui.openLightbox(item, gallery),
     viewerKind: (name, mime) => basicViewerKind(name, mime),
     isImage: (name, mime) => isImageName(name, mime),
     errorText,
@@ -50,8 +50,7 @@ export function createHost(disnans: Pick<HostGlobal, 'ui'>, opts: { isMobile: bo
     clipboard: {
       copyText: async (text) => {
         try {
-          await ui.clipboard.copyText(text);
-          return true;
+          return await ui.clipboard.copyText(text);
         } catch {
           return false;
         }
@@ -74,15 +73,8 @@ export function createHost(disnans: Pick<HostGlobal, 'ui'>, opts: { isMobile: bo
         return true;
       },
     },
-    // OS からのドロップ（段 5 の H。本体の口が出来るまでは受けない）
-    osDrop: {
-      listenNative: async () => () => {},
-      listen: async () => () => {},
-      entries: async () => ({ entries: [], skipped: [] }),
-      release: async () => {},
-      rootsOf: () => [],
-      entriesFromRoots: async () => [],
-    },
+    // OS からのドロップは、本体の口（explorer-kit の osDrop と同じ形）をそのまま使う
+    osDrop: ui.osDrop,
     PdfThumb,
     // ファイルのプロパティの「メッセージを検索」: このファイルの名前でメッセージを探す
     fileAction: {

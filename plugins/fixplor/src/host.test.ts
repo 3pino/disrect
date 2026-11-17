@@ -42,6 +42,11 @@ describe('拡大表示・種類', () => {
     expect(host.isImage('a.txt')).toBe(false);
   });
 
+  it('OS からのドロップは、本体の口をそのまま使う', () => {
+    const { ui, host } = make();
+    expect(host.osDrop).toBe(ui.osDrop);
+  });
+
   it('「メッセージを検索」は、そのファイルの名前で本体の検索を開く', () => {
     const { ui, host } = make();
     host.fileAction!.run({ name: 'a.txt', path: 'a.txt', kind: 'file', size: 1, modified: 0, mime: null }, 'a.txt');

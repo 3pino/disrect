@@ -117,6 +117,15 @@ describe('操作（共有フォルダの口へ、そのまま届く）', () => {
     await expect(h.promise).rejects.toMatchObject({ code: 'aborted' });
   });
 
+  it('本体が中止を AbortError（code なし）で知らせても、部品が見分ける code「aborted」にそろえる。ほかの失敗はそのまま', async () => {
+    const files = fakeFiles(tree);
+    const { view } = await boot(fakeDisnans(files));
+    files.upload = () => Promise.reject(new DOMException('aborted', 'AbortError'));
+    await expect(view.explorer!.api.upload('x', new Blob(['1'])).promise).rejects.toMatchObject({ code: 'aborted' });
+    files.upload = () => Promise.reject(new HostError('exists', '同名'));
+    await expect(view.explorer!.api.upload('x', new Blob(['1'])).promise).rejects.toMatchObject({ code: 'exists' });
+  });
+
   it('移動・コピーの overwrite は、真のときだけ渡す（省いた引数を足さない）', async () => {
     const { d, view } = await boot(fakeDisnans(fakeFiles(tree)));
     const api = view.explorer!.api;
