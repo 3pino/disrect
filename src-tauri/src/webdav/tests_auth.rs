@@ -378,7 +378,16 @@ fn old_downloads_in_the_temp_folder_are_cleaned_and_recent_ones_stay() {
         std::fs::write(d.join("a.txt"), "x").unwrap();
     }
     let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600);
-    std::fs::File::open(&old).unwrap().set_modified(two_hours_ago).unwrap();
+    // Windows では、フォルダを開くのに FILE_FLAG_BACKUP_SEMANTICS、時刻を書くのに FILE_WRITE_ATTRIBUTES が要る
+    let mut opts = std::fs::OpenOptions::new();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        opts.access_mode(0x0100).custom_flags(0x0200_0000);
+    }
+    #[cfg(not(windows))]
+    opts.read(true);
+    opts.open(&old).unwrap().set_modified(two_hours_ago).unwrap();
     assert_eq!(clean_temp(root.path(), std::time::Duration::from_secs(3600)), 1);
     assert!(!old.exists() && fresh.join("a.txt").exists());
     // 無いフォルダでも落ちない
