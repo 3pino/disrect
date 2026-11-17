@@ -363,7 +363,7 @@ async fn a_running_job_can_be_cancelled_and_leaves_no_part_file() {
     }
     assert!(jobs.cancel("job-1"));
     let r = tokio::time::timeout(std::time::Duration::from_secs(5), task).await.expect("中止で止まる").unwrap();
-    assert_eq!(r.unwrap_err().code, "cancelled");
+    assert_eq!(r.unwrap_err().code, "aborted");
     assert!(jobs.is_empty());
     assert!(!jobs.cancel("job-1"), "終わったものは中止できない");
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);

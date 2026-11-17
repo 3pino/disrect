@@ -5,6 +5,7 @@
 //!  - 作成は `If-None-Match: *`（同名があれば 412 → `exists`）
 //!  - 上書きは、一覧で読んだ ETag を `If-Match`（変わっていれば 412 → `precondition`）
 //!  - 移動・コピーは `Overwrite: F`（既定）。上書きを明示したときだけ `Overwrite: T`
+//!
 //! 書き込みの原子性（一時の名前へ書いてから付け替える）は、サーバーに任せる（PUT はふつう、そうなっている）。
 
 use super::url::{join, parse_base, rel_of_href};

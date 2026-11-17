@@ -1,30 +1,13 @@
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { basicNameError, isImageName, type Entry, type EntryUrls, type ExplorerApi, type Rules } from '@3pino/explorer-kit';
 import { fromOs, isWindowsPath, toOs } from './mapping';
-import { FsError, type FsEntry, type FsErrorCode, type FsPlace, type FsSize } from './types';
+import { runner, tauriCall, toFsError, type Call } from './call';
+import { FsError, type FsEntry, type FsPlace, type FsSize } from './types';
 
 // この端末のファイルシステムを、共有の部品（@3pino/explorer-kit）の置き場所（ExplorerApi）として見せる。
 // 実体は Rust（src-tauri/src/fs）。画面のパス（相対・区切り `/`）と OS の絶対パスの対応は mapping.ts。
 
-const CODES: ReadonlySet<string> = new Set<FsErrorCode>([
-  'invalid', 'not_found', 'parent_missing', 'exists', 'same_path', 'into_self',
-  'denied', 'not_dir', 'is_dir', 'not_empty', 'unsupported', 'partial', 'io',
-]);
-
-/** Rust から届いた失敗（{ code, message }）を FsError にする（形が違うものは io） */
-export function toFsError(e: unknown): FsError {
-  if (e instanceof FsError) return e;
-  if (typeof e === 'object' && e !== null) {
-    const { code, message } = e as { code?: unknown; message?: unknown };
-    if (typeof code === 'string' && CODES.has(code)) return new FsError(code as FsErrorCode, typeof message === 'string' ? message : code);
-  }
-  return new FsError('io', e instanceof Error ? e.message : String(e));
-}
-
-/** Rust のコマンドを呼ぶ口（試験で差し替える）。body を渡すと、生のバイト列として送る（パスなどは headers） */
-export type Call = <T>(cmd: string, args?: Record<string, unknown> | Uint8Array, headers?: Record<string, string>) => Promise<T>;
-
-const tauriCall: Call = (cmd, args, headers) => invoke(cmd, args, headers ? { headers } : undefined);
+export { toFsError, type Call };
 
 export type LocalOptions = {
   call?: Call;
@@ -69,13 +52,7 @@ export function pathOfOpenHref(url: string): string | null {
 export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs> {
   const call = options.call ?? tauriCall;
   const showHidden = options.showHidden ?? (() => false);
-  const run = async <T>(cmd: string, args?: Record<string, unknown> | Uint8Array, headers?: Record<string, string>): Promise<T> => {
-    try {
-      return await call<T>(cmd, args, headers);
-    } catch (e) {
-      throw toFsError(e);
-    }
-  };
+  const run = runner(call);
   const startOs = await run<string>('fs_start_dir');
   const windows = isWindowsPath(startOs);
 

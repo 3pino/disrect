@@ -65,41 +65,29 @@ pub fn parse_multistatus(xml: &str) -> FsResult<Vec<Resource>> {
                     _ => {}
                 }
             }
-            Event::Empty(e) => {
-                if local(e.local_name().into_inner()) == "collection" {
-                    if let Some(p) = props.as_mut() {
-                        p.collection = true;
-                    }
+            Event::Empty(e) if local(e.local_name().into_inner()) == "collection" => {
+                if let Some(p) = props.as_mut() {
+                    p.collection = true;
                 }
             }
-            Event::Text(t) => {
-                if field.is_some() {
-                    text.push_str(&t.xml10_content());
-                }
-            }
-            Event::CData(t) => {
-                if field.is_some() {
-                    text.push_str(&t.xml10_content());
-                }
-            }
-            Event::GeneralRef(r) => {
-                if field.is_some() {
-                    match r.resolve_char_ref().map_err(bad)? {
-                        Some(c) => text.push(c),
-                        None => match r.as_ref() {
-                            "amp" => text.push('&'),
-                            "lt" => text.push('<'),
-                            "gt" => text.push('>'),
-                            "quot" => text.push('"'),
-                            "apos" => text.push('\''),
-                            // 知らない実体は、そのまま残す
-                            other => {
-                                text.push('&');
-                                text.push_str(other);
-                                text.push(';');
-                            }
-                        },
-                    }
+            Event::Text(t) if field.is_some() => text.push_str(&t.xml10_content()),
+            Event::CData(t) if field.is_some() => text.push_str(&t.xml10_content()),
+            Event::GeneralRef(r) if field.is_some() => {
+                match r.resolve_char_ref().map_err(bad)? {
+                    Some(c) => text.push(c),
+                    None => match r.as_ref() {
+                        "amp" => text.push('&'),
+                        "lt" => text.push('<'),
+                        "gt" => text.push('>'),
+                        "quot" => text.push('"'),
+                        "apos" => text.push('\''),
+                        // 知らない実体は、そのまま残す
+                        other => {
+                            text.push('&');
+                            text.push_str(other);
+                            text.push(';');
+                        }
+                    },
                 }
             }
             Event::End(e) => {

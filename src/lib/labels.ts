@@ -31,6 +31,15 @@ const ERROR_TEXT: Record<FsErrorCode, string> = {
   unsupported: 'この操作はできません',
   partial: '途中までしかできませんでした',
   io: '読み書きに失敗しました',
+  offline: '接続できません',
+  tls: '証明書を確認できません',
+  auth: '認証が必要です',
+  precondition: '読んだあとに相手のファイルが変わっていたので、上書きしませんでした。読み直してください',
+  locked: '別の人が使っているので、変えられません',
+  too_large: '大きすぎます',
+  no_space: '置き場所に空きがありません',
+  server: 'サーバーがうまく答えませんでした',
+  aborted: '中止しました',
 };
 
 /** 失敗の、利用者向けの短い説明 */

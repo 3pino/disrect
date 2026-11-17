@@ -42,14 +42,14 @@ impl Jobs {
     }
 }
 
-/// job の名前があれば、中止できる形で動かす。中止されたら `cancelled`
+/// job の名前があれば、中止できる形で動かす。中止されたら `aborted`（部品の約束と同じ名前）
 pub async fn run_job<T>(jobs: &Jobs, job: Option<&str>, fut: impl Future<Output = FsResult<T>>) -> FsResult<T> {
     let Some(id) = job else { return fut.await };
     let (fut, handle) = abortable(fut);
     jobs.add(id, handle);
     let r = fut.await;
     jobs.done(id);
-    r.unwrap_or_else(|_| Err(FsError::new("cancelled", "中止しました")))
+    r.unwrap_or_else(|_| Err(FsError::new("aborted", "中止しました")))
 }
 
 /// 通信の入れ物（アプリで 1 つ）
@@ -71,7 +71,7 @@ fn reporter(app: tauri::AppHandle, job: Option<String>) -> Option<Progress> {
     // 1% 進むごと（と、最後）に知らせる
     let last = Arc::new(Mutex::new(u64::MAX));
     Some(Arc::new(move |done, total| {
-        let step = if total == 0 { 0 } else { done * 100 / total };
+        let step = (done * 100).checked_div(total).unwrap_or(0);
         let mut l = last.lock().unwrap();
         if *l != step || done == total {
             *l = step;

@@ -19,6 +19,19 @@ export type FsEntry = {
   symlink: boolean;
 };
 
+/** ネットワークの置き場所の一覧の 1 行（Rust の DavEntry）。path は、接続先からの相対（区切り `/`） */
+export type DavEntry = {
+  name: string;
+  path: string;
+  kind: FsKind;
+  size: number | null;
+  modified: number | null;
+  hidden: boolean;
+  mime: string | null;
+  /** サーバーが返した ETag（上書きのとき、読んだ時点のものだけを上書きするのに使う） */
+  etag: string | null;
+};
+
 export type FsSize = { size: number; files: number; dirs: number; partial: boolean };
 
 /** 左の一覧に出す場所 */
@@ -43,7 +56,17 @@ export type FsErrorCode =
   | 'not_empty'
   | 'unsupported'
   | 'partial'
-  | 'io';
+  | 'io'
+  // ネットワークの置き場所（WebDAV）
+  | 'offline'
+  | 'tls'
+  | 'auth'
+  | 'precondition'
+  | 'locked'
+  | 'too_large'
+  | 'no_space'
+  | 'server'
+  | 'aborted';
 
 export class FsError extends Error {
   constructor(
