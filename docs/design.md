@@ -50,6 +50,7 @@ explorer-kit（共有の部品）          https://github.com/3pino/explorer-kit
 | 4 | WebDAV の置き場所（Rust・置き場所・追加／直す／外す・つながらない印） | 済み（W0〜W4 と本物のサーバーの結合試験） |
 | 5 | 一般の WebDAV: Basic 認証・資格情報（OS のキーチェーン）・画像と PDF の中継・拡大表示・大きいファイルの流し書き・一時ファイルの掃除 | 済み（証明書の指紋の固定は、これから） |
 | 6 | fixplor 専用の機能（下の「これから」） | これから |
+| P | Disnans のプラグイン（`plugins/fixplor/`。共有フォルダを同じ部品で見る。Disnans の段 5） | 土台まで（成果物・境界の検査・本体の偽物の上での試験。本体の口は Disnans 側で実装中） |
 
 ## 決めたこと
 
@@ -74,6 +75,16 @@ explorer-kit（共有の部品）          https://github.com/3pino/explorer-kit
 - **シンボリックリンクは辿らずに写す**。一覧では、辿った先の種類を出す（フォルダへのリンクは開ける）。
 - **隠しファイルは、置き場所の側で除く**（共有の部品は、隠すという考えを持たない）。切り替えたら一覧を読み直す。
 - 画像のサムネイルのために、asset の URL を全部のパスに許している（`tauri.conf.json` の `assetProtocol`）。ファイラーなので、読める範囲は絞っていない。
+
+## Disnans のプラグイン（`plugins/fixplor/`）
+
+fixplor の部品（explorer-kit）を、Disnans のプラグインとしても出す。画面は同じ部品で、置き場所と本体の機能の口だけが違う。
+- 置き場所は、本体の共有フォルダ（`this.files`）。本体の機能は `disnans.ui`。つなぎは `plugins/fixplor/src/`（薄い）。
+- Svelte・部品は `main.js` に同梱（約 50 KB gzip）。pdf.js は同梱せず、本体の拡大表示・PDF の絵の口を呼ぶ。
+- 本体の内部は import しない（`npm run check:plugin` が、ソースと成果物を検査）。
+- 成果物: `npm run build:plugin` → `dist-plugin/fixplor-<版>/`。配布は `plugin-fixplor-v*` のタグ（`.github/workflows/plugin.yml`）。
+- 試験: 本体の偽物（メモリの共有フォルダ・ui）の上で、画面を載せて動かす。作った `main.js` そのものも動かす。
+- アプリ（fixplor）に無い機能は、プラグインにも足さない。Disnans だけの入口（ナビの項目・本文のリンクの開き・添付の選択）は、このフォルダの中だけに、薄く置く。
 
 ## これから（段階 5・6）
 

@@ -1,0 +1,60 @@
+name: Plugin
+
+# Disnans のプラグイン（plugins/fixplor）の成果物を作る。
+# plugin-fixplor-vX.Y.Z のタグを打つと、成果物（manifest.json・main.js・styles.css・icon.svg・SHA256SUMS）を、そのタグの GitHub のリリースに載せる。
+# 手で動かしたとき（workflow_dispatch）は、作って検査するだけ（成果物として残す）。
+# アプリ本体のリリース（v*）とは別のタグ・別のリリース。
+on:
+  workflow_dispatch:
+  push:
+    tags: ['plugin-fixplor-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # タグと manifest.json の版が、そろっていること
+      - name: 版がそろっているか確かめる
+        if: startsWith(github.ref, 'refs/tags/plugin-fixplor-v')
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#plugin-fixplor-v}"
+          VER=$(jq -r .version plugins/fixplor/manifest.json)
+          if [ "$VER" != "$TAG" ]; then
+            echo "::error::タグ ($TAG) と manifest.json の版 ($VER) が違います"; exit 1
+          fi
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build:plugin
+      # 本体の中身へ手を伸ばしていないこと・成果物が 1 つで完結していること
+      - run: npm run check:plugin -- --dist
+      # 作った main.js そのものを、本体の偽物の上で動かす（無ければ失敗）
+      - run: npx vitest run plugins/fixplor/src/bundle.test.ts
+        env:
+          REQUIRE_PLUGIN_BUNDLE: '1'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fixplor-plugin
+          path: dist-plugin/fixplor-*/
+          if-no-files-found: error
+          retention-days: 14
+      - name: リリースに載せる
+        if: startsWith(github.ref, 'refs/tags/plugin-fixplor-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DIR=$(echo dist-plugin/fixplor-*)
+          gh release create "$GITHUB_REF_NAME" \
+            --title "fixplor プラグイン ${GITHUB_REF_NAME#plugin-fixplor-v}" \
+            --notes "Disnans のプラグイン（共有フォルダのエクスプローラー）。配布物: manifest.json・main.js・styles.css・icon.svg と SHA256SUMS" \
+            "$DIR/manifest.json" "$DIR/main.js" "$DIR/styles.css" "$DIR/icon.svg" "$DIR/SHA256SUMS"

@@ -22,7 +22,7 @@ export default defineConfig({
     target: 'es2022',
   },
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'plugins/**/*.test.ts'],
     environment: 'node',
     // 土台の名前の指定（configurePlatform）を、どの試験より先に読む
     setupFiles: ['./src/lib/platformGlobal.ts'],

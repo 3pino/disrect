@@ -23,6 +23,12 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+      # Disnans のプラグイン（plugins/fixplor）: 成果物を作り、境界を検査し、作った main.js を本体の偽物の上で動かす
+      - run: npm run build:plugin
+      - run: npm run check:plugin -- --dist
+      - run: npx vitest run plugins/fixplor/src/bundle.test.ts
+        env:
+          REQUIRE_PLUGIN_BUNDLE: '1'
 
   # ファイルの操作（Rust）。OS ごとに決まりが違う（区切り・大文字と小文字・リンク・ゴミ箱）ので、Linux と Windows の両方で確かめる
   fs:
