@@ -1,6 +1,6 @@
 <script lang="ts">
   import X from '@lucide/svelte/icons/x';
-  import IconButton from '@3pino/explorer-kit/ui/IconButton.svelte';
+  import IconButton from '@3pino/ui-kit/IconButton.svelte';
   import type { HostState } from '../lib/host.svelte';
 
   // 通知。見た目はグローバルの .toasts / .toast（@3pino/design-system）
