@@ -6,7 +6,7 @@
 design-system（CSS）                https://github.com/3pino/design-system
         │
 explorer-kit（共有の部品）          https://github.com/3pino/explorer-kit
-  ├─ 画面     FileExplorer・FileProperties・EntryActions（小さな部品 Button・Menu・Modal などは @3pino/ui-kit）
+  ├─ 画面     FileExplorer・FileProperties・EntryActions（小さな部品 Button・Menu・Modal などは @3pino/ui-kit-web）
   ├─ 決まり   名前・同名の扱い・移動とコピーの進め方・ゴミ箱の仮想フォルダ・並び順・フォルダごとの表示
   └─ 状態     開いているフォルダ・一覧の写し・選択・切り取り／コピーの控え・表示方法
         │                               │
@@ -79,4 +79,4 @@ explorer-kit（共有の部品）          https://github.com/3pino/explorer-kit
 - 移動は「同名が無いことを確かめてから付け替える」ので、そのあいだに別のアプリが同名を作ると上書きになる（Linux では `renameat2` で防げる）。
 - CSP は未設定（`null`。disnans と同じ）。外の内容は読まないので、あとで締める。
 - サムネイルは、縮小版を作らず画像そのものを読む（大きい画像の多いフォルダは重い）。
-- 小さな部品（Button・Menu・Modal など）は、共有パッケージ @3pino/ui-kit のもの（disnans・explorer-kit・fixplor が同じものを使う。写しは無い）。
+- 小さな部品（Button・Menu・Modal など）は、共有パッケージ @3pino/ui-kit-web のもの（disnans・explorer-kit・fixplor が同じものを使う。写しは無い）。

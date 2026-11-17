@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Modal from '@3pino/ui-kit/Modal.svelte';
-  import Button from '@3pino/ui-kit/Button.svelte';
+  import Modal from '@3pino/ui-kit-web/Modal.svelte';
+  import Button from '@3pino/ui-kit-web/Button.svelte';
   import type { HostState } from '../lib/host.svelte';
 
   // 確認のダイアログ（上書き・ゴミ箱へ移す）。外側を押す・Esc は取り消し

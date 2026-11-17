@@ -17,7 +17,7 @@ export default defineConfig({
   },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
   // 共有の部品（エクスプローラー）は TypeScript と Svelte のソースのまま配られる。開発サーバーの依存の事前バンドルには載せない
-  optimizeDeps: { exclude: ['@3pino/explorer-kit', '@3pino/ui-kit'] },
+  optimizeDeps: { exclude: ['@3pino/explorer-kit', '@3pino/ui-kit-web'] },
   build: {
     target: 'es2022',
   },

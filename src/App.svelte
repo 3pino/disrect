@@ -5,7 +5,7 @@
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import Eye from '@lucide/svelte/icons/eye';
   import FileExplorer from '@3pino/explorer-kit/FileExplorer.svelte';
-  import IconButton from '@3pino/ui-kit/IconButton.svelte';
+  import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
   import { createExplorer, type Explorer } from '@3pino/explorer-kit';
   import Toasts from './components/Toasts.svelte';
   import ConfirmDialog from './components/ConfirmDialog.svelte';
