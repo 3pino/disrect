@@ -1,4 +1,5 @@
 pub mod fs;
+pub mod webdav;
 
 use fs::{Entry, FsError, FsResult, Place, Size};
 use tauri_plugin_opener::OpenerExt;
@@ -107,7 +108,10 @@ fn fs_open(app: tauri::AppHandle, path: String) -> FsResult<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let (http, jobs) = webdav::commands::state();
     tauri::Builder::default()
+        .manage(http)
+        .manage(jobs)
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             fs_list,
@@ -120,7 +124,17 @@ pub fn run() {
             fs_size,
             fs_places,
             fs_start_dir,
-            fs_open
+            fs_open,
+            webdav::commands::dav_list,
+            webdav::commands::dav_stat,
+            webdav::commands::dav_mkdir,
+            webdav::commands::dav_put,
+            webdav::commands::dav_move,
+            webdav::commands::dav_copy,
+            webdav::commands::dav_remove,
+            webdav::commands::dav_size,
+            webdav::commands::dav_download,
+            webdav::commands::dav_cancel
         ])
         .run(tauri::generate_context!())
         .expect("fixplor を起動できませんでした");

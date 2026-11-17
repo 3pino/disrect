@@ -21,8 +21,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # ホーム・デスクトップ・ダウンロードなどの場所
 dirs = "6"
-# 書き込みのパス（ヘッダーで受ける）の復号
+# 書き込みのパス（ヘッダーで受ける）の復号。WebDAV の URL の符号化にも使う
 percent-encoding = "2"
+# WebDAV（ネットワークドライブ）。TLS は rustls（OS の証明書の保管庫を使う。openssl は使わない）
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream"] }
+# PROPFIND の応答（XML）の解析
+quick-xml = "0.42"
+# 送信・受信のストリームと進み具合・ファイルへの書き込み（reqwest・tauri が使っているものと同じ）
+tokio = { version = "1", features = ["fs", "io-util", "time", "sync"] }
+futures-util = "0.3"
+bytes = "1"
 
 # OS のゴミ箱（Linux: freedesktop の Trash、Windows: ごみ箱）。Android には無い
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
@@ -30,3 +38,6 @@ trash = "5"
 
 [dev-dependencies]
 tempfile = "3"
+# WebDAV の試験用の模擬サーバー
+wiremock = "0.6"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

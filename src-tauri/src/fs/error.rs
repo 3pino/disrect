@@ -13,6 +13,10 @@ use std::path::Path;
 /// - `denied` / `not_dir` / `is_dir` / `not_empty`: OS の拒否
 /// - `unsupported`: この OS・この種類のファイルでは出来ない
 /// - `partial`: 途中まで出来た（移動でコピーは終わったが、元を消せなかった）
+/// - ネットワークの置き場所（WebDAV）だけ:
+///   `offline`（接続できない・時間切れ）、`tls`（証明書を確認できない）、`auth`（認証が要る）、
+///   `precondition`（読んだあとに相手が変わっていて、上書きしなかった）、`locked`、`too_large`、`no_space`、
+///   `server`（サーバーの失敗・想定外の応答）、`cancelled`（利用者が中止した）
 /// - `io`: それ以外
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FsError {
