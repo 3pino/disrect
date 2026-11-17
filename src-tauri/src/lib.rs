@@ -1,4 +1,5 @@
 pub mod fs;
+pub mod platform;
 pub mod webdav;
 
 use fs::{Entry, FsError, FsResult, Place, Size};
@@ -113,6 +114,7 @@ pub fn run() {
         .manage(http)
         .manage(jobs)
         .plugin(tauri_plugin_opener::init())
+        .plugin(platform::plugin())
         .invoke_handler(tauri::generate_handler![
             fs_list,
             fs_stat,

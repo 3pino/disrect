@@ -1,68 +1,46 @@
 import { isImageName, type ConfirmOptions, type ExplorerHost, type ToastAction, type ToastKind } from '@3pino/explorer-kit';
+import { copyText } from '@3pino/app-kit-web/core/clipboard';
+import { osName } from '@3pino/app-kit-web/core/platform';
+import { Shell } from '@3pino/app-kit-web/shell';
 import { errorText } from './labels';
 import { pathOfOpenHref, type LocalFs } from './fs/local';
 import { FsError } from './fs/types';
 
 // 共有の部品（エクスプローラー）へ貸す、本体の機能: 通知・確認・「戻る」・ファイルを開く・クリップボード・この端末の種類。
-// 通知と確認の表示は Toasts.svelte・ConfirmDialog.svelte が、ここの状態を読んで出す。
+// 通知・確認・戻るの状態は、土台の Shell（@3pino/app-kit-web/shell）が持つ。
 
-export type Toast = { id: number; text: string; kind: ToastKind; action?: ToastAction };
-type ConfirmRequest = ConfirmOptions & { resolve: (ok: boolean) => void };
-
-/** 通知を自分で消すまでの時間（ms） */
-const TOAST_MS = 5000;
-
+/**
+ * 本体の画面の状態。通知・確認・「戻る」の層は土台の Shell（@3pino/app-kit-web/shell）が持ち、ここはその上の薄い包み。
+ * 通知と確認の表示は、土台の Toasts.svelte・ConfirmDialog.svelte が `shell` を読んで出す。
+ */
 export class HostState {
-  toasts = $state<Toast[]>([]);
-  confirming = $state.raw<ConfirmRequest | null>(null);
-  /** 「戻る」で先に呼ぶ処理（あとから積んだものが先） */
-  private backs = $state.raw<{ run: () => void }[]>([]);
-  private seq = 0;
+  readonly shell = new Shell();
 
   toast(text: string, kind: ToastKind = 'info', action?: ToastAction): number {
-    const id = ++this.seq;
-    this.toasts.push({ id, text, kind, action });
-    setTimeout(() => this.dismiss(id), TOAST_MS);
-    return id;
+    return this.shell.toast(text, kind, action);
   }
 
   dismiss(id: number): void {
-    this.toasts = this.toasts.filter((t) => t.id !== id);
+    this.shell.dismiss(id);
   }
 
-  /** 確認を出す。前の確認が出たままなら、それは取り消しとして閉じる */
+  /** 確認を出す。前の確認が出たままなら、それは取り消しとして閉じる（土台は黙って置き換えるので、ここで閉じる） */
   confirm(opts: ConfirmOptions): Promise<boolean> {
-    this.confirming?.resolve(false);
-    return new Promise((resolve) => {
-      this.confirming = { ...opts, resolve };
-    });
-  }
-
-  answer(ok: boolean): void {
-    const req = this.confirming;
-    this.confirming = null;
-    req?.resolve(ok);
+    this.shell.confirmReq?.resolve(false);
+    return this.shell.confirm(opts);
   }
 
   addBack(run: () => void): () => void {
-    const entry = { run };
-    this.backs = [...this.backs, entry];
-    return () => {
-      this.backs = this.backs.filter((e) => e !== entry);
-    };
+    return this.shell.addPluginBack(run);
   }
 
   get canBack(): boolean {
-    return this.backs.length > 0;
+    return this.shell.backDepth(0) > 0;
   }
 
   /** 「戻る」。積まれた処理のうち、いちばん新しいものを外してから呼ぶ。無ければ false */
   back(): boolean {
-    const top = this.backs.at(-1);
-    if (!top) return false;
-    this.backs = this.backs.slice(0, -1);
-    top.run();
-    return true;
+    return this.shell.back(() => false);
   }
 }
 
@@ -70,14 +48,6 @@ export class HostState {
 export function failureText(e: unknown): string {
   if (e instanceof FsError) return errorText(e.code);
   return e instanceof Error ? e.message : String(e);
-}
-
-function osName(): string {
-  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
-  if (/Android/i.test(ua)) return 'android';
-  if (/Windows/i.test(ua)) return 'windows';
-  if (/Linux/i.test(ua)) return 'linux';
-  return '';
 }
 
 export function createHost(state: HostState, local: Pick<LocalFs, 'open'>): ExplorerHost {
@@ -102,20 +72,14 @@ export function createHost(state: HostState, local: Pick<LocalFs, 'open'>): Expl
     errorText: failureText,
     log: (level, text) => console[level](text),
     platform: {
+      // このアプリは常に Tauri の中（試験では WebView の内部オブジェクトが無いので、判定に任せない）
       isTauri: () => true,
       osName,
       // OS からのドロップ（Tauri のネイティブのイベント）は、まだ受けない
       isLinuxDesktop: () => false,
     },
     clipboard: {
-      async copyText(text) {
-        try {
-          await navigator.clipboard.writeText(text);
-          return true;
-        } catch {
-          return false;
-        }
-      },
+      copyText,
       // 中身は確かめない（読むと、OS が許可を尋ねることがある）。貼り付けは押せるままにする
       peek: async () => 'unknown',
       async readText() {

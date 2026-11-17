@@ -113,6 +113,20 @@ describe('fixplor の画面（この端末のファイル）', () => {
     expect(input.value).toBe('/home/me/docs');
   });
 
+  it('Alt+← で戻る（Ctrl・Shift を一緒に押したときは、別の操作なので戻らない）', async () => {
+    app = mount(App, { target });
+    await settle();
+    button('上のフォルダへ').click();
+    await settle();
+    expect(names()).toEqual(['me']);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, ctrlKey: true, bubbles: true }));
+    await settle();
+    expect(names()).toEqual(['me']);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true }));
+    await settle();
+    expect(names()).toEqual(['docs', 'a.txt']);
+  });
+
   it('無いフォルダは、無いと出す（落ちない）', async () => {
     app = mount(App, { target });
     await settle();
@@ -152,6 +166,10 @@ describe('fixplor の画面（この端末のファイル）', () => {
     const toast = document.querySelector('.toast')!;
     expect(toast.textContent).toContain('1 件をゴミ箱に移しました');
     expect(toast.querySelector('.toast-action')).toBeNull();
+    // 閉じるボタンで消える（本体の状態を、土台の部品へつないである）
+    toast.querySelector<HTMLButtonElement>('button[aria-label="閉じる"]')!.click();
+    await settle();
+    expect(document.querySelector('.toast')).toBeNull();
   });
 
   it('確認を取り消すと、何も消さない', async () => {

@@ -1,22 +1,13 @@
+import { getItem, setItem } from '@3pino/app-kit-web/core/storage';
+
 // この端末の設定（localStorage）。隠しファイルを出すか・フォルダごとの表示方法と並び順。
+// 使うキーは localKeys.ts に登録する（試験が止める）。
 
 const KEYS = { showHidden: 'fixplor.showHidden', dirs: 'fixplor.dirs' } as const;
 
-export function read(key: string): string | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-export function write(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // 保存できなくても、開いているあいだは使える（次に開いたときは既定に戻る）
-  }
-}
+/** 読む・書く（localStorage を直接は使わず、土台のストレージを通す。使えない環境や容量不足でも落ちない） */
+export const read = (key: string): string | null => getItem(key);
+export const write = (key: string, value: string): void => setItem(key, value);
 
 function parse(raw: string | null): unknown {
   if (raw === null) return {};

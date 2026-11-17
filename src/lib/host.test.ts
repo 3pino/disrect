@@ -24,10 +24,10 @@ describe('本体の機能（通知・確認・戻る）', () => {
     const first = s.confirm({ title: '1', okLabel: 'OK' });
     const second = s.confirm({ title: '2', okLabel: 'OK' });
     expect(await first).toBe(false);
-    expect(s.confirming?.title).toBe('2');
-    s.answer(true);
+    expect(s.shell.confirmReq?.title).toBe('2');
+    s.shell.confirmReq!.resolve(true);
     expect(await second).toBe(true);
-    expect(s.confirming).toBeNull();
+    expect(s.shell.confirmReq).toBeNull();
   });
 
   it('通知は、消すと無くなる', () => {
@@ -36,9 +36,9 @@ describe('本体の機能（通知・確認・戻る）', () => {
     const id = s.toast('a', 'error');
     s.toast('b');
     s.dismiss(id);
-    expect(s.toasts.map((t) => t.text)).toEqual(['b']);
+    expect(s.shell.toasts.map((t) => t.text)).toEqual(['b']);
     vi.advanceTimersByTime(6000);
-    expect(s.toasts).toEqual([]);
+    expect(s.shell.toasts).toEqual([]);
     vi.useRealTimers();
   });
 });
@@ -53,7 +53,7 @@ describe('ファイルを開く（OS の既定のアプリ）', () => {
     await host.download.file({ url: openHref('home/a.txt'), name: 'a.txt' });
     expect(open).toHaveBeenCalledWith('home/a.txt');
     await host.download.file({ url: openHref('bad'), name: 'bad' });
-    expect(s.toasts.at(-1)).toMatchObject({ kind: 'error', text: '「bad」を開けませんでした: 権限がありません' });
+    expect(s.shell.toasts.at(-1)).toMatchObject({ kind: 'error', text: '「bad」を開けませんでした: 権限がありません' });
     // ほかの URL（部品の外から来たもの）は開かない
     await host.download.file({ url: 'https://example.com/', name: 'x' });
     expect(open).toHaveBeenCalledTimes(2);

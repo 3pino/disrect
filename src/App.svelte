@@ -9,8 +9,9 @@
   import FileExplorer from '@3pino/explorer-kit/FileExplorer.svelte';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
   import { createExplorer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
-  import Toasts from './components/Toasts.svelte';
-  import ConfirmDialog from './components/ConfirmDialog.svelte';
+  import Toasts from '@3pino/app-kit-web/shell/Toasts.svelte';
+  import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
+  import { isBackKey } from '@3pino/app-kit-web/core/backNav';
   import PlaceDialog from './components/PlaceDialog.svelte';
   import { createLocalFs, type LocalFs } from './lib/fs/local';
   import { createDavFs } from './lib/fs/webdav';
@@ -159,7 +160,7 @@
 
   /** 「戻る」（マウスの戻るボタン・Alt+←）。入力中の欄では、文字の操作を奪わない */
   function onKey(ev: KeyboardEvent): void {
-    if (ev.altKey && ev.key === 'ArrowLeft' && host.back()) ev.preventDefault();
+    if (isBackKey(ev) && host.back()) ev.preventDefault();
   }
   function onMouseUp(ev: MouseEvent): void {
     if (ev.button === 3 && host.back()) ev.preventDefault();
@@ -210,8 +211,8 @@
   {/if}
 </div>
 
-<Toasts {host} />
-<ConfirmDialog {host} />
+<Toasts toasts={host.shell.toasts} dismiss={(id) => host.dismiss(id)} />
+<ConfirmDialog request={host.shell.confirmReq} />
 {#if dialog}
   <PlaceDialog place={dialog.place} onsave={saveDialog} onremove={dialog.place ? () => void removeDialog() : undefined} onclose={() => (dialog = null)} />
 {/if}

@@ -72,7 +72,9 @@ GitHub Actions: `CI`（型・試験・ビルド、Rust は Linux と Windows）�
 | `src/lib/places.svelte.ts` | 追加したネットワークの場所（名前と URL）の覚え |
 | `src/lib/fs/local.ts` | この端末を、共有の部品の置き場所（`ExplorerApi`）として見せる |
 | `src/lib/fs/mapping.ts` | 画面のパス（相対・区切り `/`）と OS の絶対パスの対応（POSIX・Windows） |
-| `src/lib/host.svelte.ts` | 共有の部品へ貸す本体の機能（通知・確認・戻る・ファイルを開く・クリップボード） |
+| `src/lib/host.svelte.ts` | 共有の部品へ貸す本体の機能（通知・確認・戻る・ファイルを開く・クリップボード）。通知・確認・戻るの状態と部品は、共有の土台 `@3pino/app-kit-web`（`/shell`）のもの |
+| `src/lib/settings.svelte.ts`・`localKeys.ts` | 設定の保存（土台のストレージを通す。キーは `fixplor.` で、`localKeys.ts` に登録。試験が止める） |
+| `src/lib/platformGlobal.ts`・`src-tauri/src/platform.rs` | Rust が `window.__FIXPLOR_PLATFORM__` に入れる OS の事実の名前を、土台（`core/platform`）へ教える |
 | `src/App.svelte` | 外枠（上のバー・左の場所の一覧）。見た目は仮 |
 
 ### リリース
