@@ -1,7 +1,9 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { basicNameError, isImageName, type Entry, type EntryUrls, type ExplorerApi, type Rules } from '@3pino/explorer-kit';
+import { PDF_THUMB_MAX_BYTES } from '@3pino/viewer-kit-web/viewers/pdfThumb';
+import { basicNameError, isImageName, isPdfName, type Entry, type EntryUrls, type ExplorerApi, type Rules } from '@3pino/explorer-kit';
 import { fromOs, isWindowsPath, toOs } from './mapping';
 import { runner, tauriCall, toFsError, type Call } from './call';
+import { createSources, type Sources } from './sources';
 import { FsError, type FsEntry, type FsPlace, type FsSize } from './types';
 
 // この端末のファイルシステムを、共有の部品（@3pino/explorer-kit）の置き場所（ExplorerApi）として見せる。
@@ -19,6 +21,8 @@ export type LocalFs = {
   api: ExplorerApi;
   urls: EntryUrls;
   rules: Rules;
+  /** 表示の URL → 項目のパス（拡大表示の「保存」で、既定のアプリで開くため） */
+  sources: Sources;
   /** この端末が Windows のパスを使うか（最初の場所から決める） */
   windows: boolean;
   /** 最初に開く場所（画面のパス） */
@@ -113,12 +117,15 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     },
   };
 
+  const sources = createSources();
+  const asset = (e: Entry): string => sources.note(convertFileSrc(os(e.path)), e.path);
   const urls: EntryUrls = {
     href: (e) => openHref(e.path),
-    readUrl: (e) => convertFileSrc(os(e.path)),
+    readUrl: (e) => asset(e),
     // 縮小版は作らず、画像そのものを読む
-    thumbUrl: (e) => (e.kind === 'file' && isImageName(e.name, e.mime) ? convertFileSrc(os(e.path)) : null),
-    pdfSource: () => null,
+    thumbUrl: (e) => (e.kind === 'file' && isImageName(e.name, e.mime) ? asset(e) : null),
+    // PDF の 1 ページ目（大きすぎるものは作らない）
+    pdfSource: (e) => (e.kind === 'file' && isPdfName(e.name, e.mime) && e.size <= PDF_THUMB_MAX_BYTES ? { url: asset(e), key: `${e.path}:${e.modified}:${e.size}` } : null),
   };
 
   const rules: Rules = {
@@ -137,6 +144,7 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     api,
     urls,
     rules,
+    sources,
     windows,
     start: fromOs(startOs),
     places,

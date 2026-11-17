@@ -424,6 +424,23 @@ async fn real_server_round_trip() {
     let dest = dir.path().join("a.txt");
     d.download(&a, &dest, None).await.unwrap();
     assert_eq!(std::fs::read(&dest).unwrap(), b"two!");
+    // ストリームの書き込み（3 つに分けて流す）と、中継（表示用の GET・Range）
+    let jobs = Jobs::default();
+    let puts = super::commands::Puts::default();
+    let streamed = format!("{root}/stream.bin");
+    let payload: Vec<u8> = (0..30_000u32).map(|i| (i % 251) as u8).collect();
+    let (tx, task) = super::commands::start_put(&jobs, Dav::new(build_client(), &url).unwrap(), streamed.clone(), payload.len() as u64, None, "it-1".into(), None);
+    for part in payload.chunks(10_000) {
+        tx.send(Bytes::copy_from_slice(part)).await.unwrap();
+    }
+    puts.insert_for_test("it-1", tx, task);
+    let e = super::commands::finish_put(&jobs, &puts, "it-1").await.unwrap();
+    assert_eq!(e.size, Some(30_000));
+    let got = d.get_raw(&streamed, None).await.unwrap().bytes().await.unwrap();
+    assert_eq!(got.as_ref(), payload.as_slice());
+    let part = d.get_raw(&streamed, Some("bytes=10-19")).await.unwrap();
+    assert_eq!(part.status().as_u16(), 206, "サーバーは Range に答える");
+    assert_eq!(part.bytes().await.unwrap().as_ref(), &payload[10..20]);
     // 後始末（完全削除）
     d.remove(&root).await.unwrap();
     assert_eq!(d.stat(&root).await.unwrap_err().code, "not_found");

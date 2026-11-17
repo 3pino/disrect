@@ -135,11 +135,32 @@ pub fn build_client() -> Client {
 pub struct Dav {
     client: Client,
     base: Url,
+    /// Basic 認証（ユーザー名・パスワード）。無ければ認証なし
+    auth: Option<(String, String)>,
 }
 
 impl Dav {
     pub fn new(client: Client, base: &str) -> FsResult<Self> {
-        Ok(Self { client, base: parse_base(base)? })
+        Ok(Self { client, base: parse_base(base)?, auth: None })
+    }
+
+    /// 全部の要求に Basic 認証を付ける
+    pub fn with_auth(mut self, auth: Option<(String, String)>) -> Self {
+        self.auth = auth;
+        self
+    }
+
+    pub fn base(&self) -> &Url {
+        &self.base
+    }
+
+    /// 要求の入れ物（認証があれば付ける。リダイレクトは辿らないので、別のサーバーへは送られない）
+    fn req(&self, method: Method, url: Url) -> RequestBuilder {
+        let rb = self.client.request(method, url);
+        match &self.auth {
+            Some((u, p)) => rb.basic_auth(u, Some(p)),
+            None => rb,
+        }
     }
 
     fn method(name: &str) -> Method {
@@ -162,8 +183,7 @@ impl Dav {
         loop {
             let url = join(&self.base, rel, dir)?;
             let rb = self
-                .client
-                .request(Self::method("PROPFIND"), url)
+                .req(Self::method("PROPFIND"), url)
                 .header("Depth", depth)
                 .header("Content-Type", "application/xml; charset=utf-8")
                 .timeout(REQUEST_TIMEOUT)
@@ -239,7 +259,7 @@ impl Dav {
         if rel.is_empty() {
             return Err(FsError::new("invalid", "いちばん上は作れません"));
         }
-        let rb = self.client.request(Self::method("MKCOL"), join(&self.base, rel, true)?).timeout(REQUEST_TIMEOUT);
+        let rb = self.req(Self::method("MKCOL"), join(&self.base, rel, true)?).timeout(REQUEST_TIMEOUT);
         self.send(rb, Ctx::Mkdir).await?;
         self.stat(rel).await
     }
@@ -250,11 +270,6 @@ impl Dav {
             return Err(FsError::new("invalid", "いちばん上へは書けません"));
         }
         let total = body.len() as u64;
-        let mut rb = self.client.put(join(&self.base, rel, false)?).header(CONTENT_LENGTH, total);
-        rb = match if_match {
-            Some(tag) => rb.header(IF_MATCH, HeaderValue::from_str(&quote_etag(tag)).map_err(|_| FsError::new("invalid", "ETag に使えない文字があります"))?),
-            None => rb.header(IF_NONE_MATCH, "*"),
-        };
         let stream = futures_util::stream::unfold((body, 0usize), move |(b, pos)| {
             let progress = progress.clone();
             async move {
@@ -269,9 +284,21 @@ impl Dav {
                 Some((Ok::<Bytes, Infallible>(chunk), (b, end)))
             }
         });
-        let rb = rb.body(reqwest::Body::wrap_stream(stream));
+        self.put_body(rel, total, reqwest::Body::wrap_stream(stream), if_match).await
+    }
+
+    /// 本文を、組み立て済みの形（ストリーム）で受けて書く。`total` は本文の長さ（Content-Length）
+    pub async fn put_body(&self, rel: &str, total: u64, body: reqwest::Body, if_match: Option<&str>) -> FsResult<DavEntry> {
+        if rel.is_empty() {
+            return Err(FsError::new("invalid", "いちばん上へは書けません"));
+        }
+        let mut rb = self.req(Method::PUT, join(&self.base, rel, false)?).header(CONTENT_LENGTH, total);
+        rb = match if_match {
+            Some(tag) => rb.header(IF_MATCH, HeaderValue::from_str(&quote_etag(tag)).map_err(|_| FsError::new("invalid", "ETag に使えない文字があります"))?),
+            None => rb.header(IF_NONE_MATCH, "*"),
+        };
         let ctx = if if_match.is_some() { Ctx::Replace } else { Ctx::Create };
-        let res = self.send(rb, ctx).await?;
+        let res = self.send(rb.body(body), ctx).await?;
         let etag = res.headers().get(ETAG).and_then(|v| v.to_str().ok()).map(str::to_string);
         // 書いたあとの姿は、サーバーに聞く。聞けなければ、分かる範囲で返す
         match self.stat(rel).await {
@@ -300,8 +327,7 @@ impl Dav {
             return Err(FsError::new("into_self", "フォルダを、そのフォルダの中へは入れられません"));
         }
         let rb = self
-            .client
-            .request(Self::method(verb), join(&self.base, from, false)?)
+            .req(Self::method(verb), join(&self.base, from, false)?)
             .header("Destination", join(&self.base, to, false)?.as_str())
             .header("Overwrite", if overwrite { "T" } else { "F" })
             .timeout(REQUEST_TIMEOUT);
@@ -322,7 +348,7 @@ impl Dav {
         if rel.is_empty() {
             return Err(FsError::new("invalid", "いちばん上は消せません"));
         }
-        let rb = self.client.delete(join(&self.base, rel, false)?).timeout(REQUEST_TIMEOUT);
+        let rb = self.req(Method::DELETE, join(&self.base, rel, false)?).timeout(REQUEST_TIMEOUT);
         let res = self.send(rb, Ctx::Delete).await?;
         // 207: 一部だけ消せた
         if res.status() == StatusCode::MULTI_STATUS {
@@ -358,9 +384,23 @@ impl Dav {
         Ok((size, files, dirs, false))
     }
 
+    /// ファイルの中身を、そのまま取りに行く（表示の中継用）。`range` はそのまま渡す。200・206 のほかの成功（416 など）も、応答のまま返す
+    pub async fn get_raw(&self, rel: &str, range: Option<&str>) -> FsResult<Response> {
+        let mut rb = self.req(Method::GET, join(&self.base, rel, false)?);
+        if let Some(r) = range {
+            rb = rb.header(reqwest::header::RANGE, HeaderValue::from_str(r).map_err(|_| FsError::new("invalid", "Range が正しくありません"))?);
+        }
+        let res = rb.send().await.map_err(|e| net_error(&e))?;
+        if res.status().is_success() || res.status() == StatusCode::RANGE_NOT_SATISFIABLE {
+            Ok(res)
+        } else {
+            Err(status_error(res.status(), Ctx::Read))
+        }
+    }
+
     /// ファイルを、`dest` へ受け取る（`dest.part` へ書き終えてから付け替える。失敗・中止では `.part` を残さない）
     pub async fn download(&self, rel: &str, dest: &Path, progress: Option<Progress>) -> FsResult<()> {
-        let rb = self.client.get(join(&self.base, rel, false)?);
+        let rb = self.req(Method::GET, join(&self.base, rel, false)?);
         let mut res = self.send(rb, Ctx::Read).await?;
         let total = res.content_length().unwrap_or(0);
         let part = PathBuf::from(format!("{}.part", dest.display()));

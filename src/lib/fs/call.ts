@@ -6,7 +6,7 @@ import { FsError, type FsErrorCode } from './types';
 const CODES: ReadonlySet<string> = new Set<FsErrorCode>([
   'invalid', 'not_found', 'parent_missing', 'exists', 'same_path', 'into_self',
   'denied', 'not_dir', 'is_dir', 'not_empty', 'unsupported', 'partial', 'io',
-  'offline', 'tls', 'auth', 'precondition', 'locked', 'too_large', 'no_space', 'server', 'aborted',
+  'offline', 'tls', 'auth', 'precondition', 'locked', 'too_large', 'no_space', 'server', 'aborted', 'keychain',
 ]);
 
 /** Rust から届いた失敗（{ code, message }）を FsError にする（形が違うものは io） */

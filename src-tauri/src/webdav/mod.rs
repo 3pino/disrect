@@ -3,6 +3,8 @@
 
 mod client;
 pub mod commands;
+pub mod proxy;
+pub mod secret;
 mod url;
 mod xml;
 
@@ -11,3 +13,5 @@ pub use xml::{parse_http_date, parse_multistatus, Resource};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_auth;

@@ -66,7 +66,8 @@ export type FsErrorCode =
   | 'too_large'
   | 'no_space'
   | 'server'
-  | 'aborted';
+  | 'aborted'
+  | 'keychain';
 
 export class FsError extends Error {
   constructor(

@@ -16,7 +16,8 @@ use std::path::Path;
 /// - ネットワークの置き場所（WebDAV）だけ:
 ///   `offline`（接続できない・時間切れ）、`tls`（証明書を確認できない）、`auth`（認証が要る）、
 ///   `precondition`（読んだあとに相手が変わっていて、上書きしなかった）、`locked`、`too_large`、`no_space`、
-///   `server`（サーバーの失敗・想定外の応答）、`aborted`（利用者が中止した）
+///   `server`（サーバーの失敗・想定外の応答）、`aborted`（利用者が中止した）、
+///   `keychain`（OS のキーチェーンが使えない。資格情報は、ほかへ保存しない）
 /// - `io`: それ以外
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FsError {

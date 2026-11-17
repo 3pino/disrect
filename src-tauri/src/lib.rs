@@ -109,10 +109,30 @@ fn fs_open(app: tauri::AppHandle, path: String) -> FsResult<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (http, jobs) = webdav::commands::state();
+    let (conns, jobs, puts) = webdav::commands::state(std::sync::Arc::new(webdav::secret::OsStore));
+    // 前の起動で受け取った一時のファイルのうち、古いものを消す（開いている最中のものは、消さない長さ）
+    std::thread::spawn(|| {
+        webdav::commands::clean_temp(&webdav::commands::temp_root(), std::time::Duration::from_secs(24 * 60 * 60));
+    });
     tauri::Builder::default()
-        .manage(http)
+        .manage(conns)
         .manage(jobs)
+        .manage(puts)
+        .register_asynchronous_uri_scheme_protocol("fixdav", |ctx, request, responder| {
+            use tauri::Manager;
+            let conns = ctx.app_handle().state::<webdav::commands::Conns>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                let range = request.headers().get("range").and_then(|v| v.to_str().ok()).map(str::to_string);
+                let r = webdav::proxy::serve(&conns, request.method().as_str(), request.uri().path(), range.as_deref()).await;
+                let mut b = tauri::http::Response::builder().status(r.status);
+                for (k, v) in r.headers {
+                    b = b.header(k, v);
+                }
+                if let Ok(resp) = b.body(r.body) {
+                    responder.respond(resp);
+                }
+            });
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(platform::plugin())
         .invoke_handler(tauri::generate_handler![
@@ -130,13 +150,18 @@ pub fn run() {
             webdav::commands::dav_list,
             webdav::commands::dav_stat,
             webdav::commands::dav_mkdir,
-            webdav::commands::dav_put,
+            webdav::commands::dav_put_open,
+            webdav::commands::dav_put_chunk,
+            webdav::commands::dav_put_finish,
             webdav::commands::dav_move,
             webdav::commands::dav_copy,
             webdav::commands::dav_remove,
             webdav::commands::dav_size,
             webdav::commands::dav_download,
-            webdav::commands::dav_cancel
+            webdav::commands::dav_cancel,
+            webdav::commands::dav_cred_info,
+            webdav::commands::dav_cred_set,
+            webdav::commands::dav_cred_clear
         ])
         .run(tauri::generate_context!())
         .expect("fixplor を起動できませんでした");

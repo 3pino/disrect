@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDavFs, davUrl, type DavProgress } from './webdav';
+import { createDavFs, davProxyUrl, type DavProgress } from './webdav';
 import { FsError, type DavEntry } from './types';
 import type { Call } from './call';
 
 const BASE = 'https://h.example/dav/';
+const ID = 'place-1';
 
 const raw = (name: string, over: Partial<DavEntry> = {}): DavEntry => ({
   name,
@@ -33,7 +34,7 @@ function fake(reply: (cmd: string, args: unknown, headers?: Record<string, strin
 
 function make(reply?: Parameters<typeof fake>[0], extra: Partial<Parameters<typeof createDavFs>[0]> = {}) {
   const f = fake(reply);
-  const fs = createDavFs({ base: BASE, call: f.call, onProgress: async () => () => {}, ...extra });
+  const fs = createDavFs({ id: ID, base: BASE, proxySrc: (p) => `proxy://x/${p}`, call: f.call, onProgress: async () => () => {}, ...extra });
   return { ...f, fs };
 }
 
@@ -50,7 +51,7 @@ describe('一覧', () => {
     let show = false;
     const { fs, calls } = make(() => [raw('a'), raw('.h', { hidden: true })], { showHidden: () => show });
     expect((await fs.api.list('x/y')).map((e) => e.name)).toEqual(['a']);
-    expect(calls[0]).toMatchObject({ cmd: 'dav_list', args: { base: BASE, path: 'x/y' } });
+    expect(calls[0]).toMatchObject({ cmd: 'dav_list', args: { place: ID, base: BASE, path: 'x/y' } });
     show = true;
     expect((await fs.api.list('x/y')).map((e) => e.name)).toEqual(['a', '.h']);
   });
@@ -68,29 +69,55 @@ describe('一覧', () => {
 });
 
 describe('書き込み（黙って上書きしない）', () => {
-  it('一覧に無かったパスへの書き込みは「作成」（If-Match を付けない）。中身はバイト列で、パスは符号化して送る', async () => {
-    const { fs, calls } = make((cmd) => (cmd === 'dav_put' ? raw('新 規.txt', { path: '新 規.txt' }) : undefined));
+  const opens = (calls: Rec[]) => calls.filter((c) => c.cmd === 'dav_put_open').map((c) => c.args as { ifMatch: string | null; size: number; job: string; path: string });
+
+  it('一覧に無かったパスへの書き込みは「作成」（ETag なし）。open・chunk・finish の順で、中身はバイト列、job は同じもの', async () => {
+    const { fs, calls } = make((cmd) => (cmd === 'dav_put_finish' ? raw('新 規.txt', { path: '新 規.txt' }) : undefined));
     await fs.api.write('新 規.txt', 'abc');
-    const put = calls.find((c) => c.cmd === 'dav_put')!;
-    expect(put.args).toEqual(new TextEncoder().encode('abc'));
-    expect(put.headers).toEqual({ 'x-base': encodeURIComponent(BASE), 'x-path': encodeURIComponent('新 規.txt') });
+    expect(calls.map((c) => c.cmd)).toEqual(['dav_put_open', 'dav_put_chunk', 'dav_put_finish']);
+    const [open] = opens(calls);
+    expect(open).toEqual({ place: ID, base: BASE, path: '新 規.txt', size: 3, ifMatch: null, job: expect.any(String) });
+    expect(calls[1].args).toEqual(new TextEncoder().encode('abc'));
+    expect(calls[1].headers).toEqual({ 'x-job': encodeURIComponent(open.job) });
+    expect(calls[2].args).toEqual({ job: open.job });
   });
 
-  it('一覧で読んだ ETag があるパスへの書き込みは、その ETag を If-Match に付ける（上書き）', async () => {
+  it('大きいファイルは、4 MiB ずつ順に流す（全体を一度にメモリへ載せない）。空のファイルは chunk なし', async () => {
+    const { fs, calls } = make((cmd) => (cmd === 'dav_put_finish' ? raw('big') : undefined));
+    await fs.api.write('big', new Blob([new Uint8Array(9 * 1024 * 1024)]));
+    const sizes = calls.filter((c) => c.cmd === 'dav_put_chunk').map((c) => (c.args as Uint8Array).length);
+    expect(sizes).toEqual([4 * 1024 * 1024, 4 * 1024 * 1024, 1024 * 1024]);
+    expect(opens(calls)[0].size).toBe(9 * 1024 * 1024);
+    const empty = make((cmd) => (cmd === 'dav_put_finish' ? raw('e') : undefined));
+    await empty.fs.api.write('e', '');
+    expect(empty.calls.map((c) => c.cmd)).toEqual(['dav_put_open', 'dav_put_finish']);
+  });
+
+  it('途中で送れなくなったら、サーバーの本当の答え（dav_put_finish の失敗）を返す', async () => {
+    const { fs, calls } = make((cmd) => {
+      if (cmd === 'dav_put_chunk') return Object.assign(new Error('x'), { code: 'io', message: '送信が止まりました' });
+      if (cmd === 'dav_put_finish') return Object.assign(new Error('x'), { code: 'exists', message: '同名' });
+      return undefined;
+    });
+    await expect(fs.api.write('a', 'x')).rejects.toMatchObject({ code: 'exists' });
+    expect(calls.map((c) => c.cmd)).toEqual(['dav_put_open', 'dav_put_chunk', 'dav_put_finish']);
+  });
+
+  it('一覧で読んだ ETag があるパスへの書き込みは、その ETag を ifMatch に付ける（上書き）', async () => {
     const { fs, calls } = make((cmd) => (cmd === 'dav_list' ? [raw('a.txt', { etag: '5-abc' })] : raw('a.txt', { etag: '6-def' })));
     await fs.api.list('');
     await fs.api.write('a.txt', new Blob(['hello']));
-    expect(calls.find((c) => c.cmd === 'dav_put')!.headers).toMatchObject({ 'x-if-match': encodeURIComponent('5-abc') });
+    expect(opens(calls)[0].ifMatch).toBe('5-abc');
     // 書いた結果の ETag を覚える（続けて上書きできる）
     await fs.api.write('a.txt', 'again');
-    expect(calls.filter((c) => c.cmd === 'dav_put')[1].headers).toMatchObject({ 'x-if-match': encodeURIComponent('6-def') });
+    expect(opens(calls)[1].ifMatch).toBe('6-def');
   });
 
   it('ETag を返さないサーバーのファイルは、一覧のあとでも「作成」になる（上書きは通さない）', async () => {
     const { fs, calls } = make((cmd) => (cmd === 'dav_list' ? [raw('a.txt', { etag: null })] : raw('a.txt', { etag: null })));
     await fs.api.list('');
     await fs.api.write('a.txt', 'x');
-    expect(calls.find((c) => c.cmd === 'dav_put')!.headers).not.toHaveProperty('x-if-match');
+    expect(opens(calls)[0].ifMatch).toBeNull();
   });
 
   it('消した・移したパスの ETag は忘れる（同じ名前の新しいファイルを、古い ETag で上書きしない）', async () => {
@@ -100,13 +127,11 @@ describe('書き込み（黙って上書きしない）', () => {
     await fs.api.remove!('dir');
     await fs.api.write('a.txt', '1');
     await fs.api.write('dir/b.txt', '2');
-    const puts = calls.filter((c) => c.cmd === 'dav_put');
-    expect(puts[0].headers).not.toHaveProperty('x-if-match');
-    expect(puts[1].headers).not.toHaveProperty('x-if-match');
+    expect(opens(calls).map((o) => o.ifMatch)).toEqual([null, null]);
   });
 
   it('読んだあとに相手が変わっていた（precondition）は、そのまま失敗として返る', async () => {
-    const { fs } = make((cmd) => (cmd === 'dav_put' ? Object.assign(new Error('412'), { code: 'precondition' }) : undefined));
+    const { fs } = make((cmd) => (cmd === 'dav_put_finish' ? Object.assign(new Error('412'), { code: 'precondition' }) : undefined));
     await expect(fs.api.write('a', 'x')).rejects.toMatchObject({ code: 'precondition' });
   });
 });
@@ -120,18 +145,18 @@ describe('操作', () => {
     await fs.api.copy('a', 'b');
     await fs.api.copy('a', 'b', true);
     expect(calls.map((c) => [c.cmd, c.args])).toEqual([
-      ['dav_mkdir', { base: BASE, path: 'd' }],
-      ['dav_move', { base: BASE, from: 'a', to: 'b', overwrite: false }],
-      ['dav_move', { base: BASE, from: 'a', to: 'b', overwrite: true }],
-      ['dav_copy', { base: BASE, from: 'a', to: 'b', overwrite: false }],
-      ['dav_copy', { base: BASE, from: 'a', to: 'b', overwrite: true }],
+      ['dav_mkdir', { place: ID, base: BASE, path: 'd' }],
+      ['dav_move', { place: ID, base: BASE, from: 'a', to: 'b', overwrite: false }],
+      ['dav_move', { place: ID, base: BASE, from: 'a', to: 'b', overwrite: true }],
+      ['dav_copy', { place: ID, base: BASE, from: 'a', to: 'b', overwrite: false }],
+      ['dav_copy', { place: ID, base: BASE, from: 'a', to: 'b', overwrite: true }],
     ]);
   });
 
   it('削除は完全な削除（dav_remove）。ゴミ箱の口は使えない', async () => {
     const { fs, calls } = make();
     await fs.api.remove!('a');
-    expect(calls[0]).toMatchObject({ cmd: 'dav_remove', args: { base: BASE, path: 'a' } });
+    expect(calls[0]).toMatchObject({ cmd: 'dav_remove', args: { place: ID, base: BASE, path: 'a' } });
     for (const f of [() => fs.api.trash('a'), () => fs.api.restore('x'), () => fs.api.purge('x')]) {
       await expect(f()).rejects.toMatchObject({ code: 'unsupported' });
     }
@@ -163,13 +188,14 @@ describe('送る（進み具合・中止）', () => {
   it('自分の job の進みだけを割合にして知らせ、終わったら受け取りをやめる', async () => {
     const pr = withProgress();
     let job = '';
-    const { fs } = make((cmd, _a, h) => {
-      if (cmd !== 'dav_put') return undefined;
-      job = decodeURIComponent(h!['x-job']);
+    const { fs } = make((cmd, a) => {
+      if (cmd === 'dav_put_finish') return raw('f.bin');
+      if (cmd !== 'dav_put_open') return undefined;
+      job = (a as { job: string }).job;
       pr.emit({ job: 'someone-else', done: 99, total: 100 });
       pr.emit({ job, done: 25, total: 100 });
       pr.emit({ job, done: 100, total: 100 });
-      return raw('f.bin');
+      return undefined;
     }, { onProgress: pr.onProgress });
     const seen: number[] = [];
     await fs.api.upload('f.bin', new Blob(['x']), (r) => seen.push(r)).promise;
@@ -184,17 +210,37 @@ describe('送る（進み具合・中止）', () => {
     expect(pr.stopped()).toBe(1);
   });
 
-  it('abort は、送っている job を中止する（dav_cancel）', async () => {
-    let release: (v: DavEntry) => void = () => {};
-    const { fs, calls } = make((cmd) => (cmd === 'dav_put' ? new Promise((r) => (release = r)) : true));
-    const h = fs.api.upload('a', new Blob(['x']));
-    await vi.waitFor(() => expect(calls.some((c) => c.cmd === 'dav_put')).toBe(true));
+  it('abort は、送っている job を中止する（dav_cancel）。止まったら、続きの中身は送らず、結果は aborted', async () => {
+    let release: () => void = () => {};
+    const { fs, calls } = make((cmd) => {
+      if (cmd === 'dav_put_chunk') return new Promise<void>((r) => (release = r));
+      if (cmd === 'dav_put_finish') return Object.assign(new Error('x'), { code: 'aborted' });
+      return true;
+    });
+    const h = fs.api.upload('a', new Blob([new Uint8Array(9 * 1024 * 1024)]));
+    await vi.waitFor(() => expect(calls.some((c) => c.cmd === 'dav_put_chunk')).toBe(true));
     h.abort();
-    const put = calls.find((c) => c.cmd === 'dav_put')!;
-    const cancel = calls.find((c) => c.cmd === 'dav_cancel')!;
-    expect((cancel.args as { job: string }).job).toBe(decodeURIComponent(put.headers!['x-job']));
-    release(raw('a'));
-    await h.promise;
+    const open = calls.find((c) => c.cmd === 'dav_put_open')!.args as { job: string };
+    expect((calls.find((c) => c.cmd === 'dav_cancel')!.args as { job: string }).job).toBe(open.job);
+    release();
+    await expect(h.promise).rejects.toMatchObject({ code: 'aborted' });
+    expect(calls.filter((c) => c.cmd === 'dav_put_chunk')).toHaveLength(1);
+  });
+
+  it('接続の最中に中止されたら、開き終わった時点でもう一度中止を伝える（取っ手が間に合わなくても止まる）。中身は送らない', async () => {
+    let release: () => void = () => {};
+    const { fs, calls } = make((cmd) => {
+      if (cmd === 'dav_put_open') return new Promise<void>((r) => (release = r));
+      if (cmd === 'dav_put_finish') return Object.assign(new Error('x'), { code: 'aborted' });
+      return true;
+    });
+    const h = fs.api.upload('a', new Blob(['x']));
+    await vi.waitFor(() => expect(calls.some((c) => c.cmd === 'dav_put_open')).toBe(true));
+    h.abort();
+    release();
+    await expect(h.promise).rejects.toMatchObject({ code: 'aborted' });
+    expect(calls.filter((c) => c.cmd === 'dav_cancel')).toHaveLength(2);
+    expect(calls.some((c) => c.cmd === 'dav_put_chunk')).toBe(false);
   });
 
   it('送り始める前に中止したら、送らない', async () => {
@@ -202,30 +248,50 @@ describe('送る（進み具合・中止）', () => {
     const h = fs.api.upload('a', new Blob(['x']));
     h.abort();
     await expect(h.promise).rejects.toMatchObject({ code: 'aborted' });
-    expect(calls.some((c) => c.cmd === 'dav_put')).toBe(false);
+    expect(calls.some((c) => c.cmd === 'dav_put_open')).toBe(false);
   });
 });
 
 describe('見る・開く', () => {
-  it('画像は、接続先の URL（段ごとに符号化）を直接渡す。画像でないものの縮小版は無い', () => {
+  it('画像・PDF は、Rust の中継（fixdav）の URL で読む。置き場所の id・接続先・パスを段ごとに符号化し、更新日時と大きさを付ける。画像でないものの縮小版は無い', () => {
     const { fs } = make();
-    const img = { name: 'p q.png', path: 'a b/p q.png', kind: 'file' as const, size: 1, modified: 0, mime: 'image/png' };
-    expect(fs.urls.thumbUrl(img)).toBe('https://h.example/dav/a%20b/p%20q.png');
-    expect(fs.urls.readUrl(img)).toBe('https://h.example/dav/a%20b/p%20q.png');
+    const img = { name: 'p q.png', path: 'a b/p q.png', kind: 'file' as const, size: 1, modified: 7, mime: 'image/png' };
+    const url = `proxy://x/${ID}/${encodeURIComponent(BASE)}/a%20b/p%20q.png?v=7-1`;
+    expect(fs.urls.thumbUrl(img)).toBe(url);
+    expect(fs.urls.readUrl(img)).toBe(url);
     expect(fs.urls.thumbUrl({ ...img, name: 'a.txt', path: 'a.txt', mime: 'text/plain' })).toBeNull();
     expect(fs.urls.thumbUrl({ ...img, kind: 'dir' })).toBeNull();
+    const pdf = { ...img, name: 'd.pdf', path: 'd.pdf', mime: 'application/pdf' };
+    expect(fs.urls.pdfSource(pdf)).toEqual({ url: `proxy://x/${ID}/${encodeURIComponent(BASE)}/d.pdf?v=7-1`, key: `${ID}:d.pdf:7:1` });
+    expect(fs.urls.pdfSource({ ...pdf, size: 51 * 1024 * 1024 })).toBeNull();
     expect(fs.urls.pdfSource(img)).toBeNull();
   });
 
-  it('davUrl は、接続先の末尾の / の有無に依らず、日本語・記号も符号化する', () => {
-    expect(davUrl('https://h/dav', '日本/a#b')).toBe('https://h/dav/%E6%97%A5%E6%9C%AC/a%23b');
-    expect(davUrl('https://h/dav/', '')).toBe('https://h/dav/');
+  it('表示の URL から、元のパスをたどれる（拡大表示の「保存」で、既定のアプリで開く）。作っていない URL は分からない', () => {
+    const { fs } = make();
+    const url = fs.urls.readUrl({ name: 'a.png', path: 'x/a.png', kind: 'file', size: 1, modified: 0, mime: null })!;
+    expect(fs.sources.pathOf(url)).toBe('x/a.png');
+    expect(fs.sources.pathOf('proxy://other')).toBeNull();
+  });
+
+  it('davProxyUrl: 日本語・記号・空の段も崩れない（Rust の parse_path が元に戻す形）', () => {
+    expect(davProxyUrl('id', 'https://h/dav', '日本/a#b?c', 'v', (p) => `s://${p}`)).toBe(`s://id/${encodeURIComponent('https://h/dav')}/${encodeURIComponent('日本')}/a%23b%3Fc?v=v`);
+  });
+
+  it('認証が通らなかったら（auth）、知らせる口を呼んで、失敗はそのまま返す。ほかの失敗では呼ばない', async () => {
+    const onAuthError = vi.fn();
+    const bad = make(() => Object.assign(new Error('x'), { code: 'auth' }), { onAuthError });
+    await expect(bad.fs.api.list('')).rejects.toMatchObject({ code: 'auth' });
+    expect(onAuthError).toHaveBeenCalledTimes(1);
+    const off = make(() => Object.assign(new Error('x'), { code: 'offline' }), { onAuthError });
+    await expect(off.fs.api.list('')).rejects.toMatchObject({ code: 'offline' });
+    expect(onAuthError).toHaveBeenCalledTimes(1);
   });
 
   it('開く: 一時のフォルダへ受け取ってから、その場所を既定のアプリで開く', async () => {
     const { fs, calls } = make((cmd) => (cmd === 'dav_download' ? '/tmp/fixplor-dav/x/a.pdf' : undefined));
     await fs.open('docs/a.pdf');
-    expect(calls[0]).toMatchObject({ cmd: 'dav_download', args: { base: BASE, path: 'docs/a.pdf' } });
+    expect(calls[0]).toMatchObject({ cmd: 'dav_download', args: { place: ID, base: BASE, path: 'docs/a.pdf' } });
     expect(calls[1]).toMatchObject({ cmd: 'fs_open', args: { path: '/tmp/fixplor-dav/x/a.pdf' } });
   });
 

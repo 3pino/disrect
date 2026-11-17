@@ -1,9 +1,12 @@
-import { isImageName, type ConfirmOptions, type ExplorerHost, type ToastAction, type ToastKind } from '@3pino/explorer-kit';
+import { basicViewerKind, isImageName, type ConfirmOptions, type ExplorerHost, type ToastAction, type ToastKind, type ViewerItem } from '@3pino/explorer-kit';
 import { copyText } from '@3pino/app-kit-web/core/clipboard';
 import { osName } from '@3pino/app-kit-web/core/platform';
 import { Shell } from '@3pino/app-kit-web/shell';
+import PdfThumb from '@3pino/viewer-kit-web/viewers/PdfThumb.svelte';
+import type { LightboxItem } from '@3pino/viewer-kit-web/viewers/types';
 import { errorText } from './labels';
-import { pathOfOpenHref, type LocalFs } from './fs/local';
+import { openHref, pathOfOpenHref } from './fs/local';
+import type { Sources } from './fs/sources';
 import { FsError } from './fs/types';
 
 // 共有の部品（エクスプローラー）へ貸す、本体の機能: 通知・確認・「戻る」・ファイルを開く・クリップボード・この端末の種類。
@@ -14,7 +17,7 @@ import { FsError } from './fs/types';
  * 通知と確認の表示は、土台の Toasts.svelte・ConfirmDialog.svelte が `shell` を読んで出す。
  */
 export class HostState {
-  readonly shell = new Shell();
+  readonly shell = new Shell<unknown, LightboxItem>();
 
   toast(text: string, kind: ToastKind = 'info', action?: ToastAction): number {
     return this.shell.toast(text, kind, action);
@@ -50,27 +53,40 @@ export function failureText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export function createHost(state: HostState, local: Pick<LocalFs, 'open'>): ExplorerHost {
-  /** 項目を、OS の既定のアプリで開く */
-  const openExternally = async (req: { url: string; name: string }): Promise<void> => {
+/** 置き場所が、ファイルを開く・表示の URL から元のパスをたどる口 */
+export type OpenSource = { open: (path: string) => Promise<void>; sources: Sources };
+
+/** 項目を、既定のアプリで開く（OS の既定のアプリ・ネットワークの場所は受け取ってから）。開けなければ知らせる */
+export function externalOpener(state: HostState, fs: Pick<OpenSource, 'open'>): (req: { url: string; name: string }) => Promise<void> {
+  return async (req) => {
     const path = pathOfOpenHref(req.url);
     if (path === null) return;
     try {
-      await local.open(path);
+      await fs.open(path);
     } catch (e) {
       state.toast(`「${req.name}」を開けませんでした: ${failureText(e)}`, 'error');
     }
+  };
+}
+
+export function createHost(state: HostState, fs: OpenSource): ExplorerHost {
+  const openExternally = externalOpener(state, fs);
+  /** 拡大表示の「保存」は、既定のアプリで開く（表示の URL ではなく、項目のパスで） */
+  const forViewer = (item: ViewerItem): LightboxItem => {
+    const path = fs.sources.pathOf(item.src);
+    return { ...item, downloadUrl: path === null ? item.downloadUrl : openHref(path) };
   };
   return {
     toast: (text, kind, action) => state.toast(text, kind, action),
     confirm: (opts) => state.confirm(opts),
     addBack: (run) => state.addBack(run),
-    // 拡大表示は、まだ持たない（viewerKind が null を返すので呼ばれない）。ファイルは OS の既定のアプリで開く
-    openViewer: () => {},
-    viewerKind: () => null,
+    // 写真・PDF は、拡大表示（土台の viewer-kit-web）で見る。ほかのファイルは、既定のアプリで開く
+    openViewer: (item, gallery) => state.shell.openLightbox(forViewer(item), () => gallery().map(forViewer)),
+    viewerKind: basicViewerKind,
     isImage: isImageName,
     errorText: failureText,
     log: (level, text) => console[level](text),
+    PdfThumb,
     platform: {
       // このアプリは常に Tauri の中（試験では WebView の内部オブジェクトが無いので、判定に任せない）
       isTauri: () => true,

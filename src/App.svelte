@@ -13,10 +13,14 @@
   import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
   import { isBackKey } from '@3pino/app-kit-web/core/backNav';
   import PlaceDialog from './components/PlaceDialog.svelte';
+  import Lightbox from './components/Lightbox.svelte';
   import { createLocalFs, type LocalFs } from './lib/fs/local';
   import { createDavFs } from './lib/fs/webdav';
-  import type { FsPlace } from './lib/fs/types';
-  import { HostState, createHost, failureText } from './lib/host.svelte';
+  import { createCreds, type CredInfo } from './lib/fs/creds';
+  import Button from '@3pino/ui-kit-web/Button.svelte';
+  import { FsError, type FsPlace } from './lib/fs/types';
+  import type { Sources } from './lib/fs/sources';
+  import { HostState, createHost, externalOpener, failureText } from './lib/host.svelte';
   import { placeLabel } from './lib/labels';
   import { places as saved, type DavPlace } from './lib/places.svelte';
   import { settings } from './lib/settings.svelte';
@@ -26,7 +30,7 @@
   // 外枠の見た目は仮（利用者の確認を取っていない）。
   const host = new HostState();
   /** 開いている（または開いたことのある）置き場所。切り替えても、開いていたフォルダ・選びを保つ */
-  type Bundle = { id: string; explorer: Explorer; local?: LocalFs; dav?: { base: string } };
+  type Bundle = { id: string; explorer: Explorer; open: (req: { url: string; name: string }) => Promise<void>; local?: LocalFs; dav?: { base: string } };
   const LOCAL = 'local';
   const bundles = new Map<string, Bundle>();
   let current = $state.raw<Bundle | null>(null);
@@ -36,12 +40,15 @@
   let failed = $state('');
   /** 場所の欄に打っている文字（開いているフォルダが変わったら、それに合わせる） */
   let address = $state('');
-  let dialog = $state.raw<{ place?: DavPlace } | null>(null);
+  let dialog = $state.raw<{ place?: DavPlace; cred?: CredInfo | null; credError?: string; focusPassword?: boolean } | null>(null);
+  /** 認証が通らなかった置き場所（401）。入れ直してもらうまで、案内を出す */
+  let authFailed = $state.raw<Record<string, true>>({});
+  const creds = createCreds();
 
   const explorer = $derived(current?.explorer ?? null);
   const viewStore = { read: () => settings.dirs, write: (map: unknown) => (settings.dirs = map) };
 
-  function makeBundle(id: string, parts: { api: ExplorerApi; urls: EntryUrls; rules: Rules; open: (path: string) => Promise<void>; isMissing: (e: unknown) => boolean }, extra: Pick<Parameters<typeof createExplorer>[0], 'caps' | 'labels'>): Explorer {
+  function makeBundle(id: string, parts: { api: ExplorerApi; urls: EntryUrls; rules: Rules; open: (path: string) => Promise<void>; sources: Sources; isMissing: (e: unknown) => boolean }, extra: Pick<Parameters<typeof createExplorer>[0], 'caps' | 'labels'>): Explorer {
     return createExplorer({
       api: parts.api,
       urls: parts.urls,
@@ -69,7 +76,7 @@
           labels: { root: fs.windows ? 'PC' : 'コンピューター', upload: 'ファイルを取り込む' },
         });
         made.nav.dir = fs.start;
-        current = remember({ id: LOCAL, explorer: made, local: fs });
+        current = remember({ id: LOCAL, explorer: made, open: externalOpener(host, fs), local: fs });
         places = await fs.places();
       } catch (e) {
         failed = failureText(e);
@@ -86,10 +93,10 @@
   function openDav(p: DavPlace): void {
     let b = bundles.get(p.id);
     if (!b) {
-      const fs = createDavFs({ base: p.url, showHidden: () => settings.showHidden });
+      const fs = createDavFs({ id: p.id, base: p.url, showHidden: () => settings.showHidden, onAuthError: () => (authFailed = { ...authFailed, [p.id]: true }) });
       // ゴミ箱は無い。削除は、確認のうえ完全に削除する
       const made = makeBundle(p.id, fs, { caps: { restore: false, trash: false }, labels: { root: p.name, upload: 'ファイルを取り込む' } });
-      b = remember({ id: p.id, explorer: made, dav: { base: p.url } });
+      b = remember({ id: p.id, explorer: made, open: externalOpener(host, fs), dav: { base: p.url } });
     }
     current = b;
   }
@@ -107,13 +114,43 @@
     bundles.delete(id);
     const { [id]: _gone, ...rest } = known;
     known = rest;
+    const { [id]: _ok, ...stillFailed } = authFailed;
+    authFailed = stillFailed;
     if (current?.id === id) current = bundles.get(LOCAL) ?? null;
   }
 
-  function saveDialog(name: string, url: string): string | null {
+  /** 追加・直すのダイアログを開く。直すときは、保管している資格情報（ユーザー名）を先に読む（読めなくても開く） */
+  async function openDialog(place?: DavPlace, focusPassword = false): Promise<void> {
+    if (!place) {
+      dialog = {};
+      return;
+    }
+    try {
+      dialog = { place, cred: await creds.info(place.id), focusPassword };
+    } catch (e) {
+      dialog = { place, cred: null, credError: errorMessage(e), focusPassword };
+    }
+  }
+
+  /** ダイアログに出す失敗の文（Rust が日本語で書いた説明があるものは、それを出す） */
+  function errorMessage(e: unknown): string {
+    return e instanceof FsError && (e.code === 'keychain' || e.code === 'invalid') ? e.message : failureText(e);
+  }
+
+  async function saveDialog(name: string, url: string, cred: { user: string; password: string | null } | null): Promise<string | null> {
     const editing = dialog?.place;
+    const hadCred = dialog?.cred != null;
     const r = editing ? saved.update(editing.id, name, url) : saved.add(name, url);
     if (!r.ok) return r.reason;
+    try {
+      if (cred) await creds.set(r.place.id, r.place.url, cred.user, cred.password);
+      else if (hadCred) await creds.clear(r.place.id);
+    } catch (e) {
+      // 資格情報を保管できなかったので、置き場所の覚えも元に戻す（認証のない置き場所に見えてしまわないように）
+      if (editing) saved.update(editing.id, editing.name, editing.url);
+      else saved.remove(r.place.id);
+      return errorMessage(e);
+    }
     dialog = null;
     if (editing) {
       const wasCurrent = current?.id === editing.id;
@@ -131,13 +168,15 @@
     if (!p) return;
     const ok = await host.confirm({
       title: `「${p.name}」を一覧から外しますか`,
-      body: 'この端末の覚えを消すだけです。サーバーのファイルは消えません',
+      body: 'この端末の覚え（と、保管した認証情報）を消すだけです。サーバーのファイルは消えません',
       okLabel: '外す',
       danger: true,
     });
     if (!ok) return;
     saved.remove(p.id);
     forget(p.id);
+    // 保管した資格情報も消す（キーチェーンが使えなくても、外すこと自体は止めない）
+    await creds.clear(p.id).catch(() => {});
   }
 
   /** 左の一覧の項目に出す、つながらなかった印（開いた置き場所の、いちばん上の一覧が読めなかったとき） */
@@ -190,7 +229,7 @@
         {/each}
         <div class="places-head">
           <span class="places-title">ネットワーク</span>
-          <IconButton label="ネットワークの場所を追加" title="ネットワークの場所を追加" onclick={() => (dialog = {})}><Plus size={16} /></IconButton>
+          <IconButton label="ネットワークの場所を追加" title="ネットワークの場所を追加" onclick={() => void openDialog()}><Plus size={16} /></IconButton>
         </div>
         {#each saved.list as p (p.id)}
           {@const why = broken(p.id)}
@@ -198,11 +237,18 @@
             <button class="menu-item place-open" type="button" aria-current={current.id === p.id ? 'page' : undefined} title={why ? `つながりません: ${why}` : p.url} onclick={() => openDav(p)}>
               {p.name}{#if why}<span class="place-broken" role="img" aria-label="つながりません">!</span>{/if}
             </button>
-            <IconButton label={`「${p.name}」を直す`} title="直す・外す" onclick={() => (dialog = { place: p })}><Pencil size={14} /></IconButton>
+            <IconButton label={`「${p.name}」を直す`} title="直す・外す" onclick={() => void openDialog(p)}><Pencil size={14} /></IconButton>
           </div>
         {/each}
       </nav>
       <main class="main">
+        {#if authFailed[current.id] && saved.get(current.id)}
+          {@const place = saved.get(current.id)!}
+          <p class="status-line status-line-error auth-banner" role="alert">
+            <span>認証できませんでした。ユーザー名とパスワードを確かめてください。</span>
+            <Button onclick={() => void openDialog(place, true)}>認証情報を入れ直す</Button>
+          </p>
+        {/if}
         {#key current}
           <FileExplorer {explorer} />
         {/key}
@@ -213,8 +259,9 @@
 
 <Toasts toasts={host.shell.toasts} dismiss={(id) => host.dismiss(id)} />
 <ConfirmDialog request={host.shell.confirmReq} />
+<Lightbox {host} open={(req) => current?.open(req) ?? Promise.resolve()} />
 {#if dialog}
-  <PlaceDialog place={dialog.place} onsave={saveDialog} onremove={dialog.place ? () => void removeDialog() : undefined} onclose={() => (dialog = null)} />
+  <PlaceDialog place={dialog.place} saved={dialog.cred} savedError={dialog.credError} focusPassword={dialog.focusPassword} onsave={saveDialog} onremove={dialog.place ? () => void removeDialog() : undefined} onclose={() => (dialog = null)} />
 {/if}
 
 <style>
@@ -290,6 +337,13 @@
     margin-left: var(--space-2);
     color: var(--danger);
     font-weight: bold;
+  }
+  .auth-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin: 0;
   }
   .main {
     display: flex;

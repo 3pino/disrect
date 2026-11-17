@@ -5,6 +5,7 @@ import { flushSync, mount, unmount } from 'svelte';
 import { injectedPlatform, isAndroid, osName } from '@3pino/app-kit-web/core/platform';
 import Toasts from '@3pino/app-kit-web/shell/Toasts.svelte';
 import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
+import { createSources } from './fs/sources';
 import { PLATFORM_GLOBAL } from './platformGlobal';
 import { HostState, createHost } from './host.svelte';
 import { settings } from './settings.svelte';
@@ -34,14 +35,14 @@ describe('Rust が入れるデバイスの事実', () => {
 
   it('共有の部品へ貸す platform は、土台の判定を使う', () => {
     g[PLATFORM_GLOBAL] = { os: 'linux', desktop: true, android: false, capabilities: null };
-    const host = createHost(new HostState(), { open: async () => {} });
+    const host = createHost(new HostState(), { open: async () => {}, sources: createSources() });
     expect(host.platform.osName()).toBe('linux');
   });
 
   it('文字のコピーは、クリップボードへ書く', async () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    const host = createHost(new HostState(), { open: async () => {} });
+    const host = createHost(new HostState(), { open: async () => {}, sources: createSources() });
     expect(await host.clipboard.copyText('abc')).toBe(true);
     expect(writeText).toHaveBeenCalledWith('abc');
   });

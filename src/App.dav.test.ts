@@ -7,7 +7,8 @@ import { flushSync, mount, unmount } from 'svelte';
 const fake = vi.hoisted(() => {
   const dav = new Map<string, { kind: 'file' | 'dir'; etag: string }>();
   const calls: [string, unknown, Record<string, string> | undefined][] = [];
-  const state = { offline: false };
+  const state = { offline: false, auth: false, credFail: false };
+  const creds = new Map<string, { user: string; base: string }>();
   const rawOf = (path: string) => ({
     name: path.slice(path.lastIndexOf('/') + 1), path, kind: dav.get(path)!.kind, size: dav.get(path)!.kind === 'dir' ? null : 4,
     modified: 1_700_000_000_000, hidden: false, mime: null, etag: dav.get(path)!.etag,
@@ -19,7 +20,16 @@ const fake = vi.hoisted(() => {
       case 'fs_start_dir': return '/home/me';
       case 'fs_places': return [{ kind: 'home', path: '/home/me', name: '' }];
       case 'fs_list': return [{ name: 'local.txt', path: '/home/me/local.txt', kind: 'file', size: 1, modified: 0, hidden: false, readonly: false, symlink: false }];
+      case 'dav_cred_info':
+        if (state.credFail) throw { code: 'keychain', message: 'キーチェーンが使えません: 試験' };
+        return creds.get(args!.place) ?? null;
+      case 'dav_cred_set':
+        if (state.credFail) throw { code: 'keychain', message: 'キーチェーンが使えません: 試験' };
+        creds.set(args!.place, { user: args!.user, base: args!.base });
+        return null;
+      case 'dav_cred_clear': creds.delete(args!.place); return null;
       case 'dav_list':
+        if (state.auth) throw { code: 'auth', message: 'サーバーが 401 を返しました' };
         if (state.offline) throw { code: 'offline', message: '接続できません: connection refused' };
         return [...dav.keys()].filter((p) => parent(p) === args!.path && p !== '').map(rawOf);
       case 'dav_remove': dav.delete(args!.path); return null;
@@ -27,9 +37,9 @@ const fake = vi.hoisted(() => {
       default: throw { code: 'unsupported', message: cmd };
     }
   };
-  return { dav, calls, state, invoke };
+  return { dav, calls, state, creds, invoke };
 });
-vi.mock('@tauri-apps/api/core', () => ({ invoke: fake.invoke, convertFileSrc: (p: string) => `asset://${p}` }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: fake.invoke, convertFileSrc: (p: string, proto = 'asset') => `${proto}://localhost/${encodeURIComponent(p)}` }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 
 import App from './App.svelte';
@@ -54,6 +64,9 @@ beforeEach(() => {
   localStorage.clear();
   fake.calls.length = 0;
   fake.state.offline = false;
+  fake.state.auth = false;
+  fake.state.credFail = false;
+  fake.creds.clear();
   fake.dav.clear();
   for (const [p, k] of [['docs', 'dir'], ['docs/in.txt', 'file'], ['a.txt', 'file']] as const) fake.dav.set(p, { kind: k, etag: `e-${p}` });
   target = document.createElement('div');
@@ -99,7 +112,8 @@ describe('ネットワークの場所（WebDAV）', () => {
     await settle();
     await addPlace();
     expect(sideNames()).toEqual(['ホーム', '自宅']);
-    expect(called('dav_list')).toEqual([{ base: 'https://nas.example/dav/', path: '' }]);
+    expect(called('dav_list')).toEqual([{ place: places.list[0].id, base: 'https://nas.example/dav/', path: '' }]);
+    expect(called('dav_cred_set')).toEqual([]);
     expect(names()).toEqual(['docs', 'a.txt']);
     const addr = target.querySelector<HTMLInputElement>('input[aria-label="場所"]')!;
     expect(addr.value).toBe('https://nas.example/dav/');
@@ -129,7 +143,7 @@ describe('ネットワークの場所（WebDAV）', () => {
     expect(called('dav_list')).toEqual([]);
     button('職場').click();
     await settle();
-    expect(called('dav_list')).toEqual([{ base: 'https://work.example/webdav/', path: '' }]);
+    expect(called('dav_list')).toEqual([{ place: places.list[0].id, base: 'https://work.example/webdav/', path: '' }]);
   });
 
   it('フォルダを開く・この端末へ戻っても、それぞれ開いていた場所のまま', async () => {
@@ -168,7 +182,7 @@ describe('ネットワークの場所（WebDAV）', () => {
     expect(called('dav_remove')).toEqual([]);
     button('完全に削除').click();
     await settle();
-    expect(called('dav_remove')).toEqual([{ base: 'https://nas.example/dav/', path: 'a.txt' }]);
+    expect(called('dav_remove')).toEqual([{ place: places.list[0].id, base: 'https://nas.example/dav/', path: 'a.txt' }]);
     expect(called('fs_trash')).toEqual([]);
     expect(names()).toEqual(['docs']);
     const toast = document.querySelector('.toast')!;
@@ -206,7 +220,7 @@ describe('ネットワークの場所（WebDAV）', () => {
     submit();
     await settle();
     expect(sideNames()).toEqual(['ホーム', '実家']);
-    expect(called('dav_list').at(-1)).toEqual({ base: 'https://old.example/dav/', path: '' });
+    expect(called('dav_list').at(-1)).toEqual({ place: expect.any(String), base: 'https://old.example/dav/', path: '' });
 
     button('「実家」を直す').click();
     await settle();
@@ -232,5 +246,196 @@ describe('ネットワークの場所（WebDAV）', () => {
     button('キャンセル').click();
     await settle();
     expect(places.list).toHaveLength(1);
+  });
+});
+
+describe('認証（Basic・OS のキーチェーン）', () => {
+  const credSets = (): Record<string, unknown>[] => called('dav_cred_set') as Record<string, unknown>[];
+
+  it('ユーザー名とパスワードを付けて追加すると、パスワードは Rust（キーチェーン）へだけ渡る。この端末の覚えには、名前と URL だけ', async () => {
+    app = mount(App, { target });
+    await settle();
+    button('ネットワークの場所を追加').click();
+    await settle();
+    type('place-url', 'https://nas.example/dav');
+    type('place-name', '自宅');
+    type('place-user', 'taro');
+    await settle();
+    type('place-password', 's3cret');
+    await settle();
+    submit();
+    await settle();
+    expect(credSets()).toEqual([{ place: places.list[0].id, base: 'https://nas.example/dav/', user: 'taro', password: 's3cret' }]);
+    expect(localStorage.getItem('fixplor.places')).not.toMatch(/s3cret|taro/);
+    expect(JSON.stringify(Object.fromEntries(Object.entries(localStorage)))).not.toContain('s3cret');
+    expect(sideNames()).toEqual(['ホーム', '自宅']);
+    // 入力欄は伏せ字
+    button('「自宅」を直す').click();
+    await settle();
+    expect(document.getElementById('place-password')).toBeNull();
+  });
+
+  it('ユーザー名があるのにパスワードが空なら、保存しない', async () => {
+    app = mount(App, { target });
+    await settle();
+    button('ネットワークの場所を追加').click();
+    await settle();
+    type('place-url', 'https://nas.example/dav');
+    type('place-user', 'taro');
+    await settle();
+    expect((document.getElementById('place-password') as HTMLInputElement).type).toBe('password');
+    submit();
+    await settle();
+    expect(document.querySelector('.place-error')!.textContent).toContain('パスワード');
+    expect(places.list).toEqual([]);
+    expect(credSets()).toEqual([]);
+  });
+
+  it('キーチェーンが使えなければ、理由を出して保存しない（置き場所も覚えない。平文では残さない）', async () => {
+    fake.state.credFail = true;
+    app = mount(App, { target });
+    await settle();
+    button('ネットワークの場所を追加').click();
+    await settle();
+    type('place-url', 'https://nas.example/dav');
+    type('place-user', 'taro');
+    await settle();
+    type('place-password', 'pw');
+    await settle();
+    submit();
+    await settle();
+    expect(document.querySelector('.place-error')!.textContent).toContain('キーチェーンが使えません');
+    expect(places.list).toEqual([]);
+    expect(localStorage.getItem('fixplor.places')).toBe('[]');
+    expect(document.querySelector('.modal')).not.toBeNull();
+  });
+
+  it('直す: 保存済みならパスワードは見せず、「パスワードを変更」で入れ直す。変えなければ null（保管済みを使い続ける）', async () => {
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    fake.creds.set(p.place.id, { user: 'taro', base: 'https://nas.example/dav/' });
+    app = mount(App, { target });
+    await settle();
+    button('「自宅」を直す').click();
+    await settle();
+    expect((document.getElementById('place-user') as HTMLInputElement).value).toBe('taro');
+    expect(document.getElementById('place-password')).toBeNull();
+    expect(document.querySelector('.place-saved')!.textContent).toContain('保存済み');
+    // 名前だけ変える → パスワードは触らない
+    type('place-name', '実家');
+    submit();
+    await settle();
+    expect(credSets().at(-1)).toMatchObject({ user: 'taro', password: null });
+    // もう一度開いて「パスワードを変更」→ 新しい値を送る
+    button('「実家」を直す').click();
+    await settle();
+    button('パスワードを変更').click();
+    await settle();
+    type('place-password', 'new-pass');
+    await settle();
+    submit();
+    await settle();
+    expect(credSets().at(-1)).toMatchObject({ user: 'taro', password: 'new-pass' });
+  });
+
+  it('接続先（URL）を変えるときは、保管したパスワードを引き継がず、入れ直しを求める', async () => {
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    fake.creds.set(p.place.id, { user: 'taro', base: 'https://nas.example/dav/' });
+    app = mount(App, { target });
+    await settle();
+    button('「自宅」を直す').click();
+    await settle();
+    type('place-url', 'https://other.example/dav/');
+    await settle();
+    expect(document.getElementById('place-password')).not.toBeNull();
+    submit();
+    await settle();
+    expect(document.querySelector('.place-error')!.textContent).toContain('パスワード');
+    expect(credSets()).toEqual([]);
+  });
+
+  it('ユーザー名を空にして保存すると、保管した認証情報を消す。外すときも消す', async () => {
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    fake.creds.set(p.place.id, { user: 'taro', base: 'https://nas.example/dav/' });
+    app = mount(App, { target });
+    await settle();
+    button('「自宅」を直す').click();
+    await settle();
+    type('place-user', '');
+    submit();
+    await settle();
+    expect(called('dav_cred_clear')).toEqual([{ place: p.place.id }]);
+    expect(fake.creds.size).toBe(0);
+
+    fake.creds.set(p.place.id, { user: 'taro', base: 'https://nas.example/dav/' });
+    button('「自宅」を直す').click();
+    await settle();
+    button('一覧から外す').click();
+    await settle();
+    button('外す').click();
+    await settle();
+    expect(called('dav_cred_clear')).toHaveLength(2);
+    expect(fake.creds.size).toBe(0);
+  });
+
+  it('認証が通らない（401）と、案内を出す。「認証情報を入れ直す」でパスワード欄から始まり、保存すると開き直す', async () => {
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    fake.creds.set(p.place.id, { user: 'taro', base: 'https://nas.example/dav/' });
+    fake.state.auth = true;
+    app = mount(App, { target });
+    await settle();
+    button('自宅').click();
+    await settle();
+    const banner = document.querySelector('.auth-banner')!;
+    expect(banner.textContent).toContain('認証できませんでした');
+    expect(target.querySelector('.place-broken')).not.toBeNull();
+    button('認証情報を入れ直す').click();
+    await settle();
+    const pw = document.getElementById('place-password') as HTMLInputElement;
+    expect(pw).not.toBeNull();
+    type('place-password', 'right');
+    fake.state.auth = false;
+    await settle();
+    submit();
+    await settle();
+    expect(credSets().at(-1)).toMatchObject({ user: 'taro', password: 'right' });
+    expect(document.querySelector('.auth-banner')).toBeNull();
+    expect(names()).toEqual(['docs', 'a.txt']);
+  });
+
+  it('認証が要らない置き場所では、案内を出さない', async () => {
+    places.add('自宅', 'https://nas.example/dav/');
+    app = mount(App, { target });
+    await settle();
+    button('自宅').click();
+    await settle();
+    expect(document.querySelector('.auth-banner')).toBeNull();
+  });
+});
+
+describe('拡大表示（写真・PDF）', () => {
+  it('ネットワークの場所の画像は、Rust の中継（fixdav）の URL で表示する。開くと拡大表示になり、Esc で閉じる', async () => {
+    fake.dav.set('p.png', { kind: 'file', etag: 'e' });
+    places.add('自宅', 'https://nas.example/dav/');
+    app = mount(App, { target });
+    await settle();
+    button('自宅').click();
+    await settle();
+    // 開く
+    const r = [...target.querySelectorAll<HTMLElement>('.file-explorer-name-text')].find((n) => n.textContent === 'p.png')!.closest<HTMLElement>('.file-explorer-item')!;
+    r.querySelector<HTMLElement>('.file-explorer-row, a, button')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await settle();
+    expect(called('dav_download')).toEqual([]);
+    const view = document.querySelector('.lightbox')!;
+    expect(view).not.toBeNull();
+    const src = view.querySelector('img')!.getAttribute('src')!;
+    expect(src).toMatch(/^fixdav:\/\/localhost\//);
+    expect(decodeURIComponent(decodeURIComponent(src))).toContain('https://nas.example/dav/');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(document.querySelector('.lightbox')).toBeNull();
   });
 });

@@ -31,7 +31,7 @@ const fake = vi.hoisted(() => {
   };
   return { tree, calls, invoke };
 });
-vi.mock('@tauri-apps/api/core', () => ({ invoke: fake.invoke, convertFileSrc: (p: string) => `asset://${p}` }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: fake.invoke, convertFileSrc: (p: string, proto = 'asset') => `${proto}://localhost/${encodeURIComponent(p)}` }));
 
 import App from './App.svelte';
 import { settings } from './lib/settings.svelte';
@@ -125,6 +125,39 @@ describe('fixplor の画面（この端末のファイル）', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true }));
     await settle();
     expect(names()).toEqual(['docs', 'a.txt']);
+  });
+
+  it('画像は拡大表示で開く（前後の画像へ移れる）。「保存」は既定のアプリで開く。Esc で閉じる。画像でないファイルは、拡大表示にしない', async () => {
+    fake.tree.set('/home/me/p.png', 'file');
+    fake.tree.set('/home/me/q.png', 'file');
+    app = mount(App, { target });
+    await settle();
+    const open = (name: string): void => {
+      row(name).querySelector('.file-explorer-row, a, button')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    };
+    open('a.txt');
+    await settle();
+    expect(document.querySelector('.lightbox')).toBeNull();
+    expect(called('fs_open')).toEqual([{ path: '/home/me/a.txt' }]);
+    open('p.png');
+    await settle();
+    const view = document.querySelector('.lightbox')!;
+    expect(view.querySelector('img')!.getAttribute('src')).toBe('asset://localhost/' + encodeURIComponent('/home/me/p.png'));
+    expect(view.querySelector('.lightbox-file-name')!.textContent).toBe('p.png');
+    // 次の画像へ
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    // 切り替えのアニメーションのあとで、次の画像になる
+    await vi.waitFor(() => expect(document.querySelector('.lightbox-file-name')!.textContent).toBe('q.png'));
+    // 保存 = 既定のアプリで開く
+    document.querySelector<HTMLElement>('.lightbox-download')!.click();
+    await settle();
+    expect(called('fs_open').at(-1)).toEqual({ path: '/home/me/q.png' });
+    expect(document.querySelector('.lightbox')).toBeNull();
+    open('p.png');
+    await settle();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(document.querySelector('.lightbox')).toBeNull();
   });
 
   it('無いフォルダは、無いと出す（落ちない）', async () => {
