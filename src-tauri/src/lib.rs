@@ -107,9 +107,14 @@ fn fs_open(app: tauri::AppHandle, path: String) -> FsResult<()> {
         .map_err(|e| FsError::new("io", format!("開けませんでした: {e}")))
 }
 
+/// 証明書の固定の保存先（設定フォルダ。アプリの識別子の下）。設定フォルダが無い環境では、保存しない（固定の設定は断られる）
+fn pins_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|d| d.join("dev.fixplor.app").join("dav-pins.json"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (conns, jobs, puts) = webdav::commands::state(std::sync::Arc::new(webdav::secret::OsStore));
+    let (conns, jobs, puts) = webdav::commands::state(std::sync::Arc::new(webdav::secret::OsStore), webdav::pin::Pins::load(pins_path()));
     // 前の起動で受け取った一時のファイルのうち、古いものを消す（開いている最中のものは、消さない長さ）
     std::thread::spawn(|| {
         webdav::commands::clean_temp(&webdav::commands::temp_root(), std::time::Duration::from_secs(24 * 60 * 60));
@@ -161,7 +166,11 @@ pub fn run() {
             webdav::commands::dav_cancel,
             webdav::commands::dav_cred_info,
             webdav::commands::dav_cred_set,
-            webdav::commands::dav_cred_clear
+            webdav::commands::dav_cred_clear,
+            webdav::commands::dav_cert_probe,
+            webdav::commands::dav_pin_info,
+            webdav::commands::dav_pin_set,
+            webdav::commands::dav_pin_clear
         ])
         .run(tauri::generate_context!())
         .expect("fixplor を起動できませんでした");

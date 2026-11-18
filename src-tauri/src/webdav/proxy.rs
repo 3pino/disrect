@@ -40,7 +40,7 @@ fn status_of(e: &FsError) -> u16 {
         "not_found" | "not_dir" => 404,
         "invalid" => 400,
         "too_large" => 413,
-        "offline" | "tls" => 502,
+        "offline" | "tls" | "cert_changed" => 502,
         _ => 500,
     }
 }

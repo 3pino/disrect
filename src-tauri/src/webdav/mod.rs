@@ -3,15 +3,18 @@
 
 mod client;
 pub mod commands;
+pub mod pin;
 pub mod proxy;
 pub mod secret;
 mod url;
 mod xml;
 
-pub use client::{build_client, net_error, quote_etag, status_error, Ctx, Dav, DavEntry, Progress, SIZE_DIR_LIMIT};
+pub use client::{build_client, client_builder, net_error, quote_etag, status_error, Ctx, Dav, DavEntry, Progress, SIZE_DIR_LIMIT};
 pub use xml::{parse_http_date, parse_multistatus, Resource};
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_auth;
+#[cfg(test)]
+mod tests_pin;

@@ -1,6 +1,7 @@
 //! WebDAV の Tauri コマンド（`dav_*`）。画面（`src/lib/fs/webdav.ts`）が呼ぶ。
 //! 置き場所は、呼ぶたびに `base`（接続先の URL）で受ける（接続の状態は持たない）。
 
+use super::pin::{pinned_client, probe, Fingerprint, PinInfo, Pins, Probe};
 use super::secret::{CredInfo, Creds, SecretStore};
 use super::{build_client, Dav, DavEntry, Progress};
 use crate::fs::{FsError, FsResult};
@@ -58,17 +59,38 @@ pub async fn run_job<T>(jobs: &Jobs, job: Option<&str>, fut: impl Future<Output 
 pub struct Conns {
     pub http: reqwest::Client,
     pub creds: Arc<Creds>,
+    /// 証明書の固定（置き場所ごと）
+    pub pins: Arc<Pins>,
+    /// 固定のある置き場所の入れ物（置き場所と指紋ごと。つないだままの接続を使い回す）
+    pinned: Arc<Mutex<HashMap<(String, Fingerprint), reqwest::Client>>>,
 }
 
 impl Conns {
     pub fn new(store: Arc<dyn SecretStore>) -> Self {
-        Self { http: build_client(), creds: Arc::new(Creds::new(store)) }
+        Self::with_pins(store, Pins::memory())
+    }
+
+    pub fn with_pins(store: Arc<dyn SecretStore>, pins: Pins) -> Self {
+        Self { http: build_client(), creds: Arc::new(Creds::new(store)), pins: Arc::new(pins), pinned: Arc::default() }
+    }
+
+    /// 置き場所の入れ物。固定があれば、その証明書だけを受け入れるもの。無ければ共通のもの
+    fn client_for(&self, place: &str, base: &reqwest::Url) -> FsResult<reqwest::Client> {
+        let Some(fp) = self.pins.for_base(place, base) else { return Ok(self.http.clone()) };
+        let mut map = self.pinned.lock().unwrap();
+        if let Some(c) = map.get(&(place.to_string(), fp)) {
+            return Ok(c.clone());
+        }
+        let c = pinned_client(fp)?;
+        map.insert((place.to_string(), fp), c.clone());
+        Ok(c)
     }
 
     /// 置き場所（id と接続先）への入り口。保管してある資格情報があれば付ける。
     /// キーチェーンへの問い合わせは待つことがあるので、別のスレッドで行う
     pub async fn dav(&self, place: &str, base: &str) -> FsResult<Dav> {
-        let dav = Dav::new(self.http.clone(), base)?;
+        let client = self.client_for(place, &super::url::parse_base(base)?)?;
+        let dav = Dav::new(client, base)?;
         let creds = self.creds.clone();
         let (place, url) = (place.to_string(), dav.base().clone());
         let auth = tokio::task::spawn_blocking(move || creds.for_base(&place, &url))
@@ -78,8 +100,8 @@ impl Conns {
     }
 }
 
-pub fn state(store: Arc<dyn SecretStore>) -> (Conns, Jobs, Puts) {
-    (Conns::new(store), Jobs::default(), Puts::default())
+pub fn state(store: Arc<dyn SecretStore>, pins: Pins) -> (Conns, Jobs, Puts) {
+    (Conns::with_pins(store, pins), Jobs::default(), Puts::default())
 }
 
 /// 書き込み中の送信（チャンクごとに受けて、サーバーへ流す）。キーは job の名前
@@ -316,4 +338,28 @@ pub async fn dav_cred_set(conns: State<'_, Conns>, place: String, base: String, 
 pub async fn dav_cred_clear(conns: State<'_, Conns>, place: String) -> FsResult<()> {
     let creds = conns.creds.clone();
     tokio::task::spawn_blocking(move || creds.clear(&place)).await.map_err(|e| FsError::new("io", e.to_string()))?
+}
+
+/// 証明書を確かめる。通常の確かめで通れば `trusted`。通らなければ、示された証明書の指紋（握手だけ。要求は送らない）
+#[tauri::command]
+pub async fn dav_cert_probe(base: String) -> FsResult<Probe> {
+    probe(&base).await
+}
+
+/// 固定している証明書の様子（接続先・指紋）。無ければ null
+#[tauri::command]
+pub async fn dav_pin_info(conns: State<'_, Conns>, place: String) -> FsResult<Option<PinInfo>> {
+    Ok(conns.pins.info(&place))
+}
+
+/// 置き場所の証明書を固定する（https の接続先だけ。前の固定は置き換える）
+#[tauri::command]
+pub async fn dav_pin_set(conns: State<'_, Conns>, place: String, base: String, fingerprint: String) -> FsResult<()> {
+    conns.pins.set(&place, &base, &fingerprint)
+}
+
+/// 固定を解除する（通常の確かめに戻る）
+#[tauri::command]
+pub async fn dav_pin_clear(conns: State<'_, Conns>, place: String) -> FsResult<()> {
+    conns.pins.clear(&place)
 }

@@ -94,6 +94,10 @@ pub fn net_error(e: &reqwest::Error) -> FsError {
         }
         s
     };
+    // 固定した証明書と違うものが示された（固定は、利用者が解除するか、信頼し直すまで変えない）
+    if chain.contains(super::pin::PIN_MISMATCH) {
+        return FsError::new("cert_changed", "証明書が、前に信頼したものと変わりました。サーバーの管理者に確かめてください");
+    }
     let lower = chain.to_ascii_lowercase();
     if lower.contains("certificate") || lower.contains("unknownissuer") || lower.contains("invalid peer") {
         return FsError::new("tls", format!("証明書を確認できません: {chain}"));
@@ -121,15 +125,18 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// フォルダの大きさを数えるとき、読むフォルダの数の上限（超えたら、途中までの値で打ち切る）
 pub const SIZE_DIR_LIMIT: usize = 500;
 
-/// HTTP の入れ物を作る。リダイレクトは辿らない（URL の確かめを、利用者に任せる）
-pub fn build_client() -> Client {
+/// 入れ物の共通の設定（通常のものも、証明書を固定したものも）。リダイレクトは辿らない（URL の確かめを、利用者に任せる）
+pub fn client_builder() -> reqwest::ClientBuilder {
     Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .read_timeout(Duration::from_secs(60))
         .user_agent(concat!("fixplor/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .expect("HTTP の入れ物を作れませんでした")
+}
+
+/// HTTP の入れ物を作る（通常の証明書の確かめ）
+pub fn build_client() -> Client {
+    client_builder().build().expect("HTTP の入れ物を作れませんでした")
 }
 
 pub struct Dav {
