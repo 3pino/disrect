@@ -252,6 +252,34 @@ describe('変更の知らせ・接続先の切り替え', () => {
   });
 });
 
+describe('全画面の view（本体の見出しが無い）', () => {
+  it('入れ物の一番上は .top-bar（上端の安全域を取る）。残りの高さをエクスプローラーに渡し、閉じると入れ物を元に戻す', async () => {
+    const d = fakeDisnans(fakeFiles(tree));
+    const plugin = {
+      files: d.files,
+      app: { isMobile: d.isMobile, platform: { tauri: true, os: 'linux', linuxDesktop: true } },
+      legacyData: null,
+      openView: () => {},
+      loadData: async () => null,
+      saveData: async () => {},
+    } as never;
+    const view = createExplorerView({ plugin, disnans: d.global });
+    const target = document.createElement('div');
+    target.style.display = 'block';
+    document.body.append(target);
+    await view.onOpen(target, {} as never);
+    expect(target.firstElementChild!.classList.contains('top-bar')).toBe(true);
+    expect(target.children).toHaveLength(2);
+    expect(target.children[1].querySelector('.file-explorer')).not.toBeNull();
+    expect(target.style.display).toBe('flex');
+    expect(target.style.flexDirection).toBe('column');
+    view.onClose?.();
+    expect(target.children).toHaveLength(0);
+    expect(target.style.display).toBe('block');
+    expect(target.style.flexDirection).toBe('');
+  });
+});
+
 describe('開くフォルダの引き継ぎ（本文のリンクから）', () => {
   it('次に開く画面は、渡されたフォルダから始まる（1 度だけ）。開いている間は棚に載る', async () => {
     const shelf: Shelf = createShelf();

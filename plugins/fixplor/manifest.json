@@ -1,10 +1,10 @@
 {
   "id": "fixplor",
   "name": "ファイル",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "共有フォルダのファイルエクスプローラー（fixplor と同じ部品）",
   "author": "3pino",
-  "minApiVersion": 19,
+  "minApiVersion": 20,
   "icon": "folder",
   "permissions": ["files"]
 }

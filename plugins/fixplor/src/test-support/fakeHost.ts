@@ -291,6 +291,8 @@ export type FakeDisnans = {
   serverListeners: number;
   isMobile: boolean;
   legacy: unknown;
+  /** registerView の第 3 引数（type → options） */
+  viewOptions: Map<string, { layout?: 'full' } | undefined>;
   /** openView(type) で開いた view */
   opened: string[];
   /** 本文のファイルリンクの開き手 */
@@ -318,8 +320,9 @@ export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unkno
     async saveData(data: unknown): Promise<void> {
       saved.data = data;
     }
-    registerView(type: string, factory: (session: unknown | null) => HostView): void {
+    registerView(type: string, factory: (session: unknown | null) => HostView, options?: { layout?: 'full' }): void {
       views.set(type, factory);
+      d.viewOptions.set(type, options);
     }
     openView(type: string): void {
       d.opened.push(type);
@@ -356,6 +359,7 @@ export function fakeDisnans(files: FakeFiles = fakeFiles(), opts: { data?: unkno
     },
     isMobile: opts.isMobile ?? false,
     legacy: opts.legacy ?? null,
+    viewOptions: new Map(),
     opened: [],
     linkOpeners: [],
     registered: [],

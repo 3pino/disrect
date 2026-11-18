@@ -49,13 +49,13 @@ describe('成果物（main.js）', () => {
 });
 
 describe('manifest.json', () => {
-  const ok = { id: 'fixplor', name: 'n', version: '0.1.0', description: 'd', author: 'a', minApiVersion: 19, permissions: ['files'] };
+  const ok = { id: 'fixplor', name: 'n', version: '0.1.0', description: 'd', author: 'a', minApiVersion: 20, permissions: ['files'] };
 
   it('正しい manifest は問題なし。id・版・API の版・権限・必須の欄の誤りを見つける', () => {
     expect(manifestProblems(ok)).toEqual([]);
     expect(manifestProblems({ ...ok, id: 'Fix_plor' })).toHaveLength(1);
     expect(manifestProblems({ ...ok, version: '1.0' })).toHaveLength(1);
-    expect(manifestProblems({ ...ok, minApiVersion: 18 })).toHaveLength(1);
+    expect(manifestProblems({ ...ok, minApiVersion: 19 })).toHaveLength(1);
     expect(manifestProblems({ ...ok, permissions: [] })).toHaveLength(1);
     expect(manifestProblems({ ...ok, author: '' })).toHaveLength(1);
   });

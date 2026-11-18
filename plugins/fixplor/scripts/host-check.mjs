@@ -2,8 +2,9 @@
 // 作った main.js を、Disnans の本物のプラグインのホスト（app/src/lib/plugins/host.svelte.ts）に読み込ませて、
 // 実物の Chromium・本体の実物の画面（ナビバー・パネル・トースト・拡大表示）で動かす検査。
 // 本体のコード・スクリプトは変えない（Disnans のリポジトリは読むだけ。vite・cdp.mjs・touch-fixture.mjs を、そこから借りる）。
-// 注: fixplor はいまコアのプラグイン（本体が同梱して読む。同じ ID の開発用・配布は読まれない）。ここで入れる DevPlugin は無視され、読まれるのは本体が同梱した版。
-//   （同梱版と作った main.js が同じかは、本体側の検査で cmp する）
+// 注: fixplor はいまコアのプラグイン（本体が同梱して読む。同じ ID の開発用・配布は読まれない）。同梱の版ではなく、いま作った成果物を確かめるため、
+//   同梱のファイルの取得（/core-plugins/fixplor/*）を、CDP の Fetch で、作った成果物に差し替える（本体のコードは変えない）。
+//   入口は、プラグインのコマンド（plugin-nav:fixplor:files）。利用者がナビバーに足した状態にして試す。
 // 共有フォルダは、この検査が立てる仮のサーバー（メモリ上のフォルダ）。本物のサーバー・Tauri は要らない。
 // 見た目の良し悪しは見ない（スクリーンショットなし）。
 //
@@ -35,6 +36,7 @@ if (!existsSync(join(dist, 'main.js'))) {
 const mainJs = readFileSync(join(dist, 'main.js'), 'utf8');
 const stylesCss = readFileSync(join(dist, 'styles.css'), 'utf8');
 const manifestText = readFileSync(join(dist, 'manifest.json'), 'utf8');
+const iconSvg = readFileSync(join(dist, 'icon.svg'), 'utf8');
 
 const { connectCdp, launchChrome, makeProfile, openPage, stopChrome } = await import(pathToFileURL(join(APP_DIR, 'scripts/cdp.mjs')).href);
 const { fixtureScript } = await import(pathToFileURL(join(APP_DIR, 'scripts/touch-fixture.mjs')).href);
@@ -195,27 +197,35 @@ try {
     if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text);
     if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') errors.push(m.params.args.map((a) => a.value ?? a.description).join(' '));
   });
-  await S('Page.addScriptToEvaluateOnNewDocument', { source: fixtureScript({ server: FAKE, platform: 'linux' }) });
+  // 同梱のファイルを、作った成果物へ差し替える
+  const served = new Set();
+  const core = { 'manifest.json': [manifestText, 'application/json'], 'main.js': [mainJs, 'text/javascript'], 'styles.css': [stylesCss, 'text/css'], 'icon.svg': [iconSvg, 'image/svg+xml'] };
+  ws.onMessage((m) => {
+    if (m.method !== 'Fetch.requestPaused') return;
+    const name = new URL(m.params.request.url).pathname.split('/').pop();
+    const hit = core[name];
+    const reply = hit
+      ? S('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: hit[1] }, { name: 'Access-Control-Allow-Origin', value: '*' }], body: Buffer.from(hit[0]).toString('base64') })
+      : S('Fetch.continueRequest', { requestId: m.params.requestId });
+    if (hit) served.add(name);
+    reply.catch(() => {});
+  });
+  await S('Fetch.enable', { patterns: [{ urlPattern: '*core-plugins/fixplor/*' }] });
+  await S('Page.addScriptToEvaluateOnNewDocument', { source: fixtureScript({ server: FAKE, platform: 'linux', navBarItems: ['app:open-chat', 'app:open-settings', 'plugin-nav:fixplor:files'] }) });
   await S('Emulation.setDeviceMetricsOverride', { width: 1100, height: 800, deviceScaleFactor: 1, mobile: false });
   await S('Page.navigate', { url: APP });
   await waitFor(`document.querySelector('.nav-bar-side')`, 15000, 'ナビバー');
   await sleep(600);
 
-  // 配るファイルそのものを、本体の本物のプラグインのホストへ入れる（開発用フォルダの経路と同じ DevPlugin の形）
-  await evaluate(`(async () => {
-    const { pluginHost } = await import('/src/lib/plugins/host.svelte.ts');
-    window.__ph = pluginHost;
-    pluginHost.dev = [{ folder: 'fixplor', stamp: '1', manifest: ${manifestText}, kind: 'plugin', manifestText: ${JSON.stringify(manifestText)}, main: ${JSON.stringify(mainJs)}, styles: ${JSON.stringify(stylesCss)}, theme: null, icon: null, error: null }];
-    await pluginHost.reconcile();
-    return true;
-  })()`);
+  await evaluate(`(async () => { window.__ph = (await import('/src/lib/plugins/host.svelte.ts')).pluginHost; return true; })()`);
 
-  await check('読み込める（エラーなし）。ナビバーに「ファイル」の項目が足される（本体の項目とは別の ID）', async () => {
+  await check('読み込める（エラーなし）。差し替えた成果物が読まれ、ナビバーに入口のコマンド（plugin-nav:fixplor:files）の「ファイル」が出る', async () => {
+    await waitFor(`window.__ph.runtime('fixplor')`, 15000, 'プラグインの読み込み');
     assert.equal(await evaluate(`window.__ph.errors.fixplor ?? null`), null);
-    await waitFor(`window.__ph.runtime('fixplor')`);
-    await waitFor(`document.querySelector('.nav-bar-side')`);
-    const id = await evaluate(`(async () => (await import('/src/lib/pluginNav.svelte.ts')).pluginNav.entries.map((e) => e.id))()`);
-    assert.deepEqual(id, ['ui-nav:fixplor:files']);
+    assert(served.has('main.js') && served.has('styles.css'), `成果物に差し替わっていない: ${[...served]}`);
+    await waitFor(`[...document.querySelectorAll('.nav-bar-side button')].some((b) => b.textContent.includes('ファイル'))`, 8000, 'ナビの「ファイル」');
+    const hasCommand = await evaluate(`(async () => !!(await import('/src/lib/commands.svelte.ts').catch(() => null))?.findCommand?.('plugin-nav:fixplor:files'))()`);
+    console.log(`    （コマンド plugin-nav:fixplor:files: ${hasCommand ? 'あり' : '確認できない（ナビの項目で代える）'}）`);
   });
 
   const navClick = () =>
@@ -231,7 +241,16 @@ try {
     assert.equal(await evaluate(`document.querySelector('.file-explorer-crumbs button').textContent`), '共有フォルダ');
   });
 
-  await check('切り替え: 内蔵の「ファイル」の項目は出ず（「ファイル」はプラグインの 1 つだけ）、選ばれているのがその項目で、画面は plugin-panel の中', async () => {
+  await check('全画面の view（layout: full）: 本体の見出し（戻る・閉じる）は無く、入れ物の先頭は .top-bar、残りの高さにエクスプローラー', async () => {
+    assert.equal(await evaluate(`!!document.querySelector('.plugin-panel-header')`), false, '本体の見出しが出ている');
+    assert.equal(await evaluate(`!!document.querySelector('.shell-panel-full')`), true, '全画面の枠ではない');
+    const first = await evaluate(`document.querySelector('.shell-panel-full .plugin-panel-body')?.firstElementChild?.className`);
+    assert.equal(first, 'top-bar');
+    const fit = await evaluate(`(() => { const b = document.querySelector('.shell-panel-full .plugin-panel-body').getBoundingClientRect(); const e = document.querySelector('.file-explorer').getBoundingClientRect(); return { bodyBottom: b.bottom, bottom: e.bottom, top: e.top }; })()`);
+    assert(fit.bottom <= fit.bodyBottom + 1, `エクスプローラーが枠からはみ出している: ${JSON.stringify(fit)}`);
+  });
+
+  await check('切り替え: 「ファイル」の項目は 1 つだけ（内蔵は無い）で、選ばれているのがその項目。画面は plugin-panel の中', async () => {
     const items = await evaluate(`[...document.querySelectorAll('.nav-bar-side button')].filter((b) => b.textContent.includes('ファイル')).map((b) => b.getAttribute('aria-current'))`);
     assert.deepEqual(items, ['page'], JSON.stringify(items));
     assert.equal(await evaluate(`!!document.querySelector('#plugin-panel[data-plugin="fixplor"] .file-explorer-crumbs')`), true);
@@ -326,6 +345,45 @@ try {
     assert(text.includes('explorerDirs'), text.slice(0, 200));
   });
 
+  // モバイル（狭い画面・タッチ）: ナビバーは下のまま、設定を押せる（全画面の view を開いたまま）
+  const navBottom = () => evaluate(`(() => { const nav = document.querySelector('#nav-bar'); if (!nav) return null; const b = nav.getBoundingClientRect(); const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return { bottom: b.bottom, vh: window.innerHeight, visible: getComputedStyle(nav).display !== 'none' && b.height > 0, hit: !!at && nav.contains(at) }; })()`);
+  const tap = async (word) => {
+    const c = await evaluate(`(() => { const el = [...document.querySelectorAll('#nav-bar button')].find((b) => b.textContent.trim().includes(${JSON.stringify(word)})); if (!el) return null; const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()`);
+    assert(c, `ナビに「${word}」が無い`);
+    await S('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: c.x, y: c.y, id: 1 }] });
+    await S('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(400);
+  };
+  await check('モバイル: ファイルを開いても、ナビバーは画面の下にあり覆われない。パネルはナビの上に収まる。先頭は .top-bar', async () => {
+    await S('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await S('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    await sleep(500);
+    await tap('Chat');
+    await waitFor(`!document.querySelector('.shell-panel-full')`, 8000, 'チャットへ');
+    await tap('ファイル');
+    await waitFor(`document.querySelector('.shell-panel-full .top-bar')`, 8000, 'ファイルの画面');
+    await sleep(300);
+    const g = await navBottom();
+    assert(g.visible && g.hit, `ナビバーが見えない・覆われている: ${JSON.stringify(g)}`);
+    assert(Math.abs(g.bottom - g.vh) < 2, `ナビバーが下に無い: ${JSON.stringify(g)}`);
+    const over = await evaluate(`(() => document.querySelector('.shell-panel-full').getBoundingClientRect().bottom - document.querySelector('#nav-bar').getBoundingClientRect().top)()`);
+    assert(over <= 1, `パネルがナビバーに重なる（${over}px）`);
+    assert.equal(await evaluate(`!!document.querySelector('.plugin-panel-header')`), false);
+  });
+
+  await check('モバイル: ファイルを開いたまま「Settings」を押すと設定が出て、ナビは下のまま。「ファイル」を押し直すと開く', async () => {
+    await tap('Settings');
+    await waitFor(`!document.querySelector('.shell-panel-full')`, 8000, 'ファイルが閉じる');
+    await waitFor(`document.querySelector('.shell-settings') && document.querySelector('.shell-settings').getBoundingClientRect().height > 0`, 8000, '設定の画面');
+    const g = await navBottom();
+    assert(g.visible && Math.abs(g.bottom - g.vh) < 2, `設定でナビが下に無い: ${JSON.stringify(g)}`);
+    await tap('ファイル');
+    await waitFor(`document.querySelector('.shell-panel-full .file-explorer')`, 8000, 'ファイルを押し直す');
+    await S('Emulation.setDeviceMetricsOverride', { width: 1100, height: 800, deviceScaleFactor: 1, mobile: false });
+    await S('Emulation.setTouchEmulationEnabled', { enabled: false });
+    await sleep(500);
+  });
+
   await check('コアのプラグインはオフにできない（setEnabled は無視される）', async () => {
     await evaluate(`window.__ph.setEnabled('fixplor', false)`);
     await sleep(500);
@@ -333,11 +391,10 @@ try {
     assert.equal(await evaluate(`window.__ph.isEnabled('fixplor')`), true);
   });
 
-  await check('外す（unload）と、ナビの項目・リンクの開き手・画面の購読が片付く', async () => {
+  await check('外す（unload）と、ナビの項目（コマンド）・リンクの開き手が片付く', async () => {
     await evaluate(`window.__ph.unload('fixplor')`);
     await waitFor(`!window.__ph.runtime('fixplor')`);
-    const left = await evaluate(`(async () => (await import('/src/lib/pluginNav.svelte.ts')).pluginNav.entries.length)()`);
-    assert.equal(left, 0, 'ナビの項目が残っている');
+    await waitFor(`![...document.querySelectorAll('.nav-bar-side button, #nav-bar button')].some((b) => b.textContent.includes('ファイル'))`, 8000, 'ナビの項目が消える');
     const opener = await evaluate(`(async () => (await import('/src/lib/linkOpener.svelte.ts')).linkOpener())()`);
     assert.equal(opener, null);
   });

@@ -64,7 +64,7 @@ export function manifestProblems(m) {
   const out = [];
   if (!/^[a-z0-9-]{2,32}$/.test(m.id ?? '')) out.push('manifest.json: id は英小文字・数字・ハイフン（2〜32 文字）');
   if (!/^\d+\.\d+\.\d+$/.test(m.version ?? '')) out.push('manifest.json: version は 1.2.3 の形');
-  if (!Number.isInteger(m.minApiVersion) || m.minApiVersion < 19) out.push('manifest.json: minApiVersion は 19 以上（段 5 の口を使う）');
+  if (!Number.isInteger(m.minApiVersion) || m.minApiVersion < 20) out.push('manifest.json: minApiVersion は 20 以上（全画面の view・コマンドの入口を使う）');
   if (!Array.isArray(m.permissions) || !m.permissions.includes('files')) out.push('manifest.json: permissions に "files" が要る');
   for (const k of ['name', 'description', 'author']) if (!m[k]) out.push(`manifest.json: ${k} が無い`);
   return out;

@@ -20,6 +20,8 @@ describe('プラグインの入口', () => {
     const p = new (Plugin as unknown as new () => { onload(): void })();
     p.onload();
     expect([...d.views.keys()]).toEqual(['fixplor']);
+    // 全画面の view（本体の見出しは無い）として登録する
+    expect(d.viewOptions.get('fixplor')).toEqual({ layout: 'full' });
   });
 
   it('view の工場は、セッションを使わない（共有フォルダに、セッションは無い）。開くたびに別の view を作る', async () => {

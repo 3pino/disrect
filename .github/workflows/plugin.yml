@@ -54,7 +54,8 @@ jobs:
         run: |
           set -euo pipefail
           DIR=$(echo dist-plugin/fixplor-*)
-          gh release create "$GITHUB_REF_NAME" \
+          # アプリの更新の確認は releases/latest を読むので、プラグインのリリースを「最新」にしない
+          gh release create "$GITHUB_REF_NAME" --latest=false \
             --title "fixplor プラグイン ${GITHUB_REF_NAME#plugin-fixplor-v}" \
             --notes "Disnans のプラグイン（共有フォルダのエクスプローラー）。配布物: manifest.json・main.js・styles.css・icon.svg と SHA256SUMS" \
             "$DIR/manifest.json" "$DIR/main.js" "$DIR/styles.css" "$DIR/icon.svg" "$DIR/SHA256SUMS"

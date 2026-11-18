@@ -111,7 +111,7 @@ export interface HostPluginBase {
   loadData(): Promise<unknown>;
   saveData(data: unknown): Promise<void>;
   /** セッションのない view（factory には session が null で渡る） */
-  registerView(type: string, factory: (session: unknown | null) => HostView): void;
+  registerView(type: string, factory: (session: unknown | null) => HostView, options?: { layout?: 'full' }): void;
   /** セッションのない view をパネルに開く */
   openView(type: string): void;
   register(cleanup: Cleanup): void;
