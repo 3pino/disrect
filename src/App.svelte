@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
@@ -76,6 +76,12 @@
   /** 証明書を確かめるダイアログ（previous は、前に信頼した指紋） */
   /** 「バージョン情報」のダイアログ */
   let aboutOpen = $state(false);
+  // 623b308b306e5c64: 30bf30d6306e4e0089a7Ff0872ed3044753b9762Ff0930fb30c030a430a230ed30b03002958b304430663044308b3042304430603001300c623b308b300d306795893058308b
+  let tabListOpen = $state(false);
+  $effect(() => (tabListOpen ? untrack(() => host.addBack(() => (tabListOpen = false))) : undefined));
+  $effect(() => (dialog ? untrack(() => host.addBack(() => (dialog = null))) : undefined));
+  $effect(() => (certDialog ? untrack(() => host.addBack(() => (certDialog = null))) : undefined));
+  $effect(() => (aboutOpen ? untrack(() => host.addBack(() => (aboutOpen = false))) : undefined));
   let certDialog = $state.raw<{ place: DavPlace; previous: string | null } | null>(null);
   /** 認証が通らなかった置き場所（401）。入れ直してもらうまで、案内を出す */
   let authFailed = $state.raw<Record<string, true>>({});
@@ -525,6 +531,7 @@
       onmove={moveTab}
       oncloseothers={closeOthers}
       ondropfolders={openFoldersInTabs}
+      bind:listOpen={tabListOpen}
     />
 
     <div class="body">

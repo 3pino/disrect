@@ -30,7 +30,10 @@ export class HostState {
   /** 確認を出す。前の確認が出たままなら、それは取り消しとして閉じる（土台は黙って置き換えるので、ここで閉じる） */
   confirm(opts: ConfirmOptions): Promise<boolean> {
     this.shell.confirmReq?.resolve(false);
-    return this.shell.confirm(opts);
+    const p = this.shell.confirm(opts);
+    // 確認は「戻る」で取り消せる層（開いているあいだだけ積む）
+    const off = this.addBack(() => this.shell.confirmReq?.resolve(false));
+    return p.finally(off);
   }
 
   addBack(run: () => void): () => void {

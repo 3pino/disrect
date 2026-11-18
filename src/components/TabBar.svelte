@@ -23,6 +23,7 @@
     onmove,
     oncloseothers,
     ondropfolders,
+    listOpen = $bindable(false),
   }: {
     tabs: { id: number; label: string; title: string }[];
     activeId: number;
@@ -35,6 +36,8 @@
     oncloseothers: (id: number) => void;
     /** 落とされたもの（エクスプローラーのドラッグのパス）のうち、フォルダを新しいタブで開く */
     ondropfolders: (paths: string[]) => void;
+    /** 72ed3044753b9762306e30bf30d6306e4e0089a7Ff08958b304430663044308b304230443060306f3001300c623b308b300d306795893058308bFf09 */
+    listOpen?: boolean;
   } = $props();
 
   const TAB_DRAG = 'application/x-fixplor-tab';
@@ -50,7 +53,7 @@
   // 長押し（Android の WebView は長押しで contextmenu を出す）で、同じメニュー（複製・左右へ移す・閉じる）を出す。ドラッグは使わない。
   const NARROW_QUERY = '(max-width: 600px)';
   let narrow = $state(false);
-  let listOpen = $state(false);
+
   const activeIndex = $derived(indexOf(activeId));
   const activeLabel = $derived(tabs[activeIndex]?.label ?? '');
 
