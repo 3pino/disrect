@@ -92,6 +92,7 @@ export function resetUi(): void {
 export const SPECIAL_DIR = 'special';
 export const SCREEN_RULES: Rules = {
   specialDir: SPECIAL_DIR,
+  trashDir: '.trash',
   nameError(dir, name) {
     const base = basicNameError(name);
     if (base) return base;

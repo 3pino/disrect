@@ -31,7 +31,7 @@
   import { baseName, parentOf } from './path';
   import { childPath, EXPLORER_DRAG_TYPE, inSpecialDir, overwriteConfirm, permanentDeleteConfirm, planUpload, renameAllowed, renameTarget, ruleTexts, sameNameEntry, trashManyConfirm } from './ops';
   import { runTransfer, transferFailure, type TransferItem, type TransferOp } from './transfer';
-  import { TRASH_ROOT, displayEntry, entryLabel, trashItemOf, trashPlace, virtualDir, writeBlockReason } from './trashFolder';
+  import { displayEntry, entryLabel, trashItemOf, trashPlace, virtualDir, writeBlockReason } from './trashFolder';
   import { allWholeTrash, copyBlockedReason, cutBlockedReason, deleteBlockedReason, transferItemOf } from './selection';
   import { formatSize, formatStamp } from './format';
   import type { Explorer } from './explorer';
@@ -46,6 +46,8 @@
   }
   const explorer = pick();
   const { api, urls, rules, host, nav: fileExplorer, index: dirIndex, buffer: explorerBuffer, selection: explorerSelection, view: explorerView } = explorer;
+  /** 仮想のゴミ箱のフォルダ（置き場所の決まり。無ければ null） */
+  const trashDir = rules.trashDir ?? null;
   const scopeSource = explorer.scope;
   const labels = explorer.labels;
   const PdfThumb = host.PdfThumb;
@@ -59,26 +61,26 @@
   /** 開いているフォルダの場所（ゴミ箱の直下の項目は、元の名前で表す） */
   const crumbs = $derived(breadcrumbs(fileExplorer.dir).map((c) => ({ ...c, name: crumbName(c.path, c.name) })));
   function crumbName(path: string, seg: string): string {
-    if (parentOf(path) !== TRASH_ROOT) return seg;
-    const top = dirIndex.state(TRASH_ROOT);
+    if (!trashDir || parentOf(path) !== trashDir) return seg;
+    const top = dirIndex.state(trashDir);
     const x = top?.kind === 'ok' ? top.entries.get(seg) : undefined;
     return x ? entryLabel(x) : seg;
   }
 
   /** 開いているフォルダが、仮想のゴミ箱の中か（印で決める。直下の一覧が無いときは確かめられない） */
-  const vdir = $derived(virtualDir(fileExplorer.dir, dirIndex.state('')));
+  const vdir = $derived(virtualDir(fileExplorer.dir, dirIndex.state(''), trashDir));
   /** 書き込みを止める理由（ゴミ箱の中・確かめ中）。ふつうのフォルダなら null */
   function writeBlock(dir: string): string | null {
-    return writeBlockReason(virtualDir(dir, dirIndex.state('')));
+    return writeBlockReason(virtualDir(dir, dirIndex.state(''), trashDir));
   }
 
-  // 仮想のゴミ箱（.trash/ の中）を開いたときだけ、その判定に要る直下の一覧（と .trash の一覧）を読む。ほかのフォルダでは読まない
+  // 仮想のゴミ箱（rules.trashDir の中）を開いたときだけ、その判定に要る直下の一覧（と .trash の一覧）を読む。ほかのフォルダでは読まない
   // 読み直しの状態は読んでいる（無効化されて無くなったら読み直し、その結果で判定と表示を直す）。読むだけの ensure は追わない
   $effect(() => {
     const dir = fileExplorer.dir;
-    if (dir !== TRASH_ROOT && !dir.startsWith(TRASH_ROOT + '/')) return;
+    if (!trashDir || (dir !== trashDir && !dir.startsWith(trashDir + '/'))) return;
     if (dirIndex.state('') === undefined) untrack(() => dirIndex.ensure(''));
-    if (dir !== TRASH_ROOT && dirIndex.state(TRASH_ROOT) === undefined) untrack(() => dirIndex.ensure(TRASH_ROOT));
+    if (dir !== trashDir && dirIndex.state(trashDir) === undefined) untrack(() => dirIndex.ensure(trashDir));
   });
   const now = Date.now();
 

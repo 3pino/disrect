@@ -42,34 +42,51 @@ describe('ゴミ箱の表示名（元の名前。要求の path は変えない�
   });
 });
 
+/** 置き場所が決める仮想のゴミ箱のフォルダの名前（Rules.trashDir） */
+const TD = '.trash';
+
 describe('仮想のゴミ箱の場所（印で決める。.trash という名前だけでは決めない）', () => {
   it('いちばん上の直下に、ルートの印の .trash があれば、.trash は仮想', () => {
     const root = ok([ROOT_VIRTUAL, base('docs', 'docs', 'dir')]);
-    expect(virtualDir('.trash', root)).toBe('root');
-    expect(virtualDir('.trash/X--a', root)).toBe('inside');
-    expect(virtualDir('.trash/X--a/sub', root)).toBe('inside');
-    expect(virtualDir('docs', root)).toBe('normal');
+    expect(virtualDir('.trash', root, TD)).toBe('root');
+    expect(virtualDir('.trash/X--a', root, TD)).toBe('inside');
+    expect(virtualDir('.trash/X--a/sub', root, TD)).toBe('inside');
+    expect(virtualDir('docs', root, TD)).toBe('normal');
   });
 
   it('実在の .trash（印なし）は、ふつうのフォルダとして扱う（書ける）', () => {
     const root = ok([base('.trash', '.trash', 'dir')]);
-    expect(virtualDir('.trash', root)).toBe('normal');
-    expect(virtualDir('.trash/anything', root)).toBe('normal');
-    expect(writeBlockReason(virtualDir('.trash', root))).toBeNull();
+    expect(virtualDir('.trash', root, TD)).toBe('normal');
+    expect(virtualDir('.trash/anything', root, TD)).toBe('normal');
+    expect(writeBlockReason(virtualDir('.trash', root, TD))).toBeNull();
   });
 
   it('直下の一覧が無い・読めないときは、.trash の下を unknown にして書き込みを止める', () => {
-    expect(virtualDir('.trash/X--a', undefined)).toBe('unknown');
-    expect(virtualDir('.trash', { kind: 'loading' })).toBe('unknown');
-    expect(virtualDir('.trash', { kind: 'error', message: 'x', at: 0 })).toBe('unknown');
+    expect(virtualDir('.trash/X--a', undefined, TD)).toBe('unknown');
+    expect(virtualDir('.trash', { kind: 'loading' }, TD)).toBe('unknown');
+    expect(virtualDir('.trash', { kind: 'error', message: 'x', at: 0 }, TD)).toBe('unknown');
     expect(writeBlockReason('unknown')).toContain('確かめて');
     expect(writeBlockReason('root')).toContain('中には書き込めません');
   });
 
+  it('trashDir が無い置き場所は、どのフォルダも normal（名前が .trash でも、印があっても）', () => {
+    const root = ok([ROOT_VIRTUAL]);
+    expect(virtualDir('.trash', root, null)).toBe('normal');
+    expect(virtualDir('.trash/X--a', root, undefined)).toBe('normal');
+    expect(virtualDir('.trash', undefined, null)).toBe('normal');
+  });
+
+  it('trashDir は、置き場所が決めた名前（別の名前でも働く）', () => {
+    const root = ok([{ ...base('bin', 'bin', 'dir'), trash: { kind: 'root' as const } }]);
+    expect(virtualDir('bin', root, 'bin')).toBe('root');
+    expect(virtualDir('bin/X--a', root, 'bin')).toBe('inside');
+    expect(virtualDir('.trash', root, 'bin')).toBe('normal');
+  });
+
   it('直下の一覧が無くても、.trash 以外のフォルダは normal（余計な確認をしない）', () => {
-    expect(virtualDir('docs', undefined)).toBe('normal');
-    expect(virtualDir('', undefined)).toBe('normal');
-    expect(virtualDir('.trashy', undefined)).toBe('normal');
+    expect(virtualDir('docs', undefined, TD)).toBe('normal');
+    expect(virtualDir('', undefined, TD)).toBe('normal');
+    expect(virtualDir('.trashy', undefined, TD)).toBe('normal');
   });
 });
 

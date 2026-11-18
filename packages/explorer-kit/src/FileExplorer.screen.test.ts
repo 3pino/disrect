@@ -5,7 +5,7 @@ import { LONG_PRESS_MS } from '@3pino/ui-kit-web/sortable';
 import FileExplorer from './FileExplorer.svelte';
 import { EXPLORER_DRAG_TYPE } from './ops';
 import type { Entry } from './types';
-import { downloadFile, dsk, osDrop, entry, explorer, explorerBuffer, explorerSelection, explorerView, fileExplorer, h, listing, resetUi, dirIndex, switchPlace, place, scopeAs, ui } from './test-support/screen.svelte';
+import { SCREEN_RULES, downloadFile, dsk, osDrop, entry, explorer, explorerBuffer, explorerSelection, explorerView, fileExplorer, h, listing, resetUi, dirIndex, switchPlace, place, scopeAs, ui } from './test-support/screen.svelte';
 
 // 画面の流れの試験（書き込み・同名の確認・選択・貼り付け・ゴミ箱・置き場所が変わったとき・戻る・拡大表示など）。
 // 置き場所・本体は、メモリの中の偽物（test-support/screen.svelte.ts）。どの置き場所でも成り立つことだけを確かめる
@@ -1681,6 +1681,23 @@ describe('ゴミ箱は、ふつうのフォルダとして開く（.trash）', (
     expect(menuLabels(el).some((l) => l.includes('新しいフォルダ'))).toBe(true);
     pick(el, new File(['x'], 'new.txt'));
     await vi.waitFor(() => expect(h.upload).toHaveBeenCalledWith('.trash/new.txt', expect.any(File), expect.any(Function)));
+  });
+
+  it('trashDir を決めない置き場所では、ゴミ箱の印の付いた .trash も、ふつうのフォルダとして書ける（部品は名前を決め打ちしない）', async () => {
+    const was = SCREEN_RULES.trashDir;
+    SCREEN_RULES.trashDir = null;
+    try {
+      serve({ '': [{ ...entry('.trash', 'dir'), trash: { kind: 'root' } }], '.trash': [entry('memo.txt')] });
+      const el = await render();
+      fileExplorer.open('.trash');
+      flushSync();
+      await vi.waitFor(() => expect(names(el)).toEqual(['memo.txt']));
+      expect(menuLabels(el).some((l) => l.includes('新しいフォルダ'))).toBe(true);
+      pick(el, new File(['x'], 'new.txt'));
+      await vi.waitFor(() => expect(h.upload).toHaveBeenCalledWith('.trash/new.txt', expect.any(File), expect.any(Function)));
+    } finally {
+      SCREEN_RULES.trashDir = was;
+    }
   });
 
   it('直下の一覧が読み終えていない（直接 .trash の中を開いた）あいだは、書き込みを止める（確かめるまで）', async () => {

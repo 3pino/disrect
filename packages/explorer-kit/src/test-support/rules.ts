@@ -6,6 +6,7 @@ import type { Entry, Rules } from '../types';
 
 export const RULES: Rules = {
   specialDir: 'special',
+  trashDir: '.trash',
   nameError: (_dir, name) => kit.basicNameError(name),
   texts: {
     root: 'ルート',

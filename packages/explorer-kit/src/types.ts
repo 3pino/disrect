@@ -95,6 +95,11 @@ export type Rules = {
    * 中では、大文字・小文字だけが違う名前を同じ名前として扱う。
    */
   specialDir: string | null;
+  /**
+   * 仮想のゴミ箱のフォルダの名前（いちばん上の直下。例 `.trash`）。置き場所が一覧に印（Entry.trash）を入れて、その名前で見せるときだけ指す。
+   * 無ければ（省く・null）仮想のゴミ箱は無い（どのフォルダも、ふつうのフォルダ）。
+   */
+  trashDir?: string | null;
   /** 名前の決まり。使えるなら null、使えないなら理由 */
   nameError(dir: string, name: string): string | null;
   /** 利用者へ出す文（省くと一般の文） */

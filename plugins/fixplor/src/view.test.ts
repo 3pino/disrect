@@ -153,6 +153,7 @@ describe('添付のフォルダの決まり（本体の caps が教える）', (
     const { view } = await boot(fakeDisnans(fakeFiles(tree)));
     const r = view.explorer!.rules;
     expect(r.specialDir).toBe('attachments');
+    expect(r.trashDir).toBe('.trash');
     expect(r.nameError('attachments', 'a[1].png')).toContain('使えません');
     expect(r.nameError('docs', 'a[1].png')).toBeNull();
     expect(r.nameError('', 'CON.txt')).toContain('Windows');

@@ -19,6 +19,8 @@ export function createRules(specialDir: string | null): Rules {
   const inSpecial = (dir: string): boolean => specialDir !== null && (dir === specialDir || dir.startsWith(specialDir + '/'));
   return {
     specialDir,
+    // サーバーのゴミ箱は、いちばん上の直下の仮想のフォルダ（一覧に印が付く）
+    trashDir: '.trash',
     nameError(dir, name) {
       if (inSpecial(dir)) {
         const a = attachmentNameError(name);
