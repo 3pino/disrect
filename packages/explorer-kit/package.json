@@ -1,0 +1,22 @@
+{
+  "name": "@3pino/explorer-kit",
+  "version": "0.4.0",
+  "description": "ファイルエクスプローラーの共有の部品。Svelte 5 の部品と、その決まり・状態",
+  "type": "module",
+  "svelte": "./src/index.ts",
+  "exports": {
+    ".": { "types": "./src/index.ts", "svelte": "./src/index.ts", "default": "./src/index.ts" },
+    "./*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["src", "!src/**/*.test.ts", "!src/test-support"],
+  "scripts": {
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@3pino/ui-kit-web": ">=0.1.0",
+    "@lucide/svelte": "^1.53.0",
+    "svelte": "^5.57.0"
+  }
+}

@@ -20,6 +20,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # 型と試験は、アプリと共有の部品（packages/explorer-kit。ワークスペース）の両方
       - run: npm run check
       - run: npm test
       - run: npm run build

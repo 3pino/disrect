@@ -5,7 +5,7 @@
 ```
 design-system（CSS）                https://github.com/3pino/design-system
         │
-explorer-kit（共有の部品）          https://github.com/3pino/explorer-kit
+explorer-kit（共有の部品）          packages/explorer-kit（このリポジトリのワークスペース）
   ├─ 画面     FileExplorer・FileProperties・EntryActions（小さな部品 Button・Menu・Modal などは @3pino/ui-kit-web）
   ├─ 決まり   名前・同名の扱い・移動とコピーの進め方・ゴミ箱の仮想フォルダ・並び順・フォルダごとの表示
   └─ 状態     開いているフォルダ・一覧の写し・選択・切り取り／コピーの控え・表示方法
@@ -17,11 +17,11 @@ explorer-kit（共有の部品）          https://github.com/3pino/explorer-kit
 
 - 共有の部品は、特定のアプリの言葉を持たない。使うアプリは、置き場所と本体の機能を渡して、自分の画面を作る。
 - fixplor は、部品に「この端末」を渡し、その外側にファイラーとしての機能（ネットワークドライブなど）を足していくもの。サーバーやアカウントが無くても、ふつうのファイラーとして動く。
-- 共有の部品は、design-system と同じく別のリポジトリで、タグを指定して取り込む。
+- 共有の部品（`packages/explorer-kit`、名前は `@3pino/explorer-kit`）は、このリポジトリの npm のワークスペース。fixplor のアプリとプラグインは、ここから直接取り込む（タグ指定の取り込みはやめた）。部品の型・試験は `npm run check`・`npm test` が、アプリの分といっしょに走らせる（CI も同じ）。
 
 ## 2 つの口
 
-共有の部品は、次の 2 つだけを通して外とやりとりする（`explorer-kit/src/types.ts`）。
+共有の部品は、次の 2 つだけを通して外とやりとりする（`packages/explorer-kit/src/types.ts`）。
 
 1. **置き場所（`ExplorerApi`・`EntryUrls`・`Rules`・`ScopeSource`）** — 作るときに 1 つ渡す。OS や通信の違いは実装の中に閉じる。
 2. **本体から借りる機能（`ExplorerHost`）** — 通知・確認・「戻る」・ファイルを開く・クリップボード・この端末の種類。
@@ -45,7 +45,7 @@ explorer-kit（共有の部品）          https://github.com/3pino/explorer-kit
 | --- | --- | --- |
 | 0 | fixplor の土台。Rust のファイル操作と試験 | 済み |
 | 1 | エクスプローラーを、2 つの口ごしに動く形へ直す（挙動は変えない） | 済み |
-| 2 | 共有の部品のリポジトリへ移し、使うアプリがタグ指定で取り込む | 済み（explorer-kit v0.1.0。v0.3.0 でアプリの言葉を除いた） |
+| 2 | 共有の部品を別にし、アプリの言葉を持たせない | 済み（v0.3.0 でアプリの言葉を除いた。のち、別のリポジトリをやめ、このリポジトリのワークスペース `packages/explorer-kit` へ統合） |
 | 3 | fixplor の画面を、共有の部品に置き換える | 済み（この端末の一覧・選択・コピー・移動・名前の変更・新しいフォルダ・ゴミ箱・プロパティ） |
 | 4 | WebDAV の置き場所（Rust・置き場所・追加／直す／外す・つながらない印） | 済み（W0〜W4 と本物のサーバーの結合試験） |
 | 5 | 一般の WebDAV: Basic 認証・資格情報（OS のキーチェーン）・画像と PDF の中継・拡大表示・大きいファイルの流し書き・一時ファイルの掃除 | 済み（証明書の指紋の固定は、これから） |
