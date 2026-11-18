@@ -14,8 +14,27 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// リリース署名の鍵。CI では環境変数（Secrets を復元したファイル）、手元では ~/.config/fixplor-keys/ から読む。
+// 同じ鍵で署名しないと、アップデートとしてインストールできない（鍵は一度作ったら変えない）。
+val keyDir = File(System.getProperty("user.home"), ".config/fixplor-keys")
+val keystoreFile = System.getenv("FIXPLOR_KEYSTORE")?.let { file(it) }
+    ?: File(keyDir, "android.jks").takeIf { it.exists() }
+val keystorePassword = System.getenv("FIXPLOR_KEYSTORE_PASSWORD")
+    ?: File(keyDir, "android.password").takeIf { it.exists() }?.readText()?.trim()
+val releaseKeyAlias = System.getenv("FIXPLOR_KEY_ALIAS") ?: "fixplor"
+
 android {
     compileSdk = 37
+    signingConfigs {
+        if (keystoreFile != null && keystorePassword != null) {
+            create("release") {
+                storeFile = keystoreFile
+                storePassword = keystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = keystorePassword
+            }
+        }
+    }
     namespace = "dev.fixplor.app"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -39,6 +58,8 @@ android {
             }
         }
         getByName("release") {
+            // 鍵が無いときは署名しない（未署名の APK。インストールはできない・試験用）
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             optimization {
                enable = true
             }

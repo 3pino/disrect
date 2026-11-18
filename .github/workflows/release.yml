@@ -128,8 +128,71 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Android（Disnans と同じ形）: 署名つきの APK（aarch64）を作り、下書きのリリースへ載せる。鍵は Secrets（docs/release.md の「Android」）
+  android:
+    needs: [version, create-release]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 29.0.14206865
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: release-android
+          save-if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: NDK をインストール
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: 署名の鍵を復元
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/android.jks"
+          echo "FIXPLOR_KEYSTORE=$RUNNER_TEMP/android.jks" >> "$GITHUB_ENV"
+      - run: npm ci
+      - name: APK をビルド（署名つき・aarch64）
+        env:
+          FIXPLOR_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FIXPLOR_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: npx tauri android build --apk --target aarch64
+      - name: APK に版の名前をつける
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          SRC=$(find src-tauri/gen/android/app/build/outputs/apk -name "*release*.apk" | head -1)
+          test -n "$SRC"
+          cp "$SRC" "fixplor_${VERSION}_android-arm64.apk"
+      - name: リリースに追加（タグのとき）
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: gh release upload "$TAG" "fixplor_${VERSION}_android-arm64.apk" --repo ${{ github.repository }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          name: fixplor-android
+          path: fixplor_*_android-arm64.apk
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
-    needs: [version, create-release, bundle]
+    needs: [version, create-release, bundle, android]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:

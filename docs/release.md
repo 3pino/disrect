@@ -55,3 +55,17 @@ git push origin vX.Y.Z  # ← これでリリースが始まる
 - `.sig` が無くて止まる: Secrets が無い・パスワードが違う。Actions のログで `bundle` の署名の段を見る。
 - 下書きが残る: ワークフローが途中で止まると、下書きのリリースが残る。直して同じタグで再実行するなら、残った下書きとタグを消してから（`gh release delete vX.Y.Z --cleanup-tag`）。
 - 更新の確認が失敗しても、アプリは使える（裏の確認は黙って失敗する。「バージョン情報」で手で確認すると、理由が出る）。
+
+## 6. Android（sideload。Play には出さない）
+
+- 配布は GitHub のリリースの APK だけ（`fixplor_X.Y.Z_android-arm64.apk`）。リリースのワークフロー（`release.yml` の `android`）が、署名つきで作って下書きに載せ、公開の前に揃う。
+- **署名の鍵**は Secrets（リポジトリの Settings → Secrets）。鍵は一度作ったら変えない（変えると、入れてある利用者は更新できない）:
+  - `ANDROID_KEYSTORE_BASE64`: 鍵ファイル（`.jks`）を `base64 -w0` で符号化したもの
+  - `ANDROID_KEYSTORE_PASSWORD`: 鍵ファイルのパスワード（鍵のパスワードも同じ）
+  - `ANDROID_KEY_ALIAS`: 鍵の別名（省くと `fixplor`）
+  - 作り方（最初の 1 回。手元で）: `keytool -genkeypair -v -keystore fixplor.jks -keyalg RSA -keysize 2048 -validity 10000 -alias fixplor`。`fixplor.jks` と控えのパスワードは、リポジトリの外の安全な場所へ。
+- 手元で署名つきの APK を作るとき: `FIXPLOR_KEYSTORE=/path/fixplor.jks FIXPLOR_KEYSTORE_PASSWORD=… npx tauri android build --apk --target aarch64`（鍵が無ければ未署名の APK になり、入れられない）。
+- **アプリの更新（Android）**: アプリは GitHub の最新のリリース（API）から APK を選び、Rust で取り（https・GitHub のホストだけ）、インストーラーへ渡す。インストーラーが「今の版と同じ署名か」を確かめるので、別の鍵の APK は入らない。`latest.json` は使わない（Tauri の更新はデスクトップだけ）。
+- 「不明なアプリのインストール」の許可は、利用者が一度与える（アプリが設定画面を開く）。
+- CI（`ci.yml` の `android`）は、デバッグ APK（x86_64）のコンパイルと、プラグインの JVM 試験だけ。APK は配らない。
+- 未確認（実機・GitHub の実物）: 署名つきの release APK を実際の端末で入れ替えること、GitHub の APK を実際に取得すること。手順の検証は、次のリリース候補で行う。

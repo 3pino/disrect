@@ -56,3 +56,37 @@ jobs:
         working-directory: src-tauri
       - run: cargo test --locked
         working-directory: src-tauri
+
+  # Android（PoC から）: APK（デバッグ・x86_64）がコンパイルできること、プラグインの JVM 試験（資格情報の箱・更新の受け口）。
+  # APK は配らない（配布は release.yml の署名つきだけ）。実機・エミュレーターでは動かさない。
+  android:
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 29.0.14206865
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: ci-android
+      - name: NDK をインストール
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - run: npm ci
+      - name: APK（デバッグ・x86_64）をビルドする（コンパイルの確認）
+        run: npx tauri android build --debug --apk --target x86_64
+      - name: プラグインの JVM 試験
+        working-directory: src-tauri/gen/android
+        run: ./gradlew --no-daemon :tauri-plugin-fixplor-storage:testDebugUnitTest :tauri-plugin-fixplor-updater:testDebugUnitTest
