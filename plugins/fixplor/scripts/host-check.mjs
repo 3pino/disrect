@@ -2,6 +2,8 @@
 // 作った main.js を、Disnans の本物のプラグインのホスト（app/src/lib/plugins/host.svelte.ts）に読み込ませて、
 // 実物の Chromium・本体の実物の画面（ナビバー・パネル・トースト・拡大表示）で動かす検査。
 // 本体のコード・スクリプトは変えない（Disnans のリポジトリは読むだけ。vite・cdp.mjs・touch-fixture.mjs を、そこから借りる）。
+// 注: fixplor はいまコアのプラグイン（本体が同梱して読む。同じ ID の開発用・配布は読まれない）。ここで入れる DevPlugin は無視され、読まれるのは本体が同梱した版。
+//   （同梱版と作った main.js が同じかは、本体側の検査で cmp する）
 // 共有フォルダは、この検査が立てる仮のサーバー（メモリ上のフォルダ）。本物のサーバー・Tauri は要らない。
 // 見た目の良し悪しは見ない（スクリーンショットなし）。
 //
@@ -229,6 +231,12 @@ try {
     assert.equal(await evaluate(`document.querySelector('.file-explorer-crumbs button').textContent`), '共有フォルダ');
   });
 
+  await check('切り替え: 内蔵の「ファイル」の項目は出ず（「ファイル」はプラグインの 1 つだけ）、選ばれているのがその項目で、画面は plugin-panel の中', async () => {
+    const items = await evaluate(`[...document.querySelectorAll('.nav-bar-side button')].filter((b) => b.textContent.includes('ファイル')).map((b) => b.getAttribute('aria-current'))`);
+    assert.deepEqual(items, ['page'], JSON.stringify(items));
+    assert.equal(await evaluate(`!!document.querySelector('#plugin-panel[data-plugin="fixplor"] .file-explorer-crumbs')`), true);
+  });
+
   await check('フォルダを開く（ダブルクリック）と、その中身を読む', async () => {
     await evaluate(`${rowOf('docs')}.querySelector('.file-explorer-row').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
     await waitFor(`document.querySelectorAll('.file-explorer-name-text').length === 1`);
@@ -318,8 +326,15 @@ try {
     assert(text.includes('explorerDirs'), text.slice(0, 200));
   });
 
-  await check('外す（オフにする）と、ナビの項目・リンクの開き手・画面の購読が片付く', async () => {
+  await check('コアのプラグインはオフにできない（setEnabled は無視される）', async () => {
     await evaluate(`window.__ph.setEnabled('fixplor', false)`);
+    await sleep(500);
+    assert.equal(await evaluate(`!!window.__ph.runtime('fixplor')`), true, 'オフになってしまった');
+    assert.equal(await evaluate(`window.__ph.isEnabled('fixplor')`), true);
+  });
+
+  await check('外す（unload）と、ナビの項目・リンクの開き手・画面の購読が片付く', async () => {
+    await evaluate(`window.__ph.unload('fixplor')`);
     await waitFor(`!window.__ph.runtime('fixplor')`);
     const left = await evaluate(`(async () => (await import('/src/lib/pluginNav.svelte.ts')).pluginNav.entries.length)()`);
     assert.equal(left, 0, 'ナビの項目が残っている');
