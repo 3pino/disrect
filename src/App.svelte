@@ -13,10 +13,12 @@
   import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
   import { isBackKey } from '@3pino/app-kit-web/core/backNav';
   import PlaceDialog from './components/PlaceDialog.svelte';
+  import CertDialog from './components/CertDialog.svelte';
   import Lightbox from './components/Lightbox.svelte';
   import { createLocalFs, type LocalFs } from './lib/fs/local';
   import { createDavFs } from './lib/fs/webdav';
   import { createCreds, type CredInfo } from './lib/fs/creds';
+  import { createPins } from './lib/fs/pins';
   import Button from '@3pino/ui-kit-web/Button.svelte';
   import { FsError, type FsPlace } from './lib/fs/types';
   import type { Sources } from './lib/fs/sources';
@@ -40,10 +42,15 @@
   let failed = $state('');
   /** 場所の欄に打っている文字（開いているフォルダが変わったら、それに合わせる） */
   let address = $state('');
-  let dialog = $state.raw<{ place?: DavPlace; cred?: CredInfo | null; credError?: string; focusPassword?: boolean } | null>(null);
+  let dialog = $state.raw<{ place?: DavPlace; cred?: CredInfo | null; credError?: string; focusPassword?: boolean; pin?: string | null } | null>(null);
+  /** 証明書を確認できない・変わった置き場所。利用者に確かめてもらうまで、案内を出す */
+  let certIssue = $state.raw<Record<string, 'tls' | 'cert_changed'>>({});
+  /** 証明書を確かめるダイアログ（previous は、前に信頼した指紋） */
+  let certDialog = $state.raw<{ place: DavPlace; previous: string | null } | null>(null);
   /** 認証が通らなかった置き場所（401）。入れ直してもらうまで、案内を出す */
   let authFailed = $state.raw<Record<string, true>>({});
   const creds = createCreds();
+  const pins = createPins();
 
   const explorer = $derived(current?.explorer ?? null);
   const viewStore = { read: () => settings.dirs, write: (map: unknown) => (settings.dirs = map) };
@@ -93,7 +100,7 @@
   function openDav(p: DavPlace): void {
     let b = bundles.get(p.id);
     if (!b) {
-      const fs = createDavFs({ id: p.id, base: p.url, showHidden: () => settings.showHidden, onAuthError: () => (authFailed = { ...authFailed, [p.id]: true }) });
+      const fs = createDavFs({ id: p.id, base: p.url, showHidden: () => settings.showHidden, onAuthError: () => (authFailed = { ...authFailed, [p.id]: true }), onCertError: (code) => (certIssue = { ...certIssue, [p.id]: code }) });
       // ゴミ箱は無い。削除は、確認のうえ完全に削除する
       const made = makeBundle(p.id, fs, { caps: { restore: false, trash: false }, labels: { root: p.name, upload: 'ファイルを取り込む' } });
       b = remember({ id: p.id, explorer: made, open: externalOpener(host, fs), dav: { base: p.url } });
@@ -116,6 +123,8 @@
     known = rest;
     const { [id]: _ok, ...stillFailed } = authFailed;
     authFailed = stillFailed;
+    const { [id]: _cert, ...stillUntrusted } = certIssue;
+    certIssue = stillUntrusted;
     if (current?.id === id) current = bundles.get(LOCAL) ?? null;
   }
 
@@ -125,11 +134,58 @@
       dialog = {};
       return;
     }
+    const pin = await pinOf(place);
     try {
-      dialog = { place, cred: await creds.info(place.id), focusPassword };
+      dialog = { place, cred: await creds.info(place.id), focusPassword, pin };
     } catch (e) {
-      dialog = { place, cred: null, credError: errorMessage(e), focusPassword };
+      dialog = { place, cred: null, credError: errorMessage(e), focusPassword, pin };
     }
+  }
+
+  /** 置き場所の、いま効いている固定の指紋（接続先が同じものだけ。読めなければ null） */
+  async function pinOf(place: DavPlace): Promise<string | null> {
+    try {
+      const info = await pins.info(place.id);
+      return info && info.base === place.url ? info.fingerprint : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 証明書を確かめるダイアログを開く */
+  async function openCert(place: DavPlace): Promise<void> {
+    certDialog = { place, previous: await pinOf(place) };
+  }
+
+  /** 証明書を信頼する（指紋を固定して、読み直す）。できなければ理由の文を返す */
+  async function trustCert(place: DavPlace, fingerprint: string): Promise<string | null> {
+    try {
+      await pins.set(place.id, place.url, fingerprint);
+    } catch (e) {
+      return errorMessage(e);
+    }
+    certDialog = null;
+    reloadAfterPin(place.id);
+    return null;
+  }
+
+  /** 固定を解除する（通常の確かめに戻る）。できなければ、トーストで知らせる */
+  async function unpin(place: DavPlace): Promise<void> {
+    dialog = null;
+    try {
+      await pins.clear(place.id);
+    } catch (e) {
+      host.toast(errorMessage(e), 'error');
+      return;
+    }
+    reloadAfterPin(place.id);
+  }
+
+  /** 固定が変わった置き場所の案内を消して、読み直す（つながるか、また案内が出る） */
+  function reloadAfterPin(id: string): void {
+    const { [id]: _cert, ...rest } = certIssue;
+    certIssue = rest;
+    bundles.get(id)?.explorer.nav.reload();
   }
 
   /** ダイアログに出す失敗の文（Rust が日本語で書いた説明があるものは、それを出す） */
@@ -142,6 +198,8 @@
     const hadCred = dialog?.cred != null;
     const r = editing ? saved.update(editing.id, name, url) : saved.add(name, url);
     if (!r.ok) return r.reason;
+    // 接続先を変えたら、前の接続先への固定は使わない（残さない）
+    if (editing && editing.url !== r.place.url) await pins.clear(editing.id).catch(() => {});
     try {
       if (cred) await creds.set(r.place.id, r.place.url, cred.user, cred.password);
       else if (hadCred) await creds.clear(r.place.id);
@@ -177,6 +235,7 @@
     forget(p.id);
     // 保管した資格情報も消す（キーチェーンが使えなくても、外すこと自体は止めない）
     await creds.clear(p.id).catch(() => {});
+    await pins.clear(p.id).catch(() => {});
   }
 
   /** 左の一覧の項目に出す、つながらなかった印（開いた置き場所の、いちばん上の一覧が読めなかったとき） */
@@ -242,6 +301,16 @@
         {/each}
       </nav>
       <main class="main">
+        {#if certIssue[current.id] && saved.get(current.id)}
+          {@const place = saved.get(current.id)!}
+          <p class="status-line status-line-error auth-banner cert-banner" role="alert">
+            <span>{certIssue[current.id] === 'cert_changed' ? '証明書が、前に信頼したものと変わりました。' : 'このサーバーの証明書を確認できません。'}</span>
+            <span class="banner-actions">
+              {#if certIssue[current.id] === 'cert_changed'}<Button onclick={() => void unpin(place)}>信頼を解除</Button>{/if}
+              <Button onclick={() => void openCert(place)}>{certIssue[current.id] === 'cert_changed' ? '新しい証明書を確認する' : '証明書を確認する'}</Button>
+            </span>
+          </p>
+        {/if}
         {#if authFailed[current.id] && saved.get(current.id)}
           {@const place = saved.get(current.id)!}
           <p class="status-line status-line-error auth-banner" role="alert">
@@ -261,7 +330,7 @@
 <ConfirmDialog request={host.shell.confirmReq} />
 <Lightbox {host} open={(req) => current?.open(req) ?? Promise.resolve()} />
 {#if dialog}
-  <PlaceDialog place={dialog.place} saved={dialog.cred} savedError={dialog.credError} focusPassword={dialog.focusPassword} onsave={saveDialog} onremove={dialog.place ? () => void removeDialog() : undefined} onclose={() => (dialog = null)} />
+  <PlaceDialog place={dialog.place} saved={dialog.cred} savedError={dialog.credError} focusPassword={dialog.focusPassword} pin={dialog.pin} onunpin={dialog.place ? () => void unpin(dialog!.place!) : undefined} onsave={saveDialog} onremove={dialog.place ? () => void removeDialog() : undefined} onclose={() => (dialog = null)} />
 {/if}
 
 <style>
@@ -345,6 +414,10 @@
     gap: var(--space-3);
     margin: 0;
   }
+  .banner-actions {
+    display: flex;
+    gap: var(--space-2);
+  }
   .main {
     display: flex;
     flex-direction: column;
@@ -358,3 +431,6 @@
     }
   }
 </style>
+{#if certDialog}
+  <CertDialog place={certDialog.place} previous={certDialog.previous} probe={(base) => pins.probe(base)} ontrust={(fp) => trustCert(certDialog!.place, fp)} onclose={() => (certDialog = null)} />
+{/if}

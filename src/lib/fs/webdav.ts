@@ -21,6 +21,8 @@ export type DavOptions = {
   base: string;
   /** 認証が通らなかった（401）とき、利用者に入れ直してもらうために呼ぶ */
   onAuthError?: () => void;
+  /** 証明書を確認できない（tls）・前に信頼したものと変わった（cert_changed）とき、利用者に確かめてもらうために呼ぶ */
+  onCertError?: (code: 'tls' | 'cert_changed') => void;
   /** 中継のスキームの URL にする（試験で差し替える）。既定は Tauri の convertFileSrc */
   proxySrc?: (path: string) => string;
   call?: Call;
@@ -69,6 +71,7 @@ export function createDavFs(options: DavOptions): DavFs {
       return await baseRun<T>(cmd, args, headers);
     } catch (e) {
       if (e instanceof FsError && e.code === 'auth') options.onAuthError?.();
+      if (e instanceof FsError && (e.code === 'tls' || e.code === 'cert_changed')) options.onCertError?.(e.code);
       throw e;
     }
   };

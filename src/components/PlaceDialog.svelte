@@ -2,6 +2,7 @@
   import Modal from '@3pino/ui-kit-web/Modal.svelte';
   import Button from '@3pino/ui-kit-web/Button.svelte';
   import TextInput from '@3pino/ui-kit-web/TextInput.svelte';
+  import { formatFingerprint } from '../lib/fs/pins';
   import type { DavPlace } from '../lib/places.svelte';
 
   // ネットワークの置き場所（WebDAV）を足す・直す・外すダイアログ。名前・URL と、認証（任意。ユーザー名・パスワード）。
@@ -12,6 +13,8 @@
     saved = null,
     savedError = '',
     focusPassword = false,
+    pin = null,
+    onunpin,
     onsave,
     onremove,
     onclose,
@@ -23,6 +26,10 @@
     savedError?: string;
     /** 開いたとき、パスワードの入れ直しから始める（認証が通らなかったとき） */
     focusPassword?: boolean;
+    /** 信頼した証明書（固定）の指紋（16 進 64 桁）。無ければ null */
+    pin?: string | null;
+    /** 固定を解除する（押したら、ダイアログは閉じて、通常の確かめに戻る） */
+    onunpin?: () => void;
     onsave: (name: string, url: string, cred: { user: string; password: string | null } | null) => Promise<string | null>;
     onremove?: () => void;
     onclose: () => void;
@@ -82,6 +89,12 @@
     {:else if saved}
       <p class="place-note">ユーザー名を空にして保存すると、保管した認証情報を消します。</p>
     {/if}
+    {#if pin && place}
+      <div class="place-saved place-pin">
+        <span>信頼した証明書: <code class="place-pin-fp">{formatFingerprint(pin)}</code>{#if url.trim() !== place.url}（URL を変えると、固定は外れます）{/if}</span>
+        {#if onunpin}<Button class="place-unpin" onclick={onunpin}>信頼を解除</Button>{/if}
+      </div>
+    {/if}
     {#if savedError}<p class="place-error" role="alert">認証情報を読めません: {savedError}</p>{/if}
     {#if error}<p class="place-error" role="alert">{error}</p>{/if}
     <div class="modal-actions">
@@ -104,6 +117,10 @@
     justify-content: space-between;
     gap: var(--space-3);
     font-size: var(--fs-base);
+  }
+  .place-pin-fp {
+    font-family: var(--font-mono, monospace);
+    overflow-wrap: anywhere;
   }
   .place-note {
     margin: 0;

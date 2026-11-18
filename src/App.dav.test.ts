@@ -7,7 +7,8 @@ import { flushSync, mount, unmount } from 'svelte';
 const fake = vi.hoisted(() => {
   const dav = new Map<string, { kind: 'file' | 'dir'; etag: string }>();
   const calls: [string, unknown, Record<string, string> | undefined][] = [];
-  const state = { offline: false, auth: false, credFail: false };
+  const state = { offline: false, auth: false, credFail: false, cert: null as { fingerprint: string; not_after: string | null } | null, probeFail: false };
+  const pins = new Map<string, { base: string; fingerprint: string }>();
   const creds = new Map<string, { user: string; base: string }>();
   const rawOf = (path: string) => ({
     name: path.slice(path.lastIndexOf('/') + 1), path, kind: dav.get(path)!.kind, size: dav.get(path)!.kind === 'dir' ? null : 4,
@@ -28,16 +29,29 @@ const fake = vi.hoisted(() => {
         creds.set(args!.place, { user: args!.user, base: args!.base });
         return null;
       case 'dav_cred_clear': creds.delete(args!.place); return null;
-      case 'dav_list':
+      case 'dav_pin_info': return pins.get(args!.place) ?? null;
+      case 'dav_pin_set': pins.set(args!.place, { base: args!.base, fingerprint: args!.fingerprint }); return null;
+      case 'dav_pin_clear': pins.delete(args!.place); return null;
+      case 'dav_cert_probe':
+        if (state.probeFail) throw { code: 'offline', message: '接続できません: connection refused' };
+        return state.cert ? { trusted: false, ...state.cert } : { trusted: true, fingerprint: null, not_after: null };
+      case 'dav_list': {
+        // 自己署名のサーバー: 固定が無ければ tls、固定が違えば cert_changed
+        if (state.cert) {
+          const pin = pins.get(args!.place);
+          if (!pin || pin.base !== args!.base) throw { code: 'tls', message: '証明書を確認できません: UnknownIssuer' };
+          if (pin.fingerprint !== state.cert.fingerprint) throw { code: 'cert_changed', message: '証明書が変わりました' };
+        }
         if (state.auth) throw { code: 'auth', message: 'サーバーが 401 を返しました' };
         if (state.offline) throw { code: 'offline', message: '接続できません: connection refused' };
         return [...dav.keys()].filter((p) => parent(p) === args!.path && p !== '').map(rawOf);
+      }
       case 'dav_remove': dav.delete(args!.path); return null;
       case 'dav_cancel': return false;
       default: throw { code: 'unsupported', message: cmd };
     }
   };
-  return { dav, calls, state, creds, invoke };
+  return { dav, calls, state, creds, pins, invoke };
 });
 vi.mock('@tauri-apps/api/core', () => ({ invoke: fake.invoke, convertFileSrc: (p: string, proto = 'asset') => `${proto}://localhost/${encodeURIComponent(p)}` }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
@@ -67,6 +81,9 @@ beforeEach(() => {
   fake.state.auth = false;
   fake.state.credFail = false;
   fake.creds.clear();
+  fake.pins.clear();
+  fake.state.cert = null;
+  fake.state.probeFail = false;
   fake.dav.clear();
   for (const [p, k] of [['docs', 'dir'], ['docs/in.txt', 'file'], ['a.txt', 'file']] as const) fake.dav.set(p, { kind: k, etag: `e-${p}` });
   target = document.createElement('div');
@@ -413,6 +430,154 @@ describe('認証（Basic・OS のキーチェーン）', () => {
     button('自宅').click();
     await settle();
     expect(document.querySelector('.auth-banner')).toBeNull();
+  });
+});
+
+const FP_A = 'de3cfb11d85e90a8e5590f5d14e5657492ec2564f890bcfb1446f2d9e9e6c62b';
+const FP_B = 'bf2d6d76adda241a601f3620056b2486790615 4e09671ca6d3a47217c99beb fd'.replace(/ /g, '');
+
+describe('証明書の固定（自己署名・私的 CA の https）', () => {
+  const certText = (): string => document.querySelector('.cert-fp')?.textContent ?? '';
+
+  it('tls で開けないと案内を出す。「証明書を確認する」で指紋を見せ、「信頼する」で固定して読み直す（パスワードは関係しない）', async () => {
+    fake.state.cert = { fingerprint: FP_A, not_after: '2126-10-25T04:58:05Z' };
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    app = mount(App, { target });
+    await settle();
+    button('自宅').click();
+    await settle();
+    expect(document.querySelector('.cert-banner')!.textContent).toContain('証明書を確認できません');
+    expect(document.querySelector('.cert-banner')!.textContent).not.toContain('信頼を解除');
+    button('証明書を確認する').click();
+    await settle();
+    expect(called('dav_cert_probe')).toEqual([{ base: 'https://nas.example/dav/' }]);
+    expect(certText()).toBe('DE:3C:FB:11:D8:5E:90:A8:E5:59:0F:5D:14:E5:65:74:92:EC:25:64:F8:90:BC:FB:14:46:F2:D9:E9:E6:C6:2B');
+    expect(document.querySelector('.modal')!.textContent).toContain('2126年10月25日');
+    // 確認だけでは、何も固定しない
+    expect(called('dav_pin_set')).toEqual([]);
+    button('この証明書を信頼する').click();
+    await settle();
+    expect(called('dav_pin_set')).toEqual([{ place: p.place.id, base: 'https://nas.example/dav/', fingerprint: FP_A }]);
+    expect(document.querySelector('.modal')).toBeNull();
+    expect(document.querySelector('.cert-banner')).toBeNull();
+    expect(names()).toEqual(['docs', 'a.txt']);
+  });
+
+  it('キャンセルでは固定しない。確かめられなければ理由を出す。OS が信頼している証明書なら、固定は要らないと伝える', async () => {
+    fake.state.cert = { fingerprint: FP_A, not_after: null };
+    places.add('自宅', 'https://nas.example/dav/');
+    app = mount(App, { target });
+    await settle();
+    button('自宅').click();
+    await settle();
+    button('証明書を確認する').click();
+    await settle();
+    expect(document.querySelector('.modal')!.textContent).not.toContain('有効期限');
+    button('キャンセル').click();
+    await settle();
+    expect(called('dav_pin_set')).toEqual([]);
+    expect(document.querySelector('.cert-banner')).not.toBeNull();
+    fake.state.probeFail = true;
+    button('証明書を確認する').click();
+    await settle();
+    expect(document.querySelector('.cert-error')!.textContent).toContain('接続できません');
+    expect(document.querySelector('.cert-trust')).toBeNull();
+    button('閉じる').click();
+    await settle();
+    fake.state.probeFail = false;
+    fake.state.cert = null;
+    button('証明書を確認する').click();
+    await settle();
+    expect(document.querySelector('.modal')!.textContent).toContain('固定は要りません');
+    expect(document.querySelector('.cert-trust')).toBeNull();
+  });
+
+  it('固定した証明書と違うものが示されると cert_changed。前と今の指紋を並べて警告し、信頼し直すか、解除できる', async () => {
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    fake.pins.set(p.place.id, { base: 'https://nas.example/dav/', fingerprint: FP_A });
+    fake.state.cert = { fingerprint: FP_B, not_after: '2126-10-25T04:58:05Z' };
+    app = mount(App, { target });
+    await settle();
+    button('自宅').click();
+    await settle();
+    expect(document.querySelector('.cert-banner')!.textContent).toContain('変わりました');
+    button('新しい証明書を確認する').click();
+    await settle();
+    const modal = document.querySelector('.modal')!;
+    expect(modal.textContent).toContain('前に信頼した証明書と違います');
+    expect([...modal.querySelectorAll('.cert-fp')].map((e) => e.textContent?.replace(/:/g, '').toLowerCase())).toEqual([FP_A, FP_B]);
+    button('この証明書を信頼する').click();
+    await settle();
+    expect(fake.pins.get(p.place.id)!.fingerprint).toBe(FP_B);
+    expect(document.querySelector('.cert-banner')).toBeNull();
+    expect(names()).toEqual(['docs', 'a.txt']);
+  });
+
+  it('信頼を解除すると、通常の確かめに戻る（自己署名なら、また tls の案内）', async () => {
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    fake.pins.set(p.place.id, { base: 'https://nas.example/dav/', fingerprint: FP_A });
+    fake.state.cert = { fingerprint: FP_B, not_after: null };
+    app = mount(App, { target });
+    await settle();
+    button('自宅').click();
+    await settle();
+    button('信頼を解除').click();
+    await settle();
+    expect(fake.pins.has(p.place.id)).toBe(false);
+    expect(document.querySelector('.cert-banner')!.textContent).toContain('証明書を確認できません');
+    expect(document.querySelector('.cert-banner')!.textContent).not.toContain('変わりました');
+  });
+
+  it('直すダイアログに信頼した証明書を出し、解除できる。URL を変えて保存すると固定は消える。外すときも消す', async () => {
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    fake.pins.set(p.place.id, { base: 'https://nas.example/dav/', fingerprint: FP_A });
+    app = mount(App, { target });
+    await settle();
+    button('自宅').click();
+    await settle();
+    button('「自宅」を直す').click();
+    await settle();
+    expect(document.querySelector('.place-pin-fp')!.textContent).toContain('DE:3C:FB:11');
+    // URL を変えて保存 → 固定は外れる
+    type('place-url', 'https://other.example/dav/');
+    await settle();
+    expect(document.querySelector('.place-pin')!.textContent).toContain('URL を変えると、固定は外れます');
+    submit();
+    await settle();
+    expect(fake.pins.has(p.place.id)).toBe(false);
+    // 解除ボタン
+    fake.pins.set(p.place.id, { base: 'https://other.example/dav/', fingerprint: FP_A });
+    button('「自宅」を直す').click();
+    await settle();
+    button('信頼を解除').click();
+    await settle();
+    expect(fake.pins.has(p.place.id)).toBe(false);
+    expect(document.querySelector('.modal')).toBeNull();
+    // 外す
+    fake.pins.set(p.place.id, { base: 'https://other.example/dav/', fingerprint: FP_A });
+    button('「自宅」を直す').click();
+    await settle();
+    button('一覧から外す').click();
+    await settle();
+    button('外す').click();
+    await settle();
+    expect(places.list).toEqual([]);
+    expect(fake.pins.has(p.place.id)).toBe(false);
+  });
+
+  it('固定が別の接続先のものなら、直すダイアログに出さない（効いていない）', async () => {
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    fake.pins.set(p.place.id, { base: 'https://old.example/dav/', fingerprint: FP_A });
+    app = mount(App, { target });
+    await settle();
+    button('「自宅」を直す').click();
+    await settle();
+    expect(document.querySelector('.place-pin')).toBeNull();
   });
 });
 

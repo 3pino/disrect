@@ -60,6 +60,7 @@ export type FsErrorCode =
   // ネットワークの置き場所（WebDAV）
   | 'offline'
   | 'tls'
+  | 'cert_changed'
   | 'auth'
   | 'precondition'
   | 'locked'
