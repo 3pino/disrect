@@ -310,3 +310,20 @@ describe('見る・開く', () => {
     expect(fs.isMissing(new Error('x'))).toBe(false);
   });
 });
+
+describe('検索（サーバーに検索が無いので、手元で読む）', () => {
+  it('フォルダを 1 つずつ dav_list で読み、名前に含むものを渡す。隠しファイルは出さない設定なら除く', async () => {
+    const { fs, calls } = make((cmd, args) => {
+      if (cmd !== 'dav_list') return undefined;
+      const path = (args as { path: string }).path;
+      if (path === '') return [raw('Cat.txt'), raw('sub', { kind: 'dir', size: null, mime: null, etag: null }), raw('.cat-hidden', { hidden: true })];
+      if (path === 'sub') return [raw('sub/cat2.md', { path: 'sub/cat2.md' })];
+      return [];
+    });
+    const got: string[] = [];
+    const out = await fs.api.search!({ dir: '', text: 'cat' }, { hits: (e) => got.push(...e.map((x) => x.path)), signal: new AbortController().signal });
+    expect(got).toEqual(['Cat.txt', 'sub/cat2.md']);
+    expect(out).toEqual({ partial: null });
+    expect(calls.filter((c) => c.cmd === 'dav_list').map((c) => (c.args as { path: string }).path)).toEqual(['', 'sub']);
+  });
+});

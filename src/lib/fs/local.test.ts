@@ -112,3 +112,78 @@ describe('既定のアプリで開くための URL', () => {
     expect(pathOfOpenHref('https://example.com/')).toBeNull();
   });
 });
+
+describe('検索（Rust の fs_search。結果は少しずつ届く）', () => {
+  /** Rust の代わり: fs_search は、渡された入れ物（onHits）へ batch を流してから答える。止められたら記録する */
+  function searcher(batches: FsEntry[][], outcome = { partial: null as string | null }, start = '/home/me') {
+    const calls: [string, Record<string, unknown>][] = [];
+    const channel: { onmessage: (b: FsEntry[]) => void } = { onmessage: () => {} };
+    const call: Call = async (cmd, args) => {
+      if (cmd === 'fs_start_dir') return start as never;
+      if (cmd === 'fs_places') return [{ kind: 'volume', path: 'C:\\', name: 'C:' }, { kind: 'volume', path: 'D:\\', name: 'D:' }] as never;
+      calls.push([cmd, args as Record<string, unknown>]);
+      if (cmd === 'fs_search') for (const b of batches) channel.onmessage(b);
+      return (cmd === 'fs_search' ? outcome : true) as never;
+    };
+    return { call, calls, newChannel: async () => channel };
+  }
+
+  it('OS のパスで頼み、届いた項目を画面の形に直して渡す。隠しファイルを出すかも伝える。上限で止めた理由を返す', async () => {
+    const s = searcher([[raw('/home/me/a/cat.png')], [raw('/home/me/cat.txt'), raw('/home/me/b/c/cat', { kind: 'dir', size: null })]], { partial: 'scan' });
+    const fs = await createLocalFs({ call: s.call, newChannel: s.newChannel, showHidden: () => true });
+    const got: string[] = [];
+    const out = await fs.api.search!({ dir: 'home/me', text: 'cat' }, { hits: (e) => got.push(...e.map((x) => `${x.path}:${x.kind}`)), signal: new AbortController().signal });
+    expect(got).toEqual(['home/me/a/cat.png:file', 'home/me/cat.txt:file', 'home/me/b/c/cat:dir']);
+    expect(out).toEqual({ partial: 'scan' });
+    expect(s.calls).toHaveLength(1);
+    expect(s.calls[0][0]).toBe('fs_search');
+    expect(s.calls[0][1]).toMatchObject({ dir: '/home/me', text: 'cat', showHidden: true });
+    expect(String(s.calls[0][1].job)).toMatch(/^search-\d+$/);
+    expect(s.calls[0][1].onHits).toBeDefined();
+  });
+
+  it('中止すると、Rust の検索も止める（job で）。中止したあとに届いた結果は渡さない', async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const channel: { onmessage: (b: FsEntry[]) => void } = { onmessage: () => {} };
+    const ac = new AbortController();
+    const call: Call = async (cmd, args) => {
+      if (cmd === 'fs_start_dir') return '/home/me' as never;
+      calls.push([cmd, args as Record<string, unknown>]);
+      if (cmd === 'fs_search') {
+        // 検索の途中で中止され、そのあと結果が届き、Rust は止まった（aborted）と答える
+        ac.abort();
+        channel.onmessage([raw('/home/me/late')]);
+        throw { code: 'aborted', message: '中止しました' };
+      }
+      return true as never;
+    };
+    const fs = await createLocalFs({ call, newChannel: async () => channel });
+    const got: string[] = [];
+    await expect(fs.api.search!({ dir: 'home/me', text: 'x' }, { hits: (e) => got.push(...e.map((x) => x.path)), signal: ac.signal })).rejects.toMatchObject({ code: 'aborted' });
+    expect(got).toEqual([]);
+    expect(calls.map((c) => c[0])).toEqual(['fs_search', 'fs_search_cancel']);
+    expect(calls[1][1]).toEqual({ job: calls[0][1].job });
+  });
+
+  it('始める前から中止されていたら、Rust を呼ばない', async () => {
+    const s = searcher([]);
+    const fs = await createLocalFs({ call: s.call, newChannel: s.newChannel });
+    const ac = new AbortController();
+    ac.abort();
+    await expect(fs.api.search!({ dir: 'home/me', text: 'x' }, { hits: () => {}, signal: ac.signal })).rejects.toMatchObject({ code: 'aborted' });
+    expect(s.calls).toEqual([]);
+  });
+
+  it('Windows のいちばん上からは、ドライブを 1 つずつ探す（件数の上限で止まったら、残りは探さない）', async () => {
+    const s = searcher([[raw('C:\\a\\cat')]], { partial: null }, 'C:\\Users\\me');
+    const fs = await createLocalFs({ call: s.call, newChannel: s.newChannel });
+    const out = await fs.api.search!({ dir: '', text: 'cat' }, { hits: () => {}, signal: new AbortController().signal });
+    expect(s.calls.filter((c) => c[0] === 'fs_search').map((c) => c[1].dir)).toEqual(['C:\\', 'D:\\']);
+    expect(out).toEqual({ partial: null });
+    const s2 = searcher([], { partial: 'hits' }, 'C:\\Users\\me');
+    const fs2 = await createLocalFs({ call: s2.call, newChannel: s2.newChannel });
+    const out2 = await fs2.api.search!({ dir: '', text: 'cat' }, { hits: () => {}, signal: new AbortController().signal });
+    expect(s2.calls.filter((c) => c[0] === 'fs_search')).toHaveLength(1);
+    expect(out2).toEqual({ partial: 'hits' });
+  });
+});

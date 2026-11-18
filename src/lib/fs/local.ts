@@ -5,6 +5,7 @@ import { fromOs, isWindowsPath, toOs } from './mapping';
 import { runner, tauriCall, toFsError, type Call } from './call';
 import { createSources, type Sources } from './sources';
 import { FsError, type FsEntry, type FsPlace, type FsSize } from './types';
+import type { SearchOutcome } from '@3pino/explorer-kit';
 
 // この端末のファイルシステムを、共有の部品（@3pino/explorer-kit）の置き場所（ExplorerApi）として見せる。
 // 実体は Rust（src-tauri/src/fs）。画面のパス（相対・区切り `/`）と OS の絶対パスの対応は mapping.ts。
@@ -13,6 +14,8 @@ export { toFsError, type Call };
 
 export type LocalOptions = {
   call?: Call;
+  /** Rust から結果を少しずつ受ける入れ物（試験で差し替える）。既定は Tauri の Channel */
+  newChannel?: () => Promise<{ onmessage: (batch: FsEntry[]) => void }>;
   /** 隠しファイル（. で始まるもの・Windows の隠し属性）を一覧に出すか */
   showHidden?: () => boolean;
 };
@@ -56,6 +59,13 @@ export function pathOfOpenHref(url: string): string | null {
 export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs> {
   const call = options.call ?? tauriCall;
   const showHidden = options.showHidden ?? (() => false);
+  const newChannel =
+    options.newChannel ??
+    (async () => {
+      const { Channel } = await import('@tauri-apps/api/core');
+      return new Channel<FsEntry[]>();
+    });
+  let searchSeq = 0;
   const run = runner(call);
   const startOs = await run<string>('fs_start_dir');
   const windows = isWindowsPath(startOs);
@@ -79,7 +89,37 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
   };
   const places = async (): Promise<FsPlace[]> => (await run<FsPlace[]>('fs_places')).map((p) => ({ ...p, path: fromOs(p.path) }));
 
+  /** 1 つの根の下を探す（Rust。見つけたものは batch ごとに届く）。中止されたら、Rust の検索も止める */
+  const searchRoot = async (root: string, text: string, on: { hits(entries: Entry[]): void; signal: AbortSignal }): Promise<SearchOutcome> => {
+    if (on.signal.aborted) throw new FsError('aborted', '中止しました');
+    const job = `search-${++searchSeq}`;
+    const channel = await newChannel();
+    channel.onmessage = (batch) => {
+      if (!on.signal.aborted) on.hits(batch.map(entry));
+    };
+    const stop = (): void => void run<boolean>('fs_search_cancel', { job }).catch(() => {});
+    on.signal.addEventListener('abort', stop, { once: true });
+    try {
+      return await run<SearchOutcome>('fs_search', { dir: root, text, showHidden: showHidden(), job, onHits: channel });
+    } finally {
+      on.signal.removeEventListener('abort', stop);
+    }
+  };
+
   const api: ExplorerApi = {
+    /** サブフォルダも探す（Rust が、浅いほうから。上限で止めたら partial に理由）。Windows のいちばん上は、ドライブを 1 つずつ */
+    async search(query, on) {
+      const abs = toOs(query.dir, windows);
+      const roots = abs === null ? (await run<FsPlace[]>('fs_places')).filter((p) => p.kind === 'volume').map((p) => p.path) : [abs];
+      let partial: SearchOutcome['partial'] = null;
+      for (const root of roots) {
+        const out = await searchRoot(root, query.text, on);
+        partial ??= out.partial;
+        // 件数の上限は、ドライブをまたいで数えない（画面が上限で止める）。時間・数の上限は、残りのドライブも同じ条件で探す
+        if (out.partial === 'hits') break;
+      }
+      return { partial };
+    },
     async list(path) {
       const abs = toOs(path, windows);
       // Windows のいちばん上は、ドライブの一覧

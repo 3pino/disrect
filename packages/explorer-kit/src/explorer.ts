@@ -1,6 +1,7 @@
 import { ExplorerBuffer } from './stores/buffer.svelte';
 import { DirIndex } from './stores/dirIndex.svelte';
 import { ExplorerNav } from './stores/nav.svelte';
+import { ExplorerSearch } from './stores/search.svelte';
 import { ExplorerSelection } from './stores/selection.svelte';
 import { ExplorerView } from './stores/view.svelte';
 import type { DirIndexLike, EntryUrls, ExplorerApi, ExplorerHost, Rules, ScopeSource, ViewStore } from './types';
@@ -40,6 +41,8 @@ export type Explorer = {
   buffer: ExplorerBuffer;
   selection: ExplorerSelection;
   view: ExplorerView;
+  /** 検索（名前の絞り込み・サブフォルダも探す） */
+  search: ExplorerSearch;
 };
 
 export type ExplorerOptions = {
@@ -59,6 +62,8 @@ export type ExplorerOptions = {
    * 省くと、ここで作る（そのエクスプローラーだけのもの）。置き場所が違うものとは共有しないこと（パスが別の置き場所のものになる）。
    */
   buffer?: ExplorerBuffer;
+  /** 検索を始めるまでの待ち（ms。文字を打ち終えるのを待つ。試験で縮める。既定 250） */
+  searchDelayMs?: number;
   /** 一覧の失敗が「そのフォルダが無い」か（index を省いたときだけ使う） */
   isMissing?(e: unknown): boolean;
 };
@@ -76,12 +81,14 @@ export function createExplorer(options: ExplorerOptions): Explorer {
   const buffer = options.buffer ?? new ExplorerBuffer();
   const selection = new ExplorerSelection();
   const view = new ExplorerView(options.viewStore);
+  const search = new ExplorerSearch(options.api, (e) => options.host.errorText(e), options.searchDelayMs);
   const scope = options.scope ?? FIXED_SCOPE;
   scope.onChange(() => {
     own?.clear();
     nav.reset();
     buffer.clear();
     selection.clear();
+    search.close();
   });
   return {
     api: options.api,
@@ -96,5 +103,6 @@ export function createExplorer(options: ExplorerOptions): Explorer {
     buffer,
     selection,
     view,
+    search,
   };
 }

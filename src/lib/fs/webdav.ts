@@ -1,3 +1,4 @@
+import { boundedSearch } from './search';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { PDF_THUMB_MAX_BYTES } from '@3pino/viewer-kit-web/viewers/pdfThumb';
@@ -121,6 +122,8 @@ export function createDavFs(options: DavOptions): DavFs {
   };
 
   const api: ExplorerApi = {
+    // サーバー側の検索は一般には無いので、手元で、浅いフォルダから読む（上限つき。search.ts）
+    search: (query, on) => boundedSearch((dir) => api.list(dir), query, on),
     async list(path) {
       const all = await run<DavEntry[]>('dav_list', { ...at, path });
       return (showHidden() ? all : all.filter((e) => !e.hidden)).map(entry);

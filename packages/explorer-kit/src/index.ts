@@ -17,3 +17,4 @@ export { ExplorerNav } from './stores/nav.svelte';
 export { ExplorerBuffer } from './stores/buffer.svelte';
 export { ExplorerSelection } from './stores/selection.svelte';
 export { ExplorerView } from './stores/view.svelte';
+export { ExplorerSearch, matchesName } from './stores/search.svelte';

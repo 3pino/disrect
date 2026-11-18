@@ -257,3 +257,158 @@ fn write_file_creates_replaces_files_and_never_folders() {
     assert_eq!(write_file(&d.path().join("no/f"), b"x").unwrap_err().code, "parent_missing");
     no_leftovers(d.path());
 }
+
+// ---- 検索 ----
+
+mod search_tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+
+    fn mk(root: &Path, rel: &str, body: Option<&str>) {
+        let p = root.join(rel);
+        match body {
+            Some(b) => {
+                stdfs::create_dir_all(p.parent().unwrap()).unwrap();
+                stdfs::write(&p, b).unwrap();
+            }
+            None => stdfs::create_dir_all(&p).unwrap(),
+        }
+    }
+
+    fn run(root: &Path, text: &str, hidden: bool, limits: Limits) -> (Vec<String>, Outcome) {
+        let cancel = AtomicBool::new(false);
+        let mut got: Vec<String> = Vec::new();
+        let out = search(root, text, hidden, limits, &cancel, |b| got.extend(b.into_iter().map(|e| e.path))).unwrap();
+        got.sort();
+        (got, out)
+    }
+
+    fn rel(root: &Path, got: &[String]) -> Vec<String> {
+        got.iter().map(|p| Path::new(p).strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/")).collect()
+    }
+
+    #[test]
+    fn finds_by_name_substring_ignoring_case_in_subfolders() {
+        let d = tempdir().unwrap();
+        mk(d.path(), "a/Cat.png", Some("x"));
+        mk(d.path(), "a/b/concat.txt", Some("x"));
+        mk(d.path(), "a/b/dog.md", Some("x"));
+        mk(d.path(), "CATALOG/readme", Some("x"));
+        mk(d.path(), "写真/ネコ.jpg", Some("x"));
+        let (got, out) = run(d.path(), " CAT ", false, Limits::default());
+        assert_eq!(rel(d.path(), &got), ["CATALOG", "a/Cat.png", "a/b/concat.txt"]);
+        assert_eq!(out, Outcome { partial: None });
+        // 日本語・空の文字
+        assert_eq!(rel(d.path(), &run(d.path(), "ネコ", false, Limits::default()).0), ["写真/ネコ.jpg"]);
+        let (none, out) = run(d.path(), "  ", false, Limits::default());
+        assert!(none.is_empty());
+        assert_eq!(out.partial, None);
+    }
+
+    #[test]
+    fn hits_are_the_same_shape_as_a_listing_entry() {
+        let d = tempdir().unwrap();
+        mk(d.path(), "x/hello.txt", Some("12345"));
+        mk(d.path(), "x/hello-dir", None);
+        let cancel = AtomicBool::new(false);
+        let mut got = Vec::new();
+        search(d.path(), "hello", false, Limits::default(), &cancel, |b| got.extend(b)).unwrap();
+        got.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!((got[0].kind, got[0].size), (Kind::Dir, None));
+        assert_eq!((got[1].kind, got[1].size, got[1].hidden), (Kind::File, Some(5), false));
+        assert!(Path::new(&got[1].path).is_absolute());
+    }
+
+    #[test]
+    fn hidden_items_are_skipped_and_not_entered_unless_asked() {
+        let d = tempdir().unwrap();
+        mk(d.path(), ".git/needle-in-git", Some("x"));
+        mk(d.path(), "src/.needle", Some("x"));
+        mk(d.path(), "src/needle.rs", Some("x"));
+        assert_eq!(rel(d.path(), &run(d.path(), "needle", false, Limits::default()).0), ["src/needle.rs"]);
+        assert_eq!(rel(d.path(), &run(d.path(), "needle", true, Limits::default()).0), [".git/needle-in-git", "src/.needle", "src/needle.rs"]);
+    }
+
+    #[test]
+    fn limits_stop_the_search_and_say_why() {
+        let d = tempdir().unwrap();
+        for i in 0..30 {
+            mk(d.path(), &format!("d{}/hit{i}.txt", i % 3), Some("x"));
+        }
+        // 件数
+        let (got, out) = run(d.path(), "hit", false, Limits { max_hits: 7, ..Limits::default() });
+        assert_eq!((got.len(), out.partial), (7, Some(Partial::Hits)));
+        // 調べる数
+        let (_, out) = run(d.path(), "hit", false, Limits { max_scanned: 10, ..Limits::default() });
+        assert_eq!(out.partial, Some(Partial::Scan));
+        // 深さ（根の直下までしか下りない）
+        mk(d.path(), "deep/er/est/hit-deep.txt", Some("x"));
+        let (got, out) = run(d.path(), "hit-deep", false, Limits { max_depth: 1, ..Limits::default() });
+        assert!(got.is_empty());
+        assert_eq!(out.partial, Some(Partial::Depth));
+        let (got, out) = run(d.path(), "hit-deep", false, Limits { max_depth: 3, ..Limits::default() });
+        assert_eq!((got.len(), out.partial), (1, None));
+        // 時間
+        let (_, out) = run(d.path(), "hit", false, Limits { max_time: Duration::ZERO, ..Limits::default() });
+        assert_eq!(out.partial, Some(Partial::Time));
+    }
+
+    #[test]
+    fn cancelling_stops_with_aborted_even_in_the_middle() {
+        let d = tempdir().unwrap();
+        for i in 0..200 {
+            mk(d.path(), &format!("f{i:03}.txt"), Some("x"));
+        }
+        // 始める前から中止
+        let cancel = AtomicBool::new(true);
+        assert_eq!(search(d.path(), "f", false, Limits::default(), &cancel, |_| {}).unwrap_err().code, "aborted");
+        // 途中（1 回目の結果を受け取ったところ）で中止: 続きは探さない
+        let cancel = AtomicBool::new(false);
+        let mut delivered = 0;
+        let e = search(d.path(), "f", false, Limits::default(), &cancel, |b| {
+            delivered += b.len();
+            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        })
+        .unwrap_err();
+        assert_eq!(e.code, "aborted");
+        assert_eq!(delivered, 50);
+    }
+
+    #[test]
+    fn a_missing_root_or_a_file_as_root_fails() {
+        let d = tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let e = search(&d.path().join("nope"), "x", false, Limits::default(), &cancel, |_| {}).unwrap_err();
+        assert_eq!(e.code, "not_found");
+        // ファイルを根にすると読めない
+        mk(d.path(), "file.txt", Some("x"));
+        assert!(search(&d.path().join("file.txt"), "x", false, Limits::default(), &cancel, |_| {}).is_err());
+    }
+
+    #[test]
+    fn hits_are_delivered_in_batches_and_the_last_partial_batch_is_not_lost() {
+        let d = tempdir().unwrap();
+        for i in 0..120 {
+            mk(d.path(), &format!("m{i:03}.txt"), Some("x"));
+        }
+        let cancel = AtomicBool::new(false);
+        let mut sizes = Vec::new();
+        search(d.path(), "m", false, Limits::default(), &cancel, |b| sizes.push(b.len())).unwrap();
+        assert_eq!(sizes.iter().sum::<usize>(), 120);
+        assert_eq!(sizes, [50, 50, 20]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_folder_is_listed_when_it_matches_but_never_entered() {
+        let d = tempdir().unwrap();
+        mk(d.path(), "real/inner-needle.txt", Some("x"));
+        std::os::unix::fs::symlink(d.path().join("real"), d.path().join("link-needle")).unwrap();
+        // 輪になるリンク
+        std::os::unix::fs::symlink(d.path(), d.path().join("real/loop")).unwrap();
+        let (got, out) = run(d.path(), "needle", false, Limits::default());
+        assert_eq!(rel(d.path(), &got), ["link-needle", "real/inner-needle.txt"]);
+        assert_eq!(out.partial, None);
+    }
+}

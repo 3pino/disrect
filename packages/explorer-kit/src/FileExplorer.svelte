@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import FileIcon from '@lucide/svelte/icons/file';
   import FileText from '@lucide/svelte/icons/file-text';
@@ -24,6 +24,10 @@
   import Check from '@lucide/svelte/icons/check';
   import MenuIcon from '@lucide/svelte/icons/menu';
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
+  import SearchIcon from '@lucide/svelte/icons/search';
+  import FolderSearch from '@lucide/svelte/icons/folder-search';
+  import { matchesName } from './stores/search.svelte';
+  import { SEARCH_MAX_HITS } from './types';
   import Menu from '@3pino/ui-kit-web/Menu.svelte';
   import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
   import { breadcrumbs, entryAction, kindLabel, sortEntries } from './listing';
@@ -45,7 +49,7 @@
     return props.explorer;
   }
   const explorer = pick();
-  const { api, urls, rules, host, nav: fileExplorer, index: dirIndex, buffer: explorerBuffer, selection: explorerSelection, view: explorerView } = explorer;
+  const { api, urls, rules, host, nav: fileExplorer, index: dirIndex, buffer: explorerBuffer, selection: explorerSelection, view: explorerView, search } = explorer;
   /** 仮想のゴミ箱のフォルダ（置き場所の決まり。無ければ null） */
   const trashDir = rules.trashDir ?? null;
   const scopeSource = explorer.scope;
@@ -141,18 +145,88 @@
   /**
    * 拡大表示で開く（画像・PDF など。lib/viewers.ts）。前後は、このフォルダの拡大表示で見られるものを今の並び順で
    */
-  function openViewer(e: Entry): void {
+  function openViewer(e: Entry, pool?: readonly Entry[]): void {
     const item = (x: Entry): ViewerItem => {
       const src = urls.readUrl(x);
       return { src, alt: entryLabel(x), downloadUrl: src, kind: host.viewerKind(x.name, x.mime) ?? undefined };
     };
     const viewable = () =>
-      listing?.kind === 'ok'
+      pool
+        ? pool.filter((x) => x.kind === 'file' && host.viewerKind(x.name, x.mime) !== null).map(item)
+        : listing?.kind === 'ok'
         ? sortEntries([...listing.entries.values()].map(displayEntry), dirView.sortKey, dirView.sortOrder)
             .filter((x) => x.kind === 'file' && host.viewerKind(x.name, x.mime) !== null)
             .map(item)
         : [];
     host.openViewer(item(e), viewable);
+  }
+
+  // ---- 検索（名前の絞り込み・サブフォルダも探す）。バーの虫めがね・Ctrl+F で開く ----
+
+  let searchInput: HTMLInputElement | undefined = $state();
+  function openSearch(): void {
+    search.open = true;
+    void tick().then(() => searchInput?.focus());
+  }
+  const closeSearch = (): void => search.close();
+  /** 文字・「サブフォルダも」が変わったら、探し直す */
+  const onSearchInput = (): void => search.refresh(fileExplorer.dir);
+  function searchWindowKey(ev: KeyboardEvent): void {
+    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.shiftKey || ev.key.toLowerCase() !== 'f') return;
+    ev.preventDefault();
+    if (search.open) searchInput?.select();
+    else openSearch();
+  }
+  function searchInputKey(ev: KeyboardEvent): void {
+    if (ev.key !== 'Escape') return;
+    ev.stopPropagation();
+    closeSearch();
+  }
+  // フォルダを変えたら、サブフォルダの検索は、新しいフォルダで探し直す（名前の絞り込みは、そのまま）
+  $effect(() => {
+    const dir = fileExplorer.dir;
+    untrack(() => {
+      if (search.open) search.refresh(dir);
+    });
+  });
+  // 検索を開いている間の「戻る」（Android の戻る・Alt+←）は、検索を閉じる
+  $effect(() => {
+    if (!search.open) return;
+    return untrack(() => host.addBack(() => search.close()));
+  });
+  const searchStatus = $derived.by(() => {
+    if (!search.open || search.text.trim() === '') return '';
+    if (search.error) return `検索できませんでした: ${search.error}`;
+    if (!search.showingResults) return '';
+    const n = search.hits.length;
+    if (search.running) return `検索しています… ${n} 件`;
+    const why = { hits: `${SEARCH_MAX_HITS} 件で止めました。文字を足して絞り込んでください`, scan: '調べる数の上限に達したので、途中までです', depth: '深いフォルダは調べていません', time: '時間の上限に達したので、途中までです' } as const;
+    const partial = search.outcome?.partial;
+    return n === 0 && !partial ? '見つかりません' : `${n} 件${partial ? `（${why[partial]}）` : ''}`;
+  });
+  /** 見つかった項目の場所（探したフォルダからの相対）。直下なら「このフォルダ」 */
+  function hitPlace(e: Entry): string {
+    const dir = fileExplorer.dir;
+    const rel = dir === '' ? e.path : e.path.startsWith(dir + '/') ? e.path.slice(dir.length + 1) : e.path;
+    const p = parentOf(rel);
+    return p === '' || p === rel ? 'このフォルダ' : p;
+  }
+  /** 見つかった項目を開く（フォルダは中へ。ファイルは拡大表示・保存） */
+  function activateHit(e: Entry): void {
+    if (e.kind === 'dir') {
+      closeSearch();
+      fileExplorer.open(e.path);
+      return;
+    }
+    if (entryAction(e, host.viewerKind) === 'file') downloadEntry(e);
+    else openViewer(e, search.hits);
+  }
+  /** 見つかった項目のあるフォルダを開いて、その項目を選ぶ */
+  async function revealHit(e: Entry): Promise<void> {
+    closeSearch();
+    fileExplorer.open(parentOf(e.path));
+    await tick();
+    explorerSelection.selectAll([e.path]);
   }
 
   // ---- 書き込み（アップロード・新しいフォルダ）。どの人も変えられる。変わったことは files.changed で全員に届く ----
@@ -1395,6 +1469,8 @@
   }
 </script>
 
+<svelte:window onkeydown={searchWindowKey} />
+
 <div class="file-explorer" role="region" aria-label="ファイルエクスプローラー"
   ondragenter={explorerDragEnter}
   ondragleave={explorerDragLeave}
@@ -1420,6 +1496,7 @@
       </div>
     </div>
     {#snippet actions()}
+    <IconButton label="検索" title="検索（Ctrl+F）" active={search.open} aria-pressed={search.open} onclick={() => (search.open ? closeSearch() : openSearch())}><SearchIcon size={18} /></IconButton>
     <span class="file-explorer-popup">
       <IconButton label="メニュー" title="メニュー" active={menuOpen} onclick={() => (menuOpen = !menuOpen)}><MenuIcon size={18} /></IconButton>
       {#if menuOpen}
@@ -1462,6 +1539,29 @@
     {/each}
   </nav>
 
+  {#if search.open}
+    <div class="file-explorer-search" role="search">
+      <SearchIcon size={16} />
+      <input
+        bind:this={searchInput}
+        class="input file-explorer-search-input"
+        type="search"
+        aria-label="名前で検索"
+        placeholder="名前で絞り込む"
+        autocomplete="off"
+        spellcheck="false"
+        bind:value={search.text}
+        oninput={onSearchInput}
+        onkeydown={searchInputKey}
+      />
+      {#if search.available}
+        <label class="file-explorer-search-sub"><input type="checkbox" bind:checked={search.recursive} onchange={onSearchInput} />サブフォルダも</label>
+      {/if}
+      <span class="file-explorer-search-status muted" role="status" aria-live="polite">{searchStatus}</span>
+      <IconButton label="検索を閉じる" title="検索を閉じる" onclick={closeSearch}><X size={14} /></IconButton>
+    </div>
+  {/if}
+
   {#if uploads.length > 0}
     <ul class="file-explorer-uploads" aria-label="送信中のファイル">
       {#each uploads as u (u.key)}
@@ -1497,7 +1597,24 @@
     ondragleave={bodyDragLeave}
     ondrop={(ev) => void bodyDrop(ev)}
   >
-    {#if listing === undefined || listing.kind === 'loading'}
+    {#if search.showingResults}
+      {#if search.hits.length === 0}
+        <p class="file-explorer-status muted">{search.running ? '検索しています…' : search.error ? '' : search.outcome?.partial ? '見つかる前に、止めました。' : '見つかりません。'}</p>
+      {:else}
+        <ul class="file-explorer-list file-explorer-hits" aria-label="検索結果">
+          {#each search.hits as e (e.path)}
+            <li class="file-explorer-hit">
+              <button type="button" class="file-explorer-hit-row" onclick={() => activateHit(e)}>
+                {#if e.kind === 'dir'}<Folder size={18} />{:else}<FileIcon size={18} />{/if}
+                <span class="file-explorer-hit-name">{e.name}</span>
+                <span class="file-explorer-hit-place muted">{hitPlace(e)}</span>
+              </button>
+              <IconButton label="{e.name} のある場所を開く" title="場所を開く" onclick={() => void revealHit(e)}><FolderSearch size={16} /></IconButton>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {:else if listing === undefined || listing.kind === 'loading'}
       <p class="file-explorer-status muted">読み込み中…</p>
     {:else if listing.kind === 'missing'}
       <p class="file-explorer-status muted">このフォルダは見つかりません。</p>
@@ -1508,7 +1625,8 @@
     {:else if listing.entries.size === 0}
       <p class="file-explorer-status muted">このフォルダには、まだ何もありません。</p>
     {:else}
-      {@const sorted = sortEntries([...listing.entries.values()].map(displayEntry), dirView.sortKey, dirView.sortOrder)}
+      {@const all = sortEntries([...listing.entries.values()].map(displayEntry), dirView.sortKey, dirView.sortOrder)}
+      {@const sorted = search.filtering ? all.filter((x) => matchesName(x.name, search.text)) : all}
       {#if dirView.view === 'details'}
         <div class="file-explorer-columns" aria-hidden="true">
           <span class="file-explorer-col-name">名前</span>
@@ -1517,6 +1635,9 @@
           <span class="file-explorer-col-date">更新日時</span>
           <span class="file-explorer-col-actions"></span>
         </div>
+      {/if}
+      {#if sorted.length === 0}
+        <p class="file-explorer-status muted">「{search.text.trim()}」を含む項目は、このフォルダにありません。</p>
       {/if}
       <ul class="file-explorer-list file-explorer-view-{dirView.view}">
         {#each sorted as e (e.path)}
@@ -1655,6 +1776,69 @@
     background: var(--bg);
   }
   /* パンくず: 上端の下の行。場所を示すだけ。小さく、背景を変えて区別する */
+  .file-explorer-search {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .file-explorer-search-input {
+    flex: 1;
+    min-width: 0;
+  }
+  .file-explorer-search-sub {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    white-space: nowrap;
+    font-size: var(--fs-base);
+  }
+  .file-explorer-search-status {
+    font-size: var(--fs-sm, 0.85em);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 40%;
+  }
+  .file-explorer-hits {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .file-explorer-hit {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .file-explorer-hit-row {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    border: none;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+  .file-explorer-hit-name {
+    flex: none;
+    max-width: 50%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-explorer-hit-place {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-sm, 0.85em);
+  }
   .file-explorer-crumbs {
     flex: none;
     min-width: 0;

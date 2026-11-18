@@ -87,6 +87,47 @@ async fn fs_size(path: String) -> FsResult<Size> {
     blocking("fs_size", move || fs::size(&fs::abs(&path)?)).await
 }
 
+/// 動いている検索（画面が付けた job の名前 → 中止の旗）
+#[derive(Default)]
+struct Searches(std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>);
+
+/// フォルダの中（サブフォルダも）から、名前に文字を含む項目を探す。見つけたものは `on_hits` へ少しずつ流す。
+/// `job` で `fs_search_cancel` から止められる（止めたら `aborted`）。上限で止めたときは、結果の `partial` に理由が入る
+#[tauri::command]
+async fn fs_search(
+    searches: tauri::State<'_, Searches>,
+    dir: String,
+    text: String,
+    show_hidden: bool,
+    job: String,
+    on_hits: tauri::ipc::Channel<Vec<Entry>>,
+) -> FsResult<fs::Outcome> {
+    let root = fs::abs(&dir)?;
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    searches.0.lock().unwrap().insert(job.clone(), cancel.clone());
+    let result = blocking("fs_search", move || {
+        fs::search(&root, &text, show_hidden, fs::Limits::default(), &cancel, |batch| {
+            // 受け手（画面）が閉じても、検索は止めない（止めるのは cancel だけ）
+            let _ = on_hits.send(batch);
+        })
+    })
+    .await;
+    searches.0.lock().unwrap().remove(&job);
+    result
+}
+
+/// 検索を止める（動いていなければ false）
+#[tauri::command]
+fn fs_search_cancel(searches: tauri::State<'_, Searches>, job: String) -> bool {
+    match searches.0.lock().unwrap().get(&job) {
+        Some(flag) => {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            true
+        }
+        None => false,
+    }
+}
+
 #[tauri::command]
 async fn fs_places() -> FsResult<Vec<Place>> {
     blocking("fs_places", || Ok(fs::places())).await
@@ -123,6 +164,7 @@ pub fn run() {
         .manage(conns)
         .manage(jobs)
         .manage(puts)
+        .manage(Searches::default())
         .register_asynchronous_uri_scheme_protocol("fixdav", |ctx, request, responder| {
             use tauri::Manager;
             let conns = ctx.app_handle().state::<webdav::commands::Conns>().inner().clone();
@@ -153,6 +195,8 @@ pub fn run() {
             fs_copy,
             fs_trash,
             fs_size,
+            fs_search,
+            fs_search_cancel,
             fs_places,
             fs_start_dir,
             fs_open,

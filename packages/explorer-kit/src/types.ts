@@ -64,7 +64,25 @@ export interface ExplorerApi {
   copy(from: string, to: string, overwrite?: boolean): Promise<Entry>;
   /** 進み具合つきで送る（ファイルの選択・貼り付け） */
   upload(path: string, file: Blob, onProgress?: (ratio: number) => void): UploadHandle;
+  /**
+   * フォルダの中（サブフォルダも）から、名前に文字を含む項目を探す（任意。持たない置き場所は、サブフォルダの検索を出さない）。
+   * 見つけたものは hits で少しずつ渡す（パスは、いちばん上からの相対。Entry は一覧と同じ形）。signal が中止されたら、速やかに止めて reject する。
+   * 置き場所が、上限（件数・調べる数・深さ）を決める。上限で止めたときは、resolve で partial に理由を返す（黙って打ち切らない）。
+   */
+  search?(query: SearchQuery, on: { hits(entries: Entry[]): void; signal: AbortSignal }): Promise<SearchOutcome>;
 }
+
+/** 検索の問い合わせ（text は、名前に含まれる文字。大文字小文字は区別しない。dir から下を探す） */
+export type SearchQuery = { dir: string; text: string };
+
+/**
+ * 検索の結果。partial は、途中で止めた理由（null は、最後まで調べた）。
+ * hits = 件数の上限／scan = 調べる数の上限／depth = 深さの上限／time = 時間の上限。
+ */
+export type SearchOutcome = { partial: null | 'hits' | 'scan' | 'depth' | 'time' };
+
+/** 検索で表示する件数の上限（置き場所の上限の目安。画面もこれを超えて並べない） */
+export const SEARCH_MAX_HITS = 1000;
 
 /**
  * 特別なフォルダの、利用者へ出す文（すべて省ける。省いたものは、置き場所を問わない一般の文）。

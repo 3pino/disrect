@@ -26,12 +26,19 @@ const fake = vi.hoisted(() => {
       case 'fs_trash': tree.delete(args!.path); return null;
       case 'fs_move': tree.set(args!.to, tree.get(args!.from)!); tree.delete(args!.from); return entry(args!.to);
       case 'fs_open': return null;
+      case 'fs_search': {
+        // Rust の代わり: 根の下の、名前に文字を含む項目を、入れ物（onHits）へ流す
+        const { dir, text, onHits } = args as unknown as { dir: string; text: string; onHits: { onmessage: (b: FsEntry[]) => void } };
+        onHits.onmessage([...tree.keys()].filter((p) => p.startsWith(dir + '/') && p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(text.toLowerCase())).map(entry));
+        return { partial: null };
+      }
+      case 'fs_search_cancel': return true;
       default: throw { code: 'unsupported', message: cmd };
     }
   };
   return { tree, calls, invoke };
 });
-vi.mock('@tauri-apps/api/core', () => ({ invoke: fake.invoke, convertFileSrc: (p: string, proto = 'asset') => `${proto}://localhost/${encodeURIComponent(p)}` }));
+vi.mock('@tauri-apps/api/core', () => ({ Channel: class { onmessage: (b: unknown) => void = () => {}; }, invoke: fake.invoke, convertFileSrc: (p: string, proto = 'asset') => `${proto}://localhost/${encodeURIComponent(p)}` }));
 
 import App from './App.svelte';
 import { settings } from './lib/settings.svelte';
@@ -216,5 +223,30 @@ describe('fixplor の画面（この端末のファイル）', () => {
     await settle();
     expect(called('fs_trash')).toEqual([]);
     expect(names()).toEqual(['docs', 'a.txt']);
+  });
+});
+
+describe('検索（この端末）', () => {
+  it('虫めがねから、サブフォルダも探せる。見つかった項目の「場所を開く」で、そのフォルダへ移って項目を選ぶ', async () => {
+    app = mount(App, { target });
+    await settle();
+    button('検索').click();
+    await settle();
+    const box = target.querySelector<HTMLInputElement>('.file-explorer-search-sub input')!;
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    const input = target.querySelector<HTMLInputElement>('input[aria-label="名前で検索"]')!;
+    input.value = 'IN';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 120));
+      flushSync();
+    }
+    expect(called('fs_search')).toEqual([expect.objectContaining({ dir: '/home/me', text: 'IN', showHidden: false })]);
+    expect([...target.querySelectorAll('.file-explorer-hit-name')].map((n) => n.textContent)).toEqual(['in.txt']);
+    button('in.txt のある場所を開く').click();
+    await settle();
+    expect(target.querySelector<HTMLInputElement>('input[aria-label="場所"]')!.value).toBe('/home/me/docs');
+    expect(row('in.txt').querySelector('[aria-pressed="true"]')).not.toBeNull();
   });
 });
