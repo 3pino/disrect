@@ -67,3 +67,30 @@ describe('この端末（Android）', () => {
     expect(calls.at(-1)).toEqual(['fs_trash', { path: `${ROOT}/Download/a.txt` }]);
   });
 });
+
+describe('SD カード（/storage/<uuid>。別の置き場所）', () => {
+  const SD_ROOT = '/storage/1A2B-3C4D';
+
+  it('根はその SD カード。ゴミ箱は無い（削除は完全に消す）', async () => {
+    const { call, calls } = fake({ fs_list: [] });
+    const fs = await createLocalFs({ call, volume: SD_ROOT });
+    expect(fs.caps).toEqual({ restore: false, trash: false });
+    expect(fs.rules.trashDir).toBeNull();
+    calls.length = 0;
+    await fs.api.list("DCIM").catch(() => {});
+    expect(calls.at(-1)).toEqual(['fs_list', { path: `${SD_ROOT}/DCIM` }]);
+    await fs.api.remove!('DCIM/a.jpg');
+    expect(calls.at(-1)).toEqual(['fs_remove', { path: `${SD_ROOT}/DCIM/a.jpg` }]);
+  });
+
+  it('内部ストレージの一覧には SD カードを出さない。SD の一覧は、差した SD カードだけ', async () => {
+    const places = [
+      { kind: 'volume', path: '/storage/emulated/0', name: '内部ストレージ' },
+      { kind: 'volume', path: '/storage/1A2B-3C4D', name: 'SD カード（1A2B-3C4D）' },
+    ];
+    const { call } = fake({ fs_places: places });
+    const fs = await createLocalFs({ call });
+    expect((await fs.volumes()).map((v) => v.path)).toEqual([SD_ROOT]);
+    expect((await fs.places()).map((p) => p.path)).not.toContain(SD_ROOT);
+  });
+});

@@ -24,6 +24,8 @@ export type LocalOptions = {
   newChannel?: () => Promise<{ onmessage: (batch: FsEntry[]) => void }>;
   /** 隠しファイル（. で始まるもの・Windows の隠し属性）を一覧に出すか */
   showHidden?: () => boolean;
+  /** Android: 置き場所の根（保存領域）。省くと内部ストレージ。SD カードは /storage/<uuid>（ゴミ箱なし・完全に削除だけ） */
+  volume?: string;
 };
 
 export type LocalFs = {
@@ -38,6 +40,8 @@ export type LocalFs = {
   start: string;
   /** 左に出す場所（path は画面のパス） */
   places(): Promise<FsPlace[]>;
+  /** Android: 差した SD カード（/storage/<uuid>。path は OS のパス・name は表示名）。無ければ空 */
+  volumes(): Promise<FsPlace[]>;
   /** 既定のアプリで開く */
   open(path: string): Promise<void>;
   /** 画面のパス → OS の絶対パス（場所の欄に出す）。Windows のいちばん上は空文字 */
@@ -78,13 +82,17 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
   const startOs = await run<string>('fs_start_dir');
   const android = isAndroid();
   const windows = !android && isWindowsPath(startOs);
-  /** 画面のパス → OS のパス（Android は内部ストレージの中の相対。ほかは mapping.ts） */
-  const toOsPath = (path: string): string | null => (android ? (path === '' ? ANDROID_ROOT : `${ANDROID_ROOT}/${path}`) : toOs(path, windows));
-  /** OS のパス → 画面のパス。Android で内部ストレージの外（SD など）は null（今は見せない） */
+  /** Android の根（内部ストレージ。または指定の SD カード /storage/<uuid>） */
+  const base = options.volume ?? ANDROID_ROOT;
+  /** ゴミ箱があるのは内部ストレージだけ。SD カードは削除＝完全に消す（隠れたゴミ箱を作らない） */
+  const internal = android && base === ANDROID_ROOT;
+  /** 画面のパス → OS のパス（Android はその根の中の相対。ほかは mapping.ts） */
+  const toOsPath = (path: string): string | null => (android ? (path === '' ? base : `${base}/${path}`) : toOs(path, windows));
+  /** OS のパス → 画面のパス。Android で根の外は null */
   const relOf = (abs: string): string | null => {
     if (!android) return fromOs(abs);
-    if (abs === ANDROID_ROOT) return '';
-    return abs.startsWith(ANDROID_ROOT + '/') ? abs.slice(ANDROID_ROOT.length + 1) : null;
+    if (abs === base) return '';
+    return abs.startsWith(base + '/') ? abs.slice(base.length + 1) : null;
   };
 
   /** OS のパス（無い場所なら、この操作はできない） */
@@ -108,6 +116,11 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     (await run<FsPlace[]>('fs_places'))
       .map((p) => ({ ...p, path: relOf(p.path) }))
       .filter((p): p is FsPlace => p.path !== null);
+  /** Android: 差した SD カード（/storage/<uuid>。内部ストレージと emulated・self は除く）。それぞれ、ゴミ箱のない置き場所として開く */
+  const volumes = async (): Promise<FsPlace[]> => {
+    if (!android || options.volume !== undefined) return [];
+    return (await run<FsPlace[]>('fs_places')).filter((p) => p.kind === 'volume' && /^\/storage\/[^/]+$/.test(p.path) && !/^\/storage\/(emulated|self)$/.test(p.path));
+  };
 
   /** 1 つの根の下を探す（Rust。見つけたものは batch ごとに届く）。中止されたら、Rust の検索も止める */
   const searchRoot = async (root: string, text: string, on: { hits(entries: Entry[]): void; signal: AbortSignal }): Promise<SearchOutcome> => {
@@ -165,8 +178,8 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     },
     async list(path) {
       // Android のゴミ箱（内部ストレージの直下の仮想のフォルダ）。中身は Rust の一覧（印つき）
-      if (android && path === TRASH_DIR) return trashItems();
-      if (android && path.startsWith(TRASH_DIR + '/')) return trashInside(path);
+      if (internal && path === TRASH_DIR) return trashItems();
+      if (internal && path.startsWith(TRASH_DIR + '/')) return trashInside(path);
       const abs = toOsPath(path);
       // Windows のいちばん上は、ドライブの一覧
       if (abs === null) {
@@ -175,7 +188,7 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
       const all = await run<FsEntry[]>('fs_list', { path: abs });
       const shown = (showHidden() ? all : all.filter((e) => !e.hidden)).map(entry);
       // Android のいちばん上に、ゴミ箱の印（仮想のフォルダ。実体は隠しフォルダ）
-      if (android && path === '') shown.push({ name: TRASH_DIR, path: TRASH_DIR, kind: 'dir', size: 0, modified: 0, mime: null, trash: { kind: 'root' } });
+      if (internal && path === '') shown.push({ name: TRASH_DIR, path: TRASH_DIR, kind: 'dir', size: 0, modified: 0, mime: null, trash: { kind: 'root' } });
       return shown;
     },
     async write(path, body) {
@@ -194,13 +207,13 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     },
     // Android のアプリの中のゴミ箱: 元の場所へ戻す（同名・親の無さは Rust が断る）・完全に消す
     restore: async (id) => {
-      if (!android) throw new FsError('unsupported', 'OS のゴミ箱から戻してください');
-      const orig = await run<string>('fs_trash_restore', { volume: ANDROID_ROOT, id });
+      if (!internal) throw new FsError('unsupported', 'OS のゴミ箱から戻してください');
+      const orig = await run<string>('fs_trash_restore', { volume: base, id });
       return entry(await run<FsEntry>('fs_stat', { path: orig }));
     },
     purge: async (id) => {
-      if (!android) throw new FsError('unsupported', 'OS のゴミ箱から消してください');
-      await run<void>('fs_trash_purge', { volume: ANDROID_ROOT, id });
+      if (!internal) throw new FsError('unsupported', 'OS のゴミ箱から消してください');
+      await run<void>('fs_trash_purge', { volume: base, id });
     },
     async size(path) {
       const s = await run<FsSize>('fs_size', { path: os(path) });
@@ -232,7 +245,7 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
   const rules: Rules = {
     specialDir: null,
     // Android は、内部ストレージの直下の仮想のゴミ箱。デスクトップは OS のゴミ箱（仮想のフォルダは無い）
-    trashDir: android ? TRASH_DIR : null,
+    trashDir: internal ? TRASH_DIR : null,
     nameError(_dir, name) {
       const basic = basicNameError(name);
       if (basic) return basic;
@@ -251,11 +264,12 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     windows,
     start: android ? '' : fromOs(startOs),
     places,
+    volumes,
     open: (path) => run<void>('fs_open', { path: os(path) }),
     osPath: (path) => toOsPath(path) ?? '',
     fromOsPath: (abs) => relOf(abs) ?? abs,
     isMissing: (e) => e instanceof FsError && (e.code === 'not_found' || e.code === 'not_dir'),
     // OS のゴミ箱（デスクトップ）。Android はゴミ箱の画面が入るまで、ゴミ箱は無い扱い
-    caps: { restore: android, trash: true },
+    caps: { restore: internal, trash: !android || internal },
   };
 }

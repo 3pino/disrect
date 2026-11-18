@@ -105,7 +105,14 @@
   /** タブの中に、置き場所のエクスプローラーを作る（この端末・ネットワークの場所。無ければ null） */
   function createBundle(tab: Tab, id: string): Bundle | null {
     let b: Bundle;
-    if (id === LOCAL) {
+    if (id.startsWith(SD)) {
+      const fs = sdFsOf.get(id);
+      const v = sdList.find((s) => SD + s.id === id);
+      if (!fs || !v) return null;
+      const made = makeBundle(id, fs, { caps: fs.caps, labels: { root: v.name, upload: 'ファイルを取り込む' } });
+      made.nav.dir = fs.start;
+      b = { id, explorer: made, open: externalOpener(host, fs), local: fs };
+    } else if (id === LOCAL) {
       const fs = localFs;
       if (!fs) return null;
       const made = makeBundle(LOCAL, fs, {
@@ -134,6 +141,11 @@
 
   /** タブの中の置き場所のエクスプローラー（無ければ作る） */
   const bundleIn = (tab: Tab, id: string): Bundle | null => tab.bundles.get(id) ?? createBundle(tab, id);
+
+  /** Android: 差した SD カード（置き場所の id は sd:<uuid>。ゴミ箱は無く、削除は完全に消す） */
+  const SD = 'sd:';
+  const sdFsOf = new Map<string, LocalFs>();
+  let sdList = $state.raw<{ id: string; name: string }[]>([]);
 
   /** いま見るエクスプローラーを決める（見ているタブの、見ている置き場所として覚える） */
   function setCurrent(b: Bundle): void {
@@ -255,6 +267,15 @@
       try {
         localFs = await createLocalFs({ showHidden: () => settings.showHidden });
         places = await localFs.places();
+        // 差した SD カード（あれば、それぞれを別の置き場所として）
+        const vols = await localFs.volumes();
+        sdList = [];
+        for (const v of vols) {
+          // 表の id は、保存領域の名前（/storage/<uuid> の uuid）
+          const uuid = v.path.slice(v.path.lastIndexOf('/') + 1);
+          sdFsOf.set(SD + uuid, await createLocalFs({ showHidden: () => settings.showHidden, volume: v.path }));
+          sdList = [...sdList, { id: uuid, name: v.name }];
+        }
         // 前回のタブを戻す（外した置き場所のタブは捨てる）。無ければ、この端末のホームで 1 つ
         const restored = parseSavedTabs(read(TABS_KEY), (id) => id === LOCAL || saved.get(id) !== undefined);
         const first = restored ?? { tabs: [{ place: LOCAL, dir: localFs.start }], active: 0 };
@@ -289,6 +310,12 @@
   /** 追加したネットワークの場所を開く（このタブで。初めてなら、置き場所を作る） */
   function openDav(p: DavPlace): void {
     const b = bundleIn(activeTab(), p.id);
+    if (b) setCurrent(b);
+  }
+
+  /** Android: 差した SD カードを開く（このタブで） */
+  function openSd(id: string): void {
+    const b = bundleIn(activeTab(), SD + id);
     if (b) setCurrent(b);
   }
 
@@ -504,6 +531,9 @@
       <nav class="places scroll" aria-label="場所">
         {#each places as p (p.kind + p.path)}
           <button class="menu-item" type="button" aria-current={current.local && p.path === explorer.nav.dir ? 'page' : undefined} onclick={() => go(p.path)}>{placeLabel(p)}</button>
+        {/each}
+        {#each sdList as v (v.id)}
+          <button class="menu-item" type="button" aria-current={current.id === SD + v.id ? 'page' : undefined} onclick={() => openSd(v.id)}>{v.name}</button>
         {/each}
         <div class="places-head">
           <span class="places-title">ネットワーク</span>
