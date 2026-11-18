@@ -148,23 +148,25 @@ fn fs_open(app: tauri::AppHandle, path: String) -> FsResult<()> {
         .map_err(|e| FsError::new("io", format!("開けませんでした: {e}")))
 }
 
-/// 証明書の固定の保存先（設定フォルダ。アプリの識別子の下）。設定フォルダが無い環境では、保存しない（固定の設定は断られる）
-fn pins_path() -> Option<std::path::PathBuf> {
-    dirs::config_dir().map(|d| d.join("dev.fixplor.app").join("dav-pins.json"))
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (conns, jobs, puts) = webdav::commands::state(std::sync::Arc::new(webdav::secret::OsStore), webdav::pin::Pins::load(pins_path()));
+    // 状態（資格情報・証明書の固定・一時の送信）は setup で作る（保存先を、OS の設定フォルダから取るため）
     // 前の起動で受け取った一時のファイルのうち、古いものを消す（開いている最中のものは、消さない長さ）
     std::thread::spawn(|| {
         webdav::commands::clean_temp(&webdav::commands::temp_root(), std::time::Duration::from_secs(24 * 60 * 60));
     });
     let builder = tauri::Builder::default()
-        .manage(conns)
-        .manage(jobs)
-        .manage(puts)
-        .manage(Searches::default())
+        .setup(|app| {
+            use tauri::Manager;
+            // 証明書の固定の保存先: アプリの設定フォルダ（デスクトップは OS の設定の場所、Android はアプリ専用の領域）
+            let pins = app.path().app_config_dir().ok().map(|d| d.join("dav-pins.json"));
+            let (conns, jobs, puts) = webdav::commands::state(std::sync::Arc::new(webdav::secret::OsStore), webdav::pin::Pins::load(pins));
+            app.manage(conns);
+            app.manage(jobs);
+            app.manage(puts);
+            app.manage(Searches::default());
+            Ok(())
+        })
         .register_asynchronous_uri_scheme_protocol("fixdav", |ctx, request, responder| {
             use tauri::Manager;
             let conns = ctx.app_handle().state::<webdav::commands::Conns>().inner().clone();
@@ -182,6 +184,9 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(platform::plugin());
+    // Android の全ファイルへのアクセス（確認と設定画面）
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_fixplor_storage::init());
     // アプリの更新（デスクトップだけ）: 公式の updater（latest.json の署名を、tauri.conf.json の公開鍵で確かめる）と、入れ替えたあとの再起動
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());

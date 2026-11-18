@@ -29,6 +29,7 @@
   import type { Sources } from './lib/fs/sources';
   import { HostState, createHost, externalOpener, failureText } from './lib/host.svelte';
   import { placeLabel } from './lib/labels';
+  import { allFilesGranted, openAllFilesSettings } from './lib/allFiles';
   import { places as saved, type DavPlace } from './lib/places.svelte';
   import { read, settings, write } from './lib/settings.svelte';
   import { MAX_TABS, cycleIndex, indexAfterClose, moveItem, parseSavedTabs, serializeTabs, tabLabel } from './lib/tabs';
@@ -222,7 +223,22 @@
     write(TABS_KEY, serializeTabs({ tabs: list, active: Math.max(0, tabs.findIndex((t) => t.id === activeId)) }));
   });
 
+  /** Android: 全ファイルへのアクセスが無ければ、許可の案内を出す（戻ったときに確かめ直す） */
+  async function checkAllFiles(): Promise<void> {
+    if (await allFilesGranted()) return;
+    host.toast('この端末のファイルを見るには、「すべてのファイルへのアクセス」を許可してください', 'info', {
+      label: '許可する',
+      run: () => void openAllFilesSettings().catch((e) => host.toast(failureText(e), 'error')),
+    });
+  }
+
   onMount(() => {
+    void checkAllFiles();
+    // 設定画面から戻ったとき、許可されていれば場所の一覧を読み直す
+    const onFocus = async () => {
+      if (localFs && (await allFilesGranted())) places = await localFs.places();
+    };
+    window.addEventListener('focus', onFocus);
     // アプリの更新を、裏で確かめる（対応している環境だけ。新しい版はトーストで 1 度だけ知らせる）
     void updater.loadVersion();
     const stopWatch = startUpdateWatch({ updater, notify: (text, action) => host.toast(text, 'info', action), openAbout: () => (aboutOpen = true) });
@@ -248,7 +264,10 @@
         failed = failureText(e);
       }
     })();
-    return stopWatch;
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      stopWatch();
+    };
   });
 
   $effect(() => {

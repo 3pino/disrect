@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "全ファイルへのアクセスの確認と、設定画面を開くことを許す"
+permissions = ["allow-check", "allow-request"]

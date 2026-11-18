@@ -1,0 +1,13 @@
+[package]
+name = "tauri-plugin-fixplor-storage"
+version = "0.1.0"
+description = "Android: 全ファイルへのアクセス（MANAGE_EXTERNAL_STORAGE）の確認と、設定画面を開く"
+edition = "2021"
+publish = false
+links = "tauri-plugin-fixplor-storage"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
