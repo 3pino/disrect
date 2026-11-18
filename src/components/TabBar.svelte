@@ -46,6 +46,28 @@
   const only = $derived(tabs.length === 1);
   const indexOf = (id: number): number => tabs.findIndex((t) => t.id === id);
 
+  // 狭い画面（スマートフォン）: タブを一列に並べると場所が足りないので、いまのタブの名前だけを出し、押すと一覧（タブの欄）を開く。
+  // 長押し（Android の WebView は長押しで contextmenu を出す）で、同じメニュー（複製・左右へ移す・閉じる）を出す。ドラッグは使わない。
+  const NARROW_QUERY = '(max-width: 600px)';
+  let narrow = $state(false);
+  let listOpen = $state(false);
+  const activeIndex = $derived(indexOf(activeId));
+  const activeLabel = $derived(tabs[activeIndex]?.label ?? '');
+
+  $effect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(NARROW_QUERY);
+    narrow = mq.matches;
+    const on = (ev: MediaQueryListEvent) => (narrow = ev.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  });
+
+  function pickNarrow(id: number): void {
+    listOpen = false;
+    onselect(id);
+  }
+
   function openMenu(ev: MouseEvent, id: number): void {
     ev.preventDefault();
     menu = { id, x: ev.clientX, y: ev.clientY };
@@ -99,6 +121,37 @@
   }
 </script>
 
+{#if narrow}
+  <div class="tabs tabs-narrow" aria-label="タブ">
+    <button
+      class="tab-current"
+      type="button"
+      aria-haspopup="listbox"
+      aria-expanded={listOpen}
+      title="タブの一覧"
+      oncontextmenu={(ev) => openMenu(ev, activeId)}
+      onclick={() => (listOpen = !listOpen)}
+    >
+      <span class="tab-label">{activeLabel}</span>
+      <span class="tab-count">{activeIndex + 1}/{tabs.length}</span>
+    </button>
+    <IconButton class="tab-add" label="新しいタブ" title="新しいタブ（Ctrl+T）" onclick={onadd}><Plus size={16} /></IconButton>
+  </div>
+  {#if listOpen}
+    <ul class="tab-list" role="listbox" aria-label="タブの一覧">
+      {#each tabs as t (t.id)}
+        <li class="tab-row" class:tab-active={t.id === activeId} role="option" aria-selected={t.id === activeId}>
+          <button class="tab-row-main" type="button" title={t.title} onclick={() => pickNarrow(t.id)} oncontextmenu={(ev) => openMenu(ev, t.id)}>
+            <span class="tab-label">{t.label}</span>
+          </button>
+          {#if !only}
+            <button class="tab-close" type="button" aria-label={`「${t.label}」のタブを閉じる`} title="タブを閉じる" onclick={() => onclose(t.id)}><X size={14} /></button>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
+{:else}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="tabs"
@@ -138,8 +191,10 @@
     </div>
   {/each}
   <IconButton class="tab-add" label="新しいタブ" title="新しいタブ（Ctrl+T）" onclick={onadd}><Plus size={16} /></IconButton>
+</div>
+{/if}
 
-  {#if menu}
+{#if menu}
     {@const id = menu.id}
     {@const i = indexOf(id)}
     <div class="tab-menu-anchor" style:left="{menu.x}px" style:top="{menu.y}px">
@@ -152,7 +207,6 @@
       </Menu>
     </div>
   {/if}
-</div>
 
 <style>
   .tabs {
@@ -220,5 +274,62 @@
   .tab-menu-anchor :global(.tab-menu) {
     top: 0;
     left: 0;
+  }
+  /* 狭い画面: いまのタブの名前と位置。押すと一覧 */
+  .tabs-narrow {
+    padding: var(--space-2) var(--space-3);
+  }
+  .tab-current {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--text);
+  }
+  .tab-current .tab-label {
+    flex: 1;
+    text-align: left;
+  }
+  .tab-count {
+    flex: none;
+    color: var(--text-muted);
+    font-size: 0.9em;
+  }
+  .tab-list {
+    margin: 0;
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--border);
+    list-style: none;
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+  .tab-row {
+    display: flex;
+    align-items: center;
+    padding-right: var(--space-2);
+    color: var(--text-muted);
+  }
+  .tab-row.tab-active {
+    color: var(--text);
+    background: var(--accent-soft);
+  }
+  .tab-row-main {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-3);
+    border: none;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+  .tab-row .tab-close {
+    width: 32px;
+    height: 32px;
   }
 </style>
