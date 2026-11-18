@@ -82,6 +82,12 @@ async fn fs_trash(path: String) -> FsResult<()> {
     blocking("fs_trash", move || fs::trash(&fs::abs(&path)?)).await
 }
 
+/// 完全に削除する（Android だけ。ゴミ箱の無い場所の確認つきの削除）
+#[tauri::command]
+async fn fs_remove(path: String) -> FsResult<()> {
+    blocking("fs_remove", move || fs::remove(&fs::abs(&path)?)).await
+}
+
 /// ゴミ箱（Android のアプリ内）の一覧・戻す・完全に消す。`volume` は保存領域の根（`/storage/emulated/0` など）
 fn trash_volume(volume: &str) -> FsResult<std::path::PathBuf> {
     let root = fs::abs(volume)?;
@@ -225,6 +231,7 @@ pub fn run() {
             fs_move,
             fs_copy,
             fs_trash,
+            fs_remove,
             fs_trash_list,
             fs_trash_restore,
             fs_trash_purge,

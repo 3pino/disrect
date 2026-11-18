@@ -109,8 +109,8 @@
       const fs = localFs;
       if (!fs) return null;
       const made = makeBundle(LOCAL, fs, {
-        // OS のゴミ箱へ入れたものは、ここからは戻せない
-        caps: { restore: false },
+        // ゴミ箱の有無は置き場所の決まり（Android は「完全に削除」だけ）
+        caps: fs.caps,
         labels: { root: fs.windows ? 'PC' : 'コンピューター', upload: 'ファイルを取り込む' },
       });
       made.nav.dir = fs.start;

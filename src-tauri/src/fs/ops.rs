@@ -51,10 +51,30 @@ pub fn trash(path: &Path) -> FsResult<()> {
     trash::delete(path).map_err(|e| FsError::new("io", format!("ゴミ箱へ入れられませんでした: {}: {e}", path.display())))
 }
 
-/// Android: アプリの中のゴミ箱（保存領域の `.fixplor-trash/`。同じ保存領域の中でだけ移す）
+/// Android: まだゴミ箱の画面が無いので、ゴミ箱へは入れない（隠れたゴミ箱を作らない）。画面が入る段階で、アプリの中のゴミ箱へ切り替える
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn trash(path: &Path) -> FsResult<()> {
-    super::trash::trash_path(path).map(|_| ())
+pub fn trash(_path: &Path) -> FsResult<()> {
+    Err(FsError::new("unsupported", "この端末には、まだゴミ箱がありません"))
+}
+
+/// 完全に削除する（元に戻せない）。Android の保存領域（内部ストレージ・SD）の中だけ。シンボリックリンクは、リンクそのものを消す（辿らない）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn remove(path: &Path) -> FsResult<()> {
+    let root = super::trash::volume_root(path).ok_or_else(|| FsError::new("unsupported", "この場所は、完全に削除できません"))?;
+    if root.as_path() == path {
+        return Err(FsError::new("invalid", "保存領域のいちばん上は消せません"));
+    }
+    let meta = fs::symlink_metadata(path).map_err(|e| FsError::io(&e, path))?;
+    if meta.is_dir() {
+        fs::remove_dir_all(path).map_err(|e| FsError::io(&e, path))
+    } else {
+        fs::remove_file(path).map_err(|e| FsError::io(&e, path))
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn remove(_path: &Path) -> FsResult<()> {
+    Err(FsError::new("unsupported", "この OS では、完全に削除する操作は使いません（ゴミ箱を使う）"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

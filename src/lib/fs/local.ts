@@ -1,4 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { isAndroid } from '@3pino/app-kit-web/core/platform';
 import { PDF_THUMB_MAX_BYTES } from '@3pino/viewer-kit-web/viewers/pdfThumb';
 import { basicNameError, isImageName, isPdfName, type Entry, type EntryUrls, type ExplorerApi, type Rules } from '@3pino/explorer-kit';
 import { fromOs, isWindowsPath, toOs } from './mapping';
@@ -39,6 +40,8 @@ export type LocalFs = {
   /** OS の絶対パス → 画面のパス（場所の欄に打ったもの） */
   fromOsPath(abs: string): string;
   isMissing(e: unknown): boolean;
+  /** 置き場所の決まり（ゴミ箱の有無・戻す）。Android は、ゴミ箱の画面が入るまで「完全に削除」だけ */
+  caps: { restore: boolean; trash: boolean };
 };
 
 /** 既定のアプリで開くための、項目の URL（画面の <a href> に入る。押しは本体が受けて、Rust の fs_open を呼ぶ） */
@@ -139,6 +142,10 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
       // OS のゴミ箱へ入る。この部品からは戻せない（caps.restore: false）ので、id は使わない
       return { id: '', original_path: path, kind: 'file', size: 0, deleted_at: Date.now() };
     },
+    // Android: ゴミ箱の画面が無いあいだは、確認のうえ完全に削除する（caps.trash が偽のとき、部品はこれを呼ぶ）
+    async remove(path) {
+      await run<void>('fs_remove', { path: os(path) });
+    },
     restore: async () => Promise.reject(new FsError('unsupported', 'OS のゴミ箱から戻してください')),
     purge: async () => Promise.reject(new FsError('unsupported', 'OS のゴミ箱から消してください')),
     async size(path) {
@@ -192,5 +199,7 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     osPath: (path) => toOs(path, windows) ?? '',
     fromOsPath: (abs) => fromOs(abs),
     isMissing: (e) => e instanceof FsError && (e.code === 'not_found' || e.code === 'not_dir'),
+    // OS のゴミ箱（デスクトップ）。Android はゴミ箱の画面が入るまで、ゴミ箱は無い扱い
+    caps: { restore: false, trash: !isAndroid() },
   };
 }
