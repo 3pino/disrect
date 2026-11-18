@@ -1,8 +1,13 @@
 name: Release
 
-# v で始まるタグを打つと、Linux（deb・AppImage）と Windows（インストーラー）を作って、GitHub のリリースに載せる。
-# 手で動かしたとき（workflow_dispatch）は、作るだけ（リリースは作らず、成果物として残す）。
-# 署名・自動更新は、まだ入れていない（Windows は未署名なので、SmartScreen の警告が出る）。
+# v で始まるタグを打つと、Linux（deb・AppImage）と Windows（インストーラー）を作って、署名して、GitHub のリリースに載せる。
+# 流れ（Disnans と同じ）: 版の照合 → 下書きのリリースを作る → OS ごとにビルド（Tauri の署名つき）→ latest.json を作って添付 → 下書きを外して「最新」にする。
+#   公開は最後の 1 回だけ。latest.json の無いリリースを、利用者が見ることはない。
+# アプリの更新は、https://github.com/3pino/fixplor/releases/latest/download/latest.json を読む（tauri.conf.json の plugins.updater）。
+#   「最新のリリース」は、アプリのリリース（v*）だけにする。プラグインのリリース（plugin-fixplor-v*）は plugin.yml が --latest=false で作る。
+# 署名の鍵（minisign）は、リポジトリの Secrets: TAURI_SIGNING_PRIVATE_KEY・TAURI_SIGNING_PRIVATE_KEY_PASSWORD。公開鍵は tauri.conf.json。手順は docs/release.md。
+# 手で動かしたとき（workflow_dispatch）は、作るだけ（リリースは作らず、署名もしないで、成果物として残す）。
+# Windows のインストーラー自体は、コード署名していない（SmartScreen の警告が出る。Tauri の更新の署名とは別）。
 on:
   workflow_dispatch:
   push:
@@ -11,28 +16,60 @@ on:
 permissions:
   contents: write
 
+env:
+  TAG: ${{ github.ref_name }}
+
 jobs:
   version:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       # タグ・tauri.conf.json・Cargo.toml・package.json の版が、そろっていること
-      - name: 版がそろっているか確かめる
-        if: startsWith(github.ref, 'refs/tags/v')
+      - id: version
+        name: 版がそろっているか確かめる
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME#v}"
           CONF=$(jq -r .version src-tauri/tauri.conf.json)
+          echo "version=$CONF" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then exit 0; fi
+          TAGV="${TAG#v}"
           PKG=$(jq -r .version package.json)
           CARGO=$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)
           for v in "$CONF" "$PKG" "$CARGO"; do
-            if [ "$v" != "$TAG" ]; then
-              echo "::error::タグ ($TAG) と、設定ファイルの版 (tauri.conf.json=$CONF, package.json=$PKG, Cargo.toml=$CARGO) が違います"; exit 1
+            if [ "$v" != "$TAGV" ]; then
+              echo "::error::タグ ($TAGV) と、設定ファイルの版 (tauri.conf.json=$CONF, package.json=$PKG, Cargo.toml=$CARGO) が違います"; exit 1
             fi
           done
 
-  bundle:
+  create-release:
     needs: version
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - id: create
+        name: 下書きのリリースを作る
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 下書きはタグで検索できないことがあるので、作成時のレスポンスから ID を受け取る
+          ID=$(gh api -X POST repos/${{ github.repository }}/releases \
+            -f tag_name="$TAG" -f name="fixplor $TAG" \
+            -f body=$'配布物:\n- Windows: `fixplor_*_x64-setup.exe`（署名していないので、SmartScreen の警告が出ます）\n- Linux: `.deb`（Debian・Ubuntu）、`.AppImage`\n\nインストール済みのアプリは、自分で新しい版を見つけて入れ替えます（左下の「fixplor v…」→「バージョン情報」）。' \
+            -F draft=true -F generate_release_notes=true --jq .id)
+          if [ -z "$ID" ]; then
+            echo "::error::リリースの作成に失敗しました"
+            exit 1
+          fi
+          echo "release_id=$ID" >> "$GITHUB_OUTPUT"
+
+  bundle:
+    needs: [version, create-release]
+    # 手動（create-release を飛ばしたとき）でも動かす
+    if: ${{ !failure() && !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -54,20 +91,30 @@ jobs:
           workspaces: src-tauri -> target
           save-if: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - run: npm ci
-      # タグのとき: リリースを作って、配布物を載せる。手動のとき: 作るだけ
+      # 署名つきの更新の成果物（.sig）は、リリースのときだけ作る。常に作る設定にすると、秘密鍵の無い手元・手動のビルドが失敗する
+      - name: 更新の成果物（.sig）を作る設定にする（リリースのときだけ）
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const p = 'src-tauri/tauri.conf.json';
+            const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+            c.bundle.createUpdaterArtifacts = true;
+            fs.writeFileSync(p, JSON.stringify(c, null, 2) + '\\n');
+          "
+          grep -c createUpdaterArtifacts src-tauri/tauri.conf.json
+      # タグのとき: 下書きのリリースへ、配布物と .sig を載せる（latest.json は publish で作る）。手動のとき: 作るだけ
       - uses: tauri-apps/tauri-action@v0
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: fixplor ${{ github.ref_name }}
-          releaseBody: |
-            配布物:
-            - Windows: `fixplor_*_x64-setup.exe`（署名していないので、SmartScreen の警告が出ます）
-            - Linux: `.deb`（Debian・Ubuntu）、`.AppImage`
-          releaseDraft: false
-          prerelease: false
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          updaterJsonPreferNsis: true
+          uploadUpdaterJson: false
       - run: npm run tauri:build
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
       - uses: actions/upload-artifact@v4
@@ -80,3 +127,23 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    needs: [version, create-release, bundle]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: latest.json を作って添付する（各ビルドの .sig から）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          scripts/release-latest-json.sh "$TAG" "$VERSION" "${{ github.repository }}"
+          jq -e --arg v "$VERSION" '.version == $v and (.platforms | length) == 5' latest.json
+          gh release upload "$TAG" latest.json --clobber --repo ${{ github.repository }}
+      - name: リリースを公開（下書きを外して、最新にする）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --repo ${{ github.repository }} --draft=false --latest
