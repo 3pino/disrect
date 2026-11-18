@@ -7,8 +7,9 @@
   import Plus from '@lucide/svelte/icons/plus';
   import Pencil from '@lucide/svelte/icons/pencil';
   import FileExplorer from '@3pino/explorer-kit/FileExplorer.svelte';
+  import TabBar from './components/TabBar.svelte';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
-  import { createExplorer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
+  import { baseName, createExplorer, ExplorerBuffer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
   import Toasts from '@3pino/app-kit-web/shell/Toasts.svelte';
   import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
   import { isBackKey } from '@3pino/app-kit-web/core/backNav';
@@ -29,7 +30,8 @@
   import { HostState, createHost, externalOpener, failureText } from './lib/host.svelte';
   import { placeLabel } from './lib/labels';
   import { places as saved, type DavPlace } from './lib/places.svelte';
-  import { settings } from './lib/settings.svelte';
+  import { read, settings, write } from './lib/settings.svelte';
+  import { MAX_TABS, cycleIndex, indexAfterClose, moveItem, parseSavedTabs, serializeTabs, tabLabel } from './lib/tabs';
 
   // 外枠（上のバー・左の場所の一覧）と、エクスプローラーの本体。
   // 本体は共有の部品（@3pino/explorer-kit）に、置き場所（この端末、または追加したネットワークの場所）を渡したもの。
@@ -38,8 +40,21 @@
   /** 開いている（または開いたことのある）置き場所。切り替えても、開いていたフォルダ・選びを保つ */
   type Bundle = { id: string; explorer: Explorer; open: (req: { url: string; name: string }) => Promise<void>; local?: LocalFs; dav?: { base: string } };
   const LOCAL = 'local';
-  const bundles = new Map<string, Bundle>();
+  const TABS_KEY = 'fixplor.tabs';
+  /** タブ。タブごとに、開いた置き場所のエクスプローラー（切り替えても、開いていたフォルダ・選びを保つ）と、いま見ている置き場所を持つ */
+  type Tab = { id: number; bundles: Map<string, Bundle>; currentId: string };
+  let tabs = $state.raw<Tab[]>([]);
+  let activeId = $state(0);
+  let tabSeq = 0;
+  /** 起動の復元が済んだか（済むまでは、タブの保存を上書きしない） */
+  let tabsReady = $state(false);
+  /** いま見ているタブの、いま見ている置き場所 */
   let current = $state.raw<Bundle | null>(null);
+  /** この端末の置き場所（タブで共有）。ネットワークの置き場所は置き場所ごとに 1 つ（読んだ ETag を、タブのあいだで共有する） */
+  let localFs: LocalFs | null = null;
+  const davFsOf = new Map<string, ReturnType<typeof createDavFs>>();
+  /** 切り取り・コピーのバッファは、同じ置き場所のタブで共有する（別の置き場所とは共有しない。パスが別のものになる） */
+  const bufferOf = new Map<string, ExplorerBuffer>();
   /** 状態の表示のために、作った置き場所の写し（bundles は反応しない入れ物なので） */
   let known = $state.raw<Record<string, Bundle>>({});
   let places = $state.raw<FsPlace[]>([]);
@@ -62,7 +77,10 @@
   const viewStore = { read: () => settings.dirs, write: (map: unknown) => (settings.dirs = map) };
 
   function makeBundle(id: string, parts: { api: ExplorerApi; urls: EntryUrls; rules: Rules; open: (path: string) => Promise<void>; sources: Sources; isMissing: (e: unknown) => boolean }, extra: Pick<Parameters<typeof createExplorer>[0], 'caps' | 'labels'>): Explorer {
+    let buffer = bufferOf.get(id);
+    if (!buffer) bufferOf.set(id, (buffer = new ExplorerBuffer()));
     return createExplorer({
+      buffer,
       api: parts.api,
       urls: parts.urls,
       rules: parts.rules,
@@ -73,11 +91,136 @@
     });
   }
 
-  function remember(b: Bundle): Bundle {
-    bundles.set(b.id, b);
-    known = { ...known, [b.id]: b };
+  const activeTab = (): Tab => tabs.find((t) => t.id === activeId)!;
+
+  /** タブの中に、置き場所のエクスプローラーを作る（この端末・ネットワークの場所。無ければ null） */
+  function createBundle(tab: Tab, id: string): Bundle | null {
+    let b: Bundle;
+    if (id === LOCAL) {
+      const fs = localFs;
+      if (!fs) return null;
+      const made = makeBundle(LOCAL, fs, {
+        // OS のゴミ箱へ入れたものは、ここからは戻せない
+        caps: { restore: false },
+        labels: { root: fs.windows ? 'PC' : 'コンピューター', upload: 'ファイルを取り込む' },
+      });
+      made.nav.dir = fs.start;
+      b = { id: LOCAL, explorer: made, open: externalOpener(host, fs), local: fs };
+    } else {
+      const p = saved.get(id);
+      if (!p) return null;
+      let fs = davFsOf.get(id);
+      if (!fs) {
+        fs = createDavFs({ id: p.id, base: p.url, showHidden: () => settings.showHidden, onAuthError: () => (authFailed = { ...authFailed, [p.id]: true }), onCertError: (code) => (certIssue = { ...certIssue, [p.id]: code }) });
+        davFsOf.set(id, fs);
+      }
+      // ゴミ箱は無い。削除は、確認のうえ完全に削除する
+      const made = makeBundle(p.id, fs, { caps: { restore: false, trash: false }, labels: { root: p.name, upload: 'ファイルを取り込む' } });
+      b = { id: p.id, explorer: made, open: externalOpener(host, fs), dav: { base: p.url } };
+    }
+    tab.bundles.set(id, b);
+    known = { ...known, [id]: b };
     return b;
   }
+
+  /** タブの中の置き場所のエクスプローラー（無ければ作る） */
+  const bundleIn = (tab: Tab, id: string): Bundle | null => tab.bundles.get(id) ?? createBundle(tab, id);
+
+  /** いま見るエクスプローラーを決める（見ているタブの、見ている置き場所として覚える） */
+  function setCurrent(b: Bundle): void {
+    const t = activeTab();
+    t.currentId = b.id;
+    // タブの名前・保存は、タブの並びの変化で更新する（タブの中身は反応しない入れ物なので、並びを作り直して知らせる）
+    tabs = [...tabs];
+    current = b;
+  }
+
+  /** タブを見る */
+  function activate(id: number): void {
+    const t = tabs.find((x) => x.id === id);
+    if (!t) return;
+    activeId = id;
+    current = t.bundles.get(t.currentId) ?? null;
+  }
+
+  const startDir = (placeId: string): string => (placeId === LOCAL ? (localFs?.start ?? '') : '');
+
+  /** 新しいタブ（見ているタブの右隣）。place・dir を省くと、いま見ている置き場所の、いちばん上（この端末は、ホーム） */
+  function addTab(opts: { place?: string; dir?: string; afterId?: number; focus?: boolean } = {}): void {
+    if (tabs.length >= MAX_TABS) {
+      host.toast(`タブは ${MAX_TABS} 個までです`, 'error');
+      return;
+    }
+    const place = opts.place ?? current?.id ?? LOCAL;
+    const tab: Tab = { id: ++tabSeq, bundles: new Map(), currentId: place };
+    const b = bundleIn(tab, place);
+    if (!b) return;
+    b.explorer.nav.dir = opts.dir ?? startDir(place);
+    const at = Math.max(0, tabs.findIndex((t) => t.id === (opts.afterId ?? activeId))) + 1;
+    tabs = [...tabs.slice(0, at), tab, ...tabs.slice(at)];
+    if (opts.focus !== false) activate(tab.id);
+  }
+
+  function closeTab(id: number): void {
+    if (tabs.length <= 1) return;
+    const i = tabs.findIndex((t) => t.id === id);
+    if (i < 0) return;
+    const activeIndex = tabs.findIndex((t) => t.id === activeId);
+    const next = tabs.filter((t) => t.id !== id);
+    const nextActive = indexAfterClose(i, tabs.length, activeIndex);
+    tabs = next;
+    activate(next[nextActive].id);
+  }
+
+  function closeOthers(id: number): void {
+    const keep = tabs.find((t) => t.id === id);
+    if (!keep) return;
+    tabs = [keep];
+    activate(id);
+  }
+
+  function moveTab(from: number, to: number): void {
+    tabs = moveItem(tabs, from, to);
+  }
+
+  function duplicateTab(id: number): void {
+    const t = tabs.find((x) => x.id === id);
+    const b = t?.bundles.get(t.currentId);
+    if (t && b) addTab({ place: b.id, dir: b.explorer.nav.dir, afterId: id });
+  }
+
+  /** エクスプローラーからドラッグされた項目のうち、フォルダを、新しいタブで開く（このフォルダの一覧で見つかるものだけ） */
+  function openFoldersInTabs(paths: string[]): void {
+    const ex = explorer;
+    const here = current?.id;
+    if (!ex || !here) return;
+    const st = ex.index.state(ex.nav.dir);
+    if (st?.kind !== 'ok') return;
+    for (const path of paths) {
+      const e = st.entries.get(baseName(path));
+      if (e?.kind === 'dir' && e.path === path) addTab({ place: here, dir: path, focus: false });
+    }
+  }
+
+  const tabItems = $derived(
+    tabs.map((t) => {
+      const b = t.bundles.get(t.currentId);
+      const dir = b?.explorer.nav.dir ?? '';
+      const place = b?.explorer.labels.root ?? '';
+      return { id: t.id, label: tabLabel(place, dir), title: b?.local ? b.local.osPath(dir) : `${place}${dir === '' ? '' : ` / ${dir}`}` };
+    }),
+  );
+
+  /** タブの保存（置き場所と開いているフォルダ）。復元が済んでから */
+  $effect(() => {
+    if (!tabsReady) return;
+    const list = tabs.flatMap((t) => {
+      const b = t.bundles.get(t.currentId);
+      return b ? [{ place: t.currentId, dir: b.explorer.nav.dir }] : [];
+    });
+    if (list.length === 0) return;
+    write(TABS_KEY, serializeTabs({ tabs: list, active: Math.max(0, tabs.findIndex((t) => t.id === activeId)) }));
+  });
 
   onMount(() => {
     // アプリの更新を、裏で確かめる（対応している環境だけ。新しい版はトーストで 1 度だけ知らせる）
@@ -85,15 +228,22 @@
     const stopWatch = startUpdateWatch({ updater, notify: (text, action) => host.toast(text, 'info', action), openAbout: () => (aboutOpen = true) });
     void (async () => {
       try {
-        const fs = await createLocalFs({ showHidden: () => settings.showHidden });
-        const made = makeBundle(LOCAL, fs, {
-          // OS のゴミ箱へ入れたものは、ここからは戻せない
-          caps: { restore: false },
-          labels: { root: fs.windows ? 'PC' : 'コンピューター', upload: 'ファイルを取り込む' },
-        });
-        made.nav.dir = fs.start;
-        current = remember({ id: LOCAL, explorer: made, open: externalOpener(host, fs), local: fs });
-        places = await fs.places();
+        localFs = await createLocalFs({ showHidden: () => settings.showHidden });
+        places = await localFs.places();
+        // 前回のタブを戻す（外した置き場所のタブは捨てる）。無ければ、この端末のホームで 1 つ
+        const restored = parseSavedTabs(read(TABS_KEY), (id) => id === LOCAL || saved.get(id) !== undefined);
+        const first = restored ?? { tabs: [{ place: LOCAL, dir: localFs.start }], active: 0 };
+        const made: Tab[] = [];
+        for (const s of first.tabs) {
+          const tab: Tab = { id: ++tabSeq, bundles: new Map(), currentId: s.place };
+          const b = bundleIn(tab, s.place);
+          if (!b) continue;
+          b.explorer.nav.dir = s.dir;
+          made.push(tab);
+        }
+        tabs = made;
+        activate(made[Math.min(first.active, made.length - 1)].id);
+        tabsReady = true;
       } catch (e) {
         failed = failureText(e);
       }
@@ -106,36 +256,42 @@
     address = current.local ? current.local.osPath(explorer.nav.dir) : (current.dav?.base ?? '') + explorer.nav.dir;
   });
 
-  /** 追加したネットワークの場所を開く（初めてなら、置き場所を作る） */
+  /** 追加したネットワークの場所を開く（このタブで。初めてなら、置き場所を作る） */
   function openDav(p: DavPlace): void {
-    let b = bundles.get(p.id);
-    if (!b) {
-      const fs = createDavFs({ id: p.id, base: p.url, showHidden: () => settings.showHidden, onAuthError: () => (authFailed = { ...authFailed, [p.id]: true }), onCertError: (code) => (certIssue = { ...certIssue, [p.id]: code }) });
-      // ゴミ箱は無い。削除は、確認のうえ完全に削除する
-      const made = makeBundle(p.id, fs, { caps: { restore: false, trash: false }, labels: { root: p.name, upload: 'ファイルを取り込む' } });
-      b = remember({ id: p.id, explorer: made, open: externalOpener(host, fs), dav: { base: p.url } });
-    }
-    current = b;
+    const b = bundleIn(activeTab(), p.id);
+    if (b) setCurrent(b);
   }
 
   /** この端末の場所を開く（ネットワークの場所を見ていたら、この端末へ戻る） */
   function go(path: string): void {
-    const b = bundles.get(LOCAL);
+    const b = bundleIn(activeTab(), LOCAL);
     if (!b) return;
-    current = b;
+    setCurrent(b);
     b.explorer.nav.open(path);
   }
 
   /** 置き場所の覚えを変えたとき、作ってあった置き場所を捨てる（URL・名前が変わったので、作り直す） */
   function forget(id: string): void {
-    bundles.delete(id);
+    davFsOf.delete(id);
+    bufferOf.delete(id);
+    // どのタブでも、その置き場所を捨てる。見ていたタブは、この端末へ戻す
+    for (const t of tabs) {
+      t.bundles.delete(id);
+      if (t.currentId === id) {
+        t.currentId = LOCAL;
+        tabs = [...tabs];
+        if (t.id === activeId) {
+          const b = bundleIn(t, LOCAL);
+          if (b) current = b;
+        }
+      }
+    }
     const { [id]: _gone, ...rest } = known;
     known = rest;
     const { [id]: _ok, ...stillFailed } = authFailed;
     authFailed = stillFailed;
     const { [id]: _cert, ...stillUntrusted } = certIssue;
     certIssue = stillUntrusted;
-    if (current?.id === id) current = bundles.get(LOCAL) ?? null;
   }
 
   /** 追加・直すのダイアログを開く。直すときは、保管している資格情報（ユーザー名）を先に読む（読めなくても開く） */
@@ -195,7 +351,7 @@
   function reloadAfterPin(id: string): void {
     const { [id]: _cert, ...rest } = certIssue;
     certIssue = rest;
-    bundles.get(id)?.explorer.nav.reload();
+    for (const t of tabs) t.bundles.get(id)?.explorer.nav.reload();
   }
 
   /** ダイアログに出す失敗の文（Rust が日本語で書いた説明があるものは、それを出す） */
@@ -269,6 +425,17 @@
   /** 「戻る」（マウスの戻るボタン・Alt+←）。入力中の欄では、文字の操作を奪わない */
   function onKey(ev: KeyboardEvent): void {
     if (isBackKey(ev) && host.back()) ev.preventDefault();
+    // タブの操作（Ctrl・Cmd）: T 新しいタブ・W 閉じる・Tab / Shift+Tab / PageDown / PageUp で切り替え・1〜9 で番号（9 は最後）
+    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || tabs.length === 0) return;
+    const at = tabs.findIndex((t) => t.id === activeId);
+    const key = ev.key.toLowerCase();
+    if (!ev.shiftKey && key === 't') addTab();
+    else if (!ev.shiftKey && key === 'w') closeTab(activeId);
+    else if (key === 'tab') activate(tabs[cycleIndex(at, tabs.length, ev.shiftKey ? -1 : 1)].id);
+    else if (key === 'pagedown' || key === 'pageup') activate(tabs[cycleIndex(at, tabs.length, key === 'pagedown' ? 1 : -1)].id);
+    else if (!ev.shiftKey && /^[1-9]$/.test(key)) activate(tabs[key === '9' ? tabs.length - 1 : Math.min(Number(key) - 1, tabs.length - 1)].id);
+    else return;
+    ev.preventDefault();
   }
   function onMouseUp(ev: MouseEvent): void {
     if (ev.button === 3 && host.back()) ev.preventDefault();
@@ -290,6 +457,18 @@
       </form>
       <IconButton label="隠しファイルを表示" title="隠しファイルを表示" active={settings.showHidden} aria-pressed={settings.showHidden} onclick={toggleHidden}><Eye size={18} /></IconButton>
     </header>
+
+    <TabBar
+      tabs={tabItems}
+      {activeId}
+      onselect={activate}
+      onclose={closeTab}
+      onadd={() => addTab()}
+      onduplicate={duplicateTab}
+      onmove={moveTab}
+      oncloseothers={closeOthers}
+      ondropfolders={openFoldersInTabs}
+    />
 
     <div class="body">
       <nav class="places scroll" aria-label="場所">

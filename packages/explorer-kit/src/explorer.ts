@@ -54,6 +54,11 @@ export type ExplorerOptions = {
   scope?: ScopeSource;
   /** 一覧の写しを本体が持っているとき（ほかの画面と共有する）。省くと、ここで作る */
   index?: DirIndexLike;
+  /**
+   * 切り取り・コピーのバッファ。同じ置き場所を、複数のエクスプローラー（タブ）で開くとき、それらで 1 つを共有するために渡す。
+   * 省くと、ここで作る（そのエクスプローラーだけのもの）。置き場所が違うものとは共有しないこと（パスが別の置き場所のものになる）。
+   */
+  buffer?: ExplorerBuffer;
   /** 一覧の失敗が「そのフォルダが無い」か（index を省いたときだけ使う） */
   isMissing?(e: unknown): boolean;
 };
@@ -68,7 +73,7 @@ export function createExplorer(options: ExplorerOptions): Explorer {
   const own = options.index ? null : new DirIndex({ list: (dir) => options.api.list(dir), isMissing: options.isMissing });
   const index = options.index ?? own!;
   const nav = new ExplorerNav(index);
-  const buffer = new ExplorerBuffer();
+  const buffer = options.buffer ?? new ExplorerBuffer();
   const selection = new ExplorerSelection();
   const view = new ExplorerView(options.viewStore);
   const scope = options.scope ?? FIXED_SCOPE;
