@@ -51,10 +51,10 @@ pub fn trash(path: &Path) -> FsResult<()> {
     trash::delete(path).map_err(|e| FsError::new("io", format!("ゴミ箱へ入れられませんでした: {}: {e}", path.display())))
 }
 
-/// Android: まだゴミ箱の画面が無いので、ゴミ箱へは入れない（隠れたゴミ箱を作らない）。画面が入る段階で、アプリの中のゴミ箱へ切り替える
+/// Android: アプリの中のゴミ箱（内部ストレージの `.fixplor-trash/`。同じ保存領域の中だけ移す）。画面は trashDir で見せる
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn trash(_path: &Path) -> FsResult<()> {
-    Err(FsError::new("unsupported", "この端末には、まだゴミ箱がありません"))
+pub fn trash(path: &Path) -> FsResult<()> {
+    super::trash::trash_path(path).map(|_| ())
 }
 
 /// 完全に削除する（元に戻せない）。Android の保存領域（内部ストレージ・SD）の中だけ。シンボリックリンクは、リンクそのものを消す（辿らない）

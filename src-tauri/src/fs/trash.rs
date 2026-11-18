@@ -60,8 +60,6 @@ fn new_id(now_ms: u64, seq: u64) -> String {
 }
 
 /// 保存領域の中の項目を、その領域のゴミ箱へ移す（時刻と連番は、ここで決める）。保存領域が分からなければ `unsupported`
-// 段階 B（画面の接続）まで、Android の削除はこれを使わない（ゴミ箱の画面が無いあいだは、隠れたゴミ箱を作らない）
-#[allow(dead_code)]
 pub fn trash_path(path: &Path) -> FsResult<TrashItem> {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let root = volume_root(path).ok_or_else(|| FsError::new("unsupported", "この場所にはゴミ箱がありません（内部ストレージと SD カードの中だけ）"))?;
