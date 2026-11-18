@@ -32,4 +32,5 @@ val versions = Properties().apply { file("../../gradle-versions.properties").inp
 dependencies {
     implementation("androidx.core:core-ktx:${versions.getProperty("androidx.core")}")
     implementation(project(":tauri-android"))
+    testImplementation("junit:junit:${versions.getProperty("junit")}")
 }

@@ -207,24 +207,52 @@ impl SecretStore for OsStore {
     }
 }
 
-/// PoC（Android）: プロセスの中だけの仮の保管（再起動で消える・ディスクに書かない）。本番の保管（Keystore）ではない
-#[cfg(any(target_os = "android", target_os = "ios"))]
+/// Android: Keystore の鍵で包んだファイル（storage プラグインの Kotlin。1 件 1 ファイルで、平文は書かない）。
+/// 使えないとき（鍵が無い・壊れている・プラグインが無い）は `Unavailable` を返す（平文へは逃がさない）。
+#[cfg(target_os = "android")]
 pub struct OsStore;
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
-static POC_MEMORY: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> = std::sync::Mutex::new(None);
+#[cfg(target_os = "android")]
+impl OsStore {
+    fn call(command: &str, payload: serde_json::Value) -> Result<serde_json::Value, Unavailable> {
+        tauri_plugin_fixplor_storage::call_secret(command, payload).map_err(Unavailable)
+    }
+}
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 impl SecretStore for OsStore {
     fn get(&self, id: &str) -> Result<Option<String>, Unavailable> {
-        Ok(POC_MEMORY.lock().unwrap().get_or_insert_with(Default::default).get(id).cloned())
+        let r = Self::call("secretGet", serde_json::json!({ "id": id }))?;
+        if r.get("found").and_then(|v| v.as_bool()) == Some(true) {
+            match r.get("value").and_then(|v| v.as_str()) {
+                Some(s) => Ok(Some(s.to_string())),
+                None => Err(Unavailable("資格情報の形が違います".into())),
+            }
+        } else {
+            Ok(None)
+        }
     }
     fn set(&self, id: &str, secret: &str) -> Result<(), Unavailable> {
-        POC_MEMORY.lock().unwrap().get_or_insert_with(Default::default).insert(id.to_string(), secret.to_string());
-        Ok(())
+        Self::call("secretSet", serde_json::json!({ "id": id, "value": secret })).map(|_| ())
     }
     fn delete(&self, id: &str) -> Result<(), Unavailable> {
-        POC_MEMORY.lock().unwrap().get_or_insert_with(Default::default).remove(id);
-        Ok(())
+        Self::call("secretDelete", serde_json::json!({ "id": id })).map(|_| ())
+    }
+}
+
+/// iOS（対象外）: いつも使えない
+#[cfg(target_os = "ios")]
+pub struct OsStore;
+
+#[cfg(target_os = "ios")]
+impl SecretStore for OsStore {
+    fn get(&self, _: &str) -> Result<Option<String>, Unavailable> {
+        Err(Unavailable("この OS には対応していません".into()))
+    }
+    fn set(&self, _: &str, _: &str) -> Result<(), Unavailable> {
+        self.get("").map(|_| ())
+    }
+    fn delete(&self, _: &str) -> Result<(), Unavailable> {
+        self.get("").map(|_| ())
     }
 }
