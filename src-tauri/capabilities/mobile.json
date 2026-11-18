@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
-  "description": "Android だけの権限。全ファイルへのアクセスの確認と、設定画面を開く",
+  "description": "Android だけの権限。全ファイルへのアクセスの確認・設定画面、アプリの更新（APK の取得と、インストーラーへの受け渡し）",
   "windows": [
     "main"
   ],
@@ -9,6 +9,7 @@
     "android"
   ],
   "permissions": [
-    "fixplor-storage:default"
+    "fixplor-storage:default",
+    "fixplor-updater:default"
   ]
 }

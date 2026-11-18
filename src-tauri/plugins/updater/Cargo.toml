@@ -1,0 +1,18 @@
+[package]
+name = "tauri-plugin-fixplor-updater"
+version = "0.1.0"
+description = "Android: アプリの更新（APK の取得と、パッケージインストーラーへの受け渡し）"
+edition = "2021"
+publish = false
+links = "tauri-plugin-fixplor-updater"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+tokio = { version = "1", features = ["fs", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream"] }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

@@ -211,6 +211,8 @@ pub fn run() {
     // Android の全ファイルへのアクセス（確認と設定画面）
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_fixplor_storage::init());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_fixplor_updater::init());
     // アプリの更新（デスクトップだけ）: 公式の updater（latest.json の署名を、tauri.conf.json の公開鍵で確かめる）と、入れ替えたあとの再起動
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());

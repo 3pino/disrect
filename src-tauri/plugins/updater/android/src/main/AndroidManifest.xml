@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 「不明なアプリのインストール」の許可（この許可がないと、取った APK を入れられない） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application>
+        <!-- アプリ本体の FileProvider と衝突しないよう、専用のクラスと authority にする -->
+        <provider
+            android:name="dev.fixplor.updater.UpdateFileProvider"
+            android:authorities="${applicationId}.updater"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/updater_paths" />
+        </provider>
+    </application>
+</manifest>

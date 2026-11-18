@@ -1204,6 +1204,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-fixplor-storage",
+ "tauri-plugin-fixplor-updater",
  "tauri-plugin-opener",
  "tauri-plugin-process",
  "tauri-plugin-updater",
@@ -4518,6 +4519,19 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-plugin",
+]
+
+[[package]]
+name = "tauri-plugin-fixplor-updater"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tokio",
 ]
 
 [[package]]

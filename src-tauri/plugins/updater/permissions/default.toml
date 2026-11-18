@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "アプリの更新（APK の取得・入れる許可の確認・インストーラーを開く）を許可する"
+permissions = ["allow-can-install", "allow-open-install-settings", "allow-install-apk", "allow-download-apk"]
