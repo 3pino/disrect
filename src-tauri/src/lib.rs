@@ -119,7 +119,7 @@ pub fn run() {
     std::thread::spawn(|| {
         webdav::commands::clean_temp(&webdav::commands::temp_root(), std::time::Duration::from_secs(24 * 60 * 60));
     });
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(conns)
         .manage(jobs)
         .manage(puts)
@@ -139,7 +139,11 @@ pub fn run() {
             });
         })
         .plugin(tauri_plugin_opener::init())
-        .plugin(platform::plugin())
+        .plugin(platform::plugin());
+    // アプリの更新（デスクトップだけ）: 公式の updater（latest.json の署名を、tauri.conf.json の公開鍵で確かめる）と、入れ替えたあとの再起動
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());
+    builder
         .invoke_handler(tauri::generate_handler![
             fs_list,
             fs_stat,

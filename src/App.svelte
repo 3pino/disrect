@@ -14,6 +14,10 @@
   import { isBackKey } from '@3pino/app-kit-web/core/backNav';
   import PlaceDialog from './components/PlaceDialog.svelte';
   import CertDialog from './components/CertDialog.svelte';
+  import AboutDialog from './components/AboutDialog.svelte';
+  import { showUpdateBadge, UPDATE_BADGE_LABEL } from '@3pino/app-kit-web/updater';
+  import { updater } from './lib/stores/updater.svelte';
+  import { startUpdateWatch } from './lib/updateWatch';
   import Lightbox from './components/Lightbox.svelte';
   import { createLocalFs, type LocalFs } from './lib/fs/local';
   import { createDavFs } from './lib/fs/webdav';
@@ -46,6 +50,8 @@
   /** 証明書を確認できない・変わった置き場所。利用者に確かめてもらうまで、案内を出す */
   let certIssue = $state.raw<Record<string, 'tls' | 'cert_changed'>>({});
   /** 証明書を確かめるダイアログ（previous は、前に信頼した指紋） */
+  /** 「バージョン情報」のダイアログ */
+  let aboutOpen = $state(false);
   let certDialog = $state.raw<{ place: DavPlace; previous: string | null } | null>(null);
   /** 認証が通らなかった置き場所（401）。入れ直してもらうまで、案内を出す */
   let authFailed = $state.raw<Record<string, true>>({});
@@ -74,6 +80,9 @@
   }
 
   onMount(() => {
+    // アプリの更新を、裏で確かめる（対応している環境だけ。新しい版はトーストで 1 度だけ知らせる）
+    void updater.loadVersion();
+    const stopWatch = startUpdateWatch({ updater, notify: (text, action) => host.toast(text, 'info', action), openAbout: () => (aboutOpen = true) });
     void (async () => {
       try {
         const fs = await createLocalFs({ showHidden: () => settings.showHidden });
@@ -89,6 +98,7 @@
         failed = failureText(e);
       }
     })();
+    return stopWatch;
   });
 
   $effect(() => {
@@ -299,6 +309,11 @@
             <IconButton label={`「${p.name}」を直す`} title="直す・外す" onclick={() => void openDialog(p)}><Pencil size={14} /></IconButton>
           </div>
         {/each}
+        <!-- 版と、アプリの更新（新しい版があるときは点）。押すと「バージョン情報」 -->
+        <button class="about-row" type="button" onclick={() => (aboutOpen = true)}>
+          <span>fixplor{updater.supported && updater.version ? ` v${updater.version}` : ''}</span>
+          {#if updater.supported && showUpdateBadge(updater.state)}<span class="update-dot" role="img" aria-label={UPDATE_BADGE_LABEL}></span>{/if}
+        </button>
       </nav>
       <main class="main">
         {#if certIssue[current.id] && saved.get(current.id)}
@@ -365,11 +380,36 @@
     min-height: 0;
   }
   .places {
+    display: flex;
+    flex-direction: column;
     flex: none;
     width: 200px;
     padding: var(--space-3);
     border-right: 1px solid var(--border);
     overflow-y: auto;
+  }
+  .places > :global(*) {
+    flex: none;
+  }
+  .about-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-top: auto;
+    padding: var(--space-2) var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--fs-sm, 0.85em);
+    text-align: left;
+  }
+  .update-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
   }
   .places .menu-item {
     width: 100%;
@@ -433,4 +473,7 @@
 </style>
 {#if certDialog}
   <CertDialog place={certDialog.place} previous={certDialog.previous} probe={(base) => pins.probe(base)} ontrust={(fp) => trustCert(certDialog!.place, fp)} onclose={() => (certDialog = null)} />
+{/if}
+{#if aboutOpen}
+  <AboutDialog {updater} onclose={() => (aboutOpen = false)} />
 {/if}

@@ -10,6 +10,8 @@ export const LOCAL_KEYS: readonly LocalKey[] = [
   { key: 'fixplor.showHidden', owner: 'lib/settings.svelte.ts', purpose: '隠しファイルを出すか', kind: 'state' },
   { key: 'fixplor.dirs', owner: 'lib/settings.svelte.ts', purpose: 'フォルダごとの表示方法と並び順', kind: 'state' },
   { key: 'fixplor.places', owner: 'lib/places.svelte.ts', purpose: '追加したネットワークの場所（名前と URL）', kind: 'state' },
+  { key: 'fixplor.updateCheckedAt', owner: 'lib/updateWatch.ts', purpose: 'アプリの更新を最後に確認した時刻', kind: 'cache' },
+  { key: 'fixplor.updateNotifiedVersion', owner: 'lib/updateWatch.ts', purpose: '新しい版を知らせた版（同じ版は 1 回だけ知らせる）', kind: 'cache' },
 ];
 
 export const registeredKey = (key: string): LocalKey | undefined => findRegisteredKey(LOCAL_KEYS, key);

@@ -38,6 +38,9 @@ bytes = "1"
 # OS のゴミ箱（Linux: freedesktop の Trash、Windows: ごみ箱）。Android には無い
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 trash = "5"
+# アプリの更新の確認・入れ替え（署名つき。latest.json はリリースに載せる）と、更新後の再起動。デスクトップだけ（Android のビルドは無い）
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 # 資格情報（WebDAV のユーザー名・パスワード）は OS のキーチェーンへ（Linux: Secret Service・Windows: 資格情報マネージャー）。openssl は使わない
 keyring = "4"
 
