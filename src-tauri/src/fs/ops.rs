@@ -51,9 +51,10 @@ pub fn trash(path: &Path) -> FsResult<()> {
     trash::delete(path).map_err(|e| FsError::new("io", format!("ゴミ箱へ入れられませんでした: {}: {e}", path.display())))
 }
 
+/// Android: アプリの中のゴミ箱（保存領域の `.fixplor-trash/`。同じ保存領域の中でだけ移す）
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn trash(_path: &Path) -> FsResult<()> {
-    Err(FsError::new("unsupported", "この OS にはゴミ箱がありません"))
+pub fn trash(path: &Path) -> FsResult<()> {
+    super::trash::trash_path(path).map(|_| ())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

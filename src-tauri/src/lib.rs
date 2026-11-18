@@ -82,6 +82,30 @@ async fn fs_trash(path: String) -> FsResult<()> {
     blocking("fs_trash", move || fs::trash(&fs::abs(&path)?)).await
 }
 
+/// ゴミ箱（Android のアプリ内）の一覧・戻す・完全に消す。`volume` は保存領域の根（`/storage/emulated/0` など）
+fn trash_volume(volume: &str) -> FsResult<std::path::PathBuf> {
+    let root = fs::abs(volume)?;
+    if fs::trash::volume_root(&root).as_deref() != Some(root.as_path()) {
+        return Err(FsError::new("invalid", "ゴミ箱のある場所ではありません"));
+    }
+    Ok(root)
+}
+
+#[tauri::command]
+async fn fs_trash_list(volume: String) -> FsResult<Vec<fs::trash::TrashItem>> {
+    blocking("fs_trash_list", move || fs::trash::trash_list(&trash_volume(&volume)?)).await
+}
+
+#[tauri::command]
+async fn fs_trash_restore(volume: String, id: String) -> FsResult<String> {
+    blocking("fs_trash_restore", move || fs::trash::trash_restore(&trash_volume(&volume)?, &id)).await
+}
+
+#[tauri::command]
+async fn fs_trash_purge(volume: String, id: String) -> FsResult<()> {
+    blocking("fs_trash_purge", move || fs::trash::trash_purge(&trash_volume(&volume)?, &id)).await
+}
+
 #[tauri::command]
 async fn fs_size(path: String) -> FsResult<Size> {
     blocking("fs_size", move || fs::size(&fs::abs(&path)?)).await
@@ -199,6 +223,9 @@ pub fn run() {
             fs_move,
             fs_copy,
             fs_trash,
+            fs_trash_list,
+            fs_trash_restore,
+            fs_trash_purge,
             fs_size,
             fs_search,
             fs_search_cancel,

@@ -6,6 +6,7 @@ mod error;
 mod ops;
 mod places;
 mod search;
+pub mod trash;
 
 pub use entry::{abs, entry_of, list, Entry, Kind};
 pub use error::{FsError, FsResult};
