@@ -252,8 +252,8 @@ describe('変更の知らせ・接続先の切り替え', () => {
   });
 });
 
-describe('全画面の view（本体の見出しが無い）', () => {
-  it('入れ物の一番上は .top-bar（上端の安全域を取る）。残りの高さをエクスプローラーに渡し、閉じると入れ物を元に戻す', async () => {
+describe('全画面の view（本体の見出しが無い。安全域は本体）', () => {
+  it('入れ物の先頭はエクスプローラーそのもの（自分の行・上端の余白を足さない。安全域は本体が空ける）。入れ物の style は変えない', async () => {
     const d = fakeDisnans(fakeFiles(tree));
     const plugin = {
       files: d.files,
@@ -268,15 +268,13 @@ describe('全画面の view（本体の見出しが無い）', () => {
     target.style.display = 'block';
     document.body.append(target);
     await view.onOpen(target, {} as never);
-    expect(target.firstElementChild!.classList.contains('top-bar')).toBe(true);
-    expect(target.children).toHaveLength(2);
-    expect(target.children[1].querySelector('.file-explorer')).not.toBeNull();
-    expect(target.style.display).toBe('flex');
-    expect(target.style.flexDirection).toBe('column');
+    expect(target.children).toHaveLength(1);
+    expect(target.firstElementChild!.classList.contains('file-explorer')).toBe(true);
+    // エクスプローラーの上のバー（PanelBar の .top-bar）は部品の中のもの。入れ物の直下に、プラグイン自身の行は無い
+    expect(target.querySelector(':scope > .top-bar')).toBeNull();
+    expect(target.getAttribute('style')).toBe('display: block;');
     view.onClose?.();
     expect(target.children).toHaveLength(0);
-    expect(target.style.display).toBe('block');
-    expect(target.style.flexDirection).toBe('');
   });
 });
 

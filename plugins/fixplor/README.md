@@ -31,7 +31,7 @@ Disnans は、このタグと `SHA256SUMS` の値を `core-plugins.lock.json` �
 ## 本体の口（API 20）
 
 型は `src/sdk.ts`（使う分だけを写してある。Disnans の `packages/plugin-sdk/index.d.ts` の API 20 に合わせてある。`minApiVersion` は 20）。
-使う口: `disnans.app.platform`、全画面でセッションのない view（`registerView(type, factory, { layout: 'full' })`。factory に null。本体の見出しは無いので、view の一番上の行 `.top-bar` が上端の安全域を取る）、入口のコマンド（`ui.navItem` の `view`。コマンド `plugin-nav:fixplor:files`。ナビバーへは利用者が足す）、`files`（`url`・`upload`・`size`・`caps`・`trash`・`restore`・`purge`）、
+使う口: `disnans.app.platform`、全画面でセッションのない view（`registerView(type, factory, { layout: 'full' })`。factory に null。本体の見出しは無い。**上端の安全域（ノッチ）は、本体が空ける。全画面の view は安全域を扱わない**＝自分の `.top-bar` の行を足さない）、入口のコマンド（`ui.navItem` の `view`。コマンド `plugin-nav:fixplor:files`。ナビバーへは利用者が足す）、`files`（`url`・`upload`・`size`・`caps`・`trash`・`restore`・`purge`）、
 `ui`（`toast` の action・`openLightbox`・`renderPdfThumb`・`download`・`interceptDownload`・`openSearch`・`clipboard`・`osDrop`・`navItem`）、`chat.registerLinkOpener`、`legacyData`、`disnans.session.onServerChange`。
 使わない口: 添付の選択（`ui.pickSharedFiles`。本体の画面が受け持つ）・チャットからのドラッグ（`ui.dragType`。部品の既定の型を本体が見分ける）・`saveBlob`（Blob の保存。Tauri は未対応のため）。
 本文のファイルリンクは、そのファイルのあるフォルダを開く（フォルダならその中）。

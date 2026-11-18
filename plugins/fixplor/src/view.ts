@@ -29,8 +29,6 @@ export type PluginDeps = { plugin: HostPluginBase; disnans: HostGlobal; shelf?: 
 export function createExplorerView({ plugin, disnans, shelf = createShelf() }: PluginDeps): HostView & { explorer: Explorer | null } {
   const persisted = createViewStore(plugin, () => plugin.legacyData);
   let component: ReturnType<typeof mount> | null = null;
-  /** 載せた入れ物の元の style（片付けるときに戻す） */
-  let restore: (() => void) | null = null;
   let off: (() => void) | null = null;
   let generation = 0;
   const view: HostView & { explorer: Explorer | null } = {
@@ -71,23 +69,8 @@ export function createExplorerView({ plugin, disnans, shelf = createShelf() }: P
       const offChange = files.onChange((ev) => explorer.index.invalidate(ev.path));
       view.explorer = explorer;
       shelf.current = explorer;
-      // 全画面の view（`layout: 'full'`）には、本体の見出しが無い。上端の安全域（ノッチ・ステータスバー）は、一番上の行（.top-bar）が取る。
-      // 残りの高さは、エクスプローラーに渡す（入れ物を縦に並べる）
-      const prev = { display: containerEl.style.display, flexDirection: containerEl.style.flexDirection };
-      containerEl.style.display = 'flex';
-      containerEl.style.flexDirection = 'column';
-      const top = document.createElement('div');
-      top.className = 'top-bar';
-      const stage = document.createElement('div');
-      stage.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
-      containerEl.replaceChildren(top, stage);
-      restore = () => {
-        containerEl.style.display = prev.display;
-        containerEl.style.flexDirection = prev.flexDirection;
-        top.remove();
-        stage.remove();
-      };
-      component = mount(FileExplorer, { target: stage, props: { explorer } });
+      // 全画面の view（`layout: 'full'`）。上端の安全域（ノッチ・ステータスバー）は本体が空ける。ここでは何もしない（自分の行を足さない）
+      component = mount(FileExplorer, { target: containerEl, props: { explorer } });
       off = () => {
         offChange();
         offServer?.();
@@ -98,8 +81,6 @@ export function createExplorerView({ plugin, disnans, shelf = createShelf() }: P
       off = null;
       if (component) void unmount(component);
       component = null;
-      restore?.();
-      restore = null;
       if (shelf.current === view.explorer) shelf.current = null;
       view.explorer = null;
       void persisted.flush().catch(() => {});

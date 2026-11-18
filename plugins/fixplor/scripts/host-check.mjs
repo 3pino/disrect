@@ -241,11 +241,13 @@ try {
     assert.equal(await evaluate(`document.querySelector('.file-explorer-crumbs button').textContent`), '共有フォルダ');
   });
 
-  await check('全画面の view（layout: full）: 本体の見出し（戻る・閉じる）は無く、入れ物の先頭は .top-bar、残りの高さにエクスプローラー', async () => {
+  await check('全画面の view（layout: full）: 本体の見出し（戻る・閉じる）は無く、入れ物の先頭はエクスプローラーそのもの（自分の .top-bar 行は無い。安全域は本体）', async () => {
     assert.equal(await evaluate(`!!document.querySelector('.plugin-panel-header')`), false, '本体の見出しが出ている');
     assert.equal(await evaluate(`!!document.querySelector('.shell-panel-full')`), true, '全画面の枠ではない');
     const first = await evaluate(`document.querySelector('.shell-panel-full .plugin-panel-body')?.firstElementChild?.className`);
-    assert.equal(first, 'top-bar');
+    assert(String(first).split(' ').includes('file-explorer'), `先頭がエクスプローラーではない: ${first}`);
+    // プラグインは安全域を扱わない（自分の .top-bar の行を持たない）。エクスプローラーの上のバー（PanelBar）の .top-bar は、本体が打ち消す
+    assert.equal(await evaluate(`document.querySelectorAll('.shell-panel-full .plugin-panel-body > .top-bar').length`), 0, '入れ物の直下に自分の .top-bar の行がある');
     const fit = await evaluate(`(() => { const b = document.querySelector('.shell-panel-full .plugin-panel-body').getBoundingClientRect(); const e = document.querySelector('.file-explorer').getBoundingClientRect(); return { bodyBottom: b.bottom, bottom: e.bottom, top: e.top }; })()`);
     assert(fit.bottom <= fit.bodyBottom + 1, `エクスプローラーが枠からはみ出している: ${JSON.stringify(fit)}`);
   });
@@ -354,14 +356,14 @@ try {
     await S('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await sleep(400);
   };
-  await check('モバイル: ファイルを開いても、ナビバーは画面の下にあり覆われない。パネルはナビの上に収まる。先頭は .top-bar', async () => {
+  await check('モバイル: ファイルを開いても、ナビバーは画面の下にあり覆われない。パネルはナビの上に収まる。先頭はエクスプローラー（自分の .top-bar 行は無い）', async () => {
     await S('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await S('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
     await sleep(500);
     await tap('Chat');
     await waitFor(`!document.querySelector('.shell-panel-full')`, 8000, 'チャットへ');
     await tap('ファイル');
-    await waitFor(`document.querySelector('.shell-panel-full .top-bar')`, 8000, 'ファイルの画面');
+    await waitFor(`document.querySelector('.shell-panel-full .file-explorer')`, 8000, 'ファイルの画面');
     await sleep(300);
     const g = await navBottom();
     assert(g.visible && g.hit, `ナビバーが見えない・覆われている: ${JSON.stringify(g)}`);

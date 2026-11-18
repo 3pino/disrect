@@ -14,7 +14,7 @@ export default class FixplorPlugin extends disnans.Plugin {
   onload(): void {
     const shelf = createShelf();
     const self = this as unknown as HostPluginBase;
-    // セッションを持たない view（共有フォルダは誰のものでもない。カードも作らない）。全画面で開く（本体の見出しは無い。上端は view の .top-bar が取る）
+    // セッションを持たない view（共有フォルダは誰のものでもない。カードも作らない）。全画面で開く（本体の見出しは無い。上端の安全域は本体が空ける。view は安全域を扱わない）
     this.registerView(ID, () => createExplorerView({ plugin: self, disnans, shelf }), { layout: 'full' });
     // ナビバーの入口（選ぶと、この view をパネルに開く）
     const nav = disnans.ui.navItem({ id: NAV_ID, label: 'ファイル', icon: 'folder', view: ID });
