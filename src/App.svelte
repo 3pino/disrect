@@ -30,6 +30,7 @@
   import { HostState, createHost, externalOpener, failureText } from './lib/host.svelte';
   import { placeLabel } from './lib/labels';
   import { allFilesGranted, openAllFilesSettings } from './lib/allFiles';
+  import { startBackNav, type BackNav } from '@3pino/app-kit-web/core/backNav';
   import { places as saved, type DavPlace } from './lib/places.svelte';
   import { read, settings, write } from './lib/settings.svelte';
   import { MAX_TABS, cycleIndex, indexAfterClose, moveItem, parseSavedTabs, serializeTabs, tabLabel } from './lib/tabs';
@@ -38,6 +39,13 @@
   // 本体は共有の部品（@3pino/explorer-kit）に、置き場所（この端末、または追加したネットワークの場所）を渡したもの。
   // 外枠の見た目は仮（利用者の確認を取っていない）。
   const host = new HostState();
+  /** Android の戻るボタン: 層（ライトボックス・パネルの戻る）の深さを WebView の履歴に合わせる（onMount で始める） */
+  let backNav: BackNav | null = null;
+  // 層が増えたり減ったりしたら、履歴の深さを合わせる（戻る操作は history の popstate で届く）
+  $effect(() => {
+    void host.shell.backDepth(0);
+    backNav?.sync();
+  });
   /** 開いている（または開いたことのある）置き場所。切り替えても、開いていたフォルダ・選びを保つ */
   type Bundle = { id: string; explorer: Explorer; open: (req: { url: string; name: string }) => Promise<void>; local?: LocalFs; dav?: { base: string } };
   const LOCAL = 'local';
@@ -233,6 +241,7 @@
   }
 
   onMount(() => {
+    backNav = startBackNav({ depth: () => host.shell.backDepth(0), back: () => host.back() }, history, window, { depthKey: 'fixplorDepth' });
     void checkAllFiles();
     // 設定画面から戻ったとき、許可されていれば場所の一覧を読み直す
     const onFocus = async () => {
@@ -266,6 +275,8 @@
     })();
     return () => {
       window.removeEventListener('focus', onFocus);
+      backNav?.stop();
+      backNav = null;
       stopWatch();
     };
   });
