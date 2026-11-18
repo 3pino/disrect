@@ -207,19 +207,24 @@ impl SecretStore for OsStore {
     }
 }
 
-/// キーチェーンの無い環境（Android など）。いつも使えない
+/// PoC（Android）: プロセスの中だけの仮の保管（再起動で消える・ディスクに書かない）。本番の保管（Keystore）ではない
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub struct OsStore;
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
+static POC_MEMORY: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> = std::sync::Mutex::new(None);
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
 impl SecretStore for OsStore {
-    fn get(&self, _: &str) -> Result<Option<String>, Unavailable> {
-        Err(Unavailable("この OS には対応していません".into()))
+    fn get(&self, id: &str) -> Result<Option<String>, Unavailable> {
+        Ok(POC_MEMORY.lock().unwrap().get_or_insert_with(Default::default).get(id).cloned())
     }
-    fn set(&self, _: &str, _: &str) -> Result<(), Unavailable> {
-        self.get("").map(|_| ())
+    fn set(&self, id: &str, secret: &str) -> Result<(), Unavailable> {
+        POC_MEMORY.lock().unwrap().get_or_insert_with(Default::default).insert(id.to_string(), secret.to_string());
+        Ok(())
     }
-    fn delete(&self, _: &str) -> Result<(), Unavailable> {
-        self.get("").map(|_| ())
+    fn delete(&self, id: &str) -> Result<(), Unavailable> {
+        POC_MEMORY.lock().unwrap().get_or_insert_with(Default::default).remove(id);
+        Ok(())
     }
 }
