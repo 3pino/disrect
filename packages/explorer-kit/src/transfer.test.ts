@@ -12,8 +12,6 @@ const entry = (path: string, kind: 'file' | 'dir' = 'file'): Entry => ({
   size: 1,
   modified: 0,
   mime: null,
-  message_id: null,
-  file_id: null,
 });
 const entries = (...list: Entry[]) => new Map(list.map((e) => [e.name, e]));
 

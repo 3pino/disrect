@@ -49,8 +49,8 @@ describe('プロパティ（読むだけ）', () => {
     expect(document.body.textContent).toContain('3 ファイル');
   });
 
-  it('置き場所が足す欄（file_id・message_id）は出さない', () => {
-    const text = open({ ...base, path: 'special/a.txt', file_id: 'F1', message_id: 'M1' });
+  it('置き場所が足した項目の欄（部品が知らないもの）は出さない', () => {
+    const text = open({ ...base, path: 'special/a.txt', extra_id: 'F1', other: 'M1' } as typeof base);
     expect(text).not.toContain('F1');
     expect(text).not.toContain('M1');
   });

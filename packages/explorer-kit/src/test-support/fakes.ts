@@ -6,7 +6,7 @@ import type { Entry, EntryUrls, ExplorerApi, ExplorerHost, Rules, TrashEntry } f
 // 試験用の置き場所と本体。置き場所は、メモリの中の木（パス → 項目）。
 
 export const file = (path: string, size = 1): Entry => ({
-  name: path.split('/').pop()!, path, kind: 'file', size, modified: 0, mime: null, message_id: null, file_id: null,
+  name: path.split('/').pop()!, path, kind: 'file', size, modified: 0, mime: null,
 });
 export const dir = (path: string): Entry => ({ ...file(path, 0), kind: 'dir' });
 

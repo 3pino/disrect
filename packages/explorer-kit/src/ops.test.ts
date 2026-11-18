@@ -34,7 +34,7 @@ describe('置き場所ごとの決まり（Rules）', () => {
     expect(trashManyConfirm(RULES, [file('special/a')]).body).toContain('リンクが切れます');
   });
 
-  it('特別なフォルダの文を省いた置き場所では、置き場所を問わない一般の文になる（Disnans など特定のアプリの言葉は出ない）', () => {
+  it('特別なフォルダの文を省いた置き場所では、置き場所を問わない一般の文になる（特定のアプリの言葉は出ない）', () => {
     const bare = { specialDir: 'special', nameError: PLAIN_RULES.nameError };
     const t = ruleTexts(bare);
     expect(t).toMatchObject({ root: 'いちばん上', reserved: 'このフォルダは動かせません' });
@@ -43,7 +43,7 @@ describe('置き場所ごとの決まり（Rules）', () => {
     expect(overwriteConfirm(bare, 'special/a.png').body).toBe('今のファイルは消えて、新しいものに入れ替わります。元に戻せません');
     expect(overwriteConfirm(RULES, 'special/a.png').body).toContain('同じ特別なフォルダ');
     expect(overwriteConfirm(RULES, 'docs/a.png').body).toContain('今のファイルは消えて');
-    for (const text of Object.values(t).filter((x): x is string => !!x)) expect(text, text).not.toMatch(/Disnans|disnans|添付|サーバー|共有フォルダ/);
+    for (const text of Object.values(t).filter((x): x is string => !!x)) expect(text, text).not.toMatch(/添付|サーバー|共有フォルダ/);
     expect(ruleTexts(PLAIN_RULES).cutSkipped).toBe('ゴミ箱のフォルダは動かせないので除きました');
   });
 

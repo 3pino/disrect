@@ -4,7 +4,8 @@ import { PDF_THUMB_MAX_BYTES, createUrls } from './urls';
 import { fakeFiles } from './test-support/fakeHost';
 import type { Entry } from '@3pino/explorer-kit';
 
-const e = (over: Partial<Entry>): Entry => ({ name: 'a.png', path: 'x/a.png', kind: 'file', size: 10, modified: 5, mime: null, ...over });
+// 本体の項目は部品の知らない欄（file_id など）を持つ。そのまま渡す
+const e = (over: Partial<Entry> & { file_id?: string }): Entry => ({ name: 'a.png', path: 'x/a.png', kind: 'file', size: 10, modified: 5, mime: null, ...over });
 
 describe('項目の URL', () => {
   const urls = createUrls(fakeFiles());

@@ -46,6 +46,6 @@ describe('localStorage の使い方', () => {
   it('登録に無いキーは当たらない', () => {
     expect(registeredKey('fixplor.dirs')?.owner).toContain('settings');
     expect(registeredKey('fixplor.other')).toBeUndefined();
-    expect(registeredKey('disnans.dirs')).toBeUndefined();
+    expect(registeredKey('other.dirs')).toBeUndefined();
   });
 });

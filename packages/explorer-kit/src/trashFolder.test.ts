@@ -3,7 +3,7 @@ import type { DirState, Entry, TrashEntry } from './types';
 import { displayEntry, entryLabel, trashPlace, virtualDir, writeBlockReason, restoreParent } from './trashFolder';
 
 const base = (name: string, path: string, kind: 'file' | 'dir' = 'file'): Entry => ({
-  name, path, kind, size: 1, modified: 0, mime: null, message_id: null, file_id: null,
+  name, path, kind, size: 1, modified: 0, mime: null,
 });
 const trashed = (id: string, original: string, kind: 'file' | 'dir' = 'file'): TrashEntry => ({
   id, original_path: original, kind, size: 1, deleted_at: 0,

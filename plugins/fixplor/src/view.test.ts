@@ -178,7 +178,7 @@ describe('URL・拡大表示・PDF', () => {
     expect(urls.href(img)).toBe('https://srv.test/shared/photo.png');
     expect(urls.thumbUrl({ ...img, name: 'a.txt', path: 'a.txt' })).toBeNull();
     // 添付は ID の URL
-    expect(urls.thumbUrl({ ...img, file_id: 'F1' })).toBe('https://srv.test/files/F1?thumb=1');
+    expect(urls.thumbUrl({ ...img, file_id: 'F1' } as typeof img)).toBe('https://srv.test/files/F1?thumb=1');
   });
 
   it('画像を押すと、本体の拡大表示（openLightbox）へ。前後の並びも渡す。PDF の拡大も同じ', async () => {

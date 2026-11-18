@@ -30,10 +30,6 @@ export type Entry = {
   modified: number;
   /** 種類（分かるときだけ） */
   mime: string | null;
-  /** 置き場所が足す任意の欄（部品は読まない。置き場所が自分の URL を作るときなどに使う）。持たない置き場所は省く */
-  message_id?: string | null;
-  /** 同上 */
-  file_id?: string | null;
   /** ゴミ箱の仮想のフォルダの中の項目だけ */
   trash?: TrashNode;
 };
@@ -188,7 +184,7 @@ export interface ExplorerHost {
   };
   /** PDF のサムネイルを描く部品（無ければ、アイコンを出す） */
   PdfThumb?: Component<{ url: string; key: string }>;
-  /** ファイルのプロパティに出す、本体の操作（例: 「メッセージを検索」）。無ければ出さない */
+  /** ファイルのプロパティに出す、本体の操作（例: アプリの別の機能への入口）。無ければ出さない */
   fileAction?: { label: string; icon: Component<{ size?: number; class?: string }>; run(entry: Entry, label: string): void };
 }
 

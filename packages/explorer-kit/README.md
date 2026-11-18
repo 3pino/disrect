@@ -24,11 +24,11 @@
 - 画面に出る呼び名は `labels`（`root`・`upload`、置き場所が切り替わるなら `scope`）で渡す。
 - ドラッグで運ぶ項目の印は `EXPLORER_DRAG_TYPE`（`application/x-explorer-kit-items`）。ほかのドロップ先が、この部品のドラッグかを見分けるのに使える。
 - **ゴミ箱の無い置き場所**（ネットワークドライブなど）は、`createExplorer({ caps: { trash: false } })`。削除は完全な削除になり、部品は `api.trash` の代わりに `api.remove(path)`（その置き場所が実装する）を呼ぶ。確認は「完全に削除します。元に戻せません」で、「取り消す」は出ない。
-- 項目（`Entry`）の `message_id`・`file_id` は、置き場所が足す任意の欄（部品は読まない）。
+- 項目（`Entry`）は、部品が読む欄だけを型に持つ。置き場所が足した欄（自分の URL を作るための ID など）は、部品はそのまま運ぶだけで読まない（置き場所の側で、型を足して取り出す）。
 
 ## 使い方
 
-このパッケージは、fixplor リポジトリの npm ワークスペース（`packages/explorer-kit`）。fixplor のアプリ・Disnans 用のプラグインは、ワークスペースから取り込む（`"@3pino/explorer-kit": "*"`）。
+このパッケージは、fixplor リポジトリの npm ワークスペース（`packages/explorer-kit`）。fixplor のアプリとプラグイン（`plugins/fixplor`）は、ワークスペースから取り込む（`"@3pino/explorer-kit": "*"`）。
 別のアプリへ使うときは、このディレクトリのソースをそのまま取り込む（`npm pack` した tgz か、リポジトリのパス指定）。
 
 配布はソースのまま（`.svelte`・`.svelte.ts`・`.ts`）。取り込む側の Vite（`@sveltejs/vite-plugin-svelte`）が変換します。

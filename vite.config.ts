@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [svelte()],
   clearScreen: false,
   server: {
-    // disnans（5173）と同時に動かせるよう、別の番号にする
+    // ほかの開発サーバー（既定の 5173）と同時に動かせるよう、別の番号にする
     port: 1420,
     strictPort: true,
     host: host || false,

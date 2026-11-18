@@ -382,7 +382,7 @@ async fn a_job_without_a_name_just_runs() {
 /// 本物の WebDAV サーバーに対する一通りの流れ。環境変数 `FIXPLOR_DAV_URL`（例 `http://127.0.0.1:8080/dav/`）があるときだけ動く。
 /// 一時のフォルダを作って、その中だけで操作し、最後に消す。本番のサーバー・データには向けないこと。
 /// 実行: `FIXPLOR_DAV_URL=... cargo test --lib real_server -- --ignored --nocapture`
-/// 開発モードの disnans-server（`DISNANS_DEV=1`・一時のデータフォルダ）で確かめた。
+/// 開発用の WebDAV サーバー（一時のデータフォルダ）で確かめた。
 #[tokio::test]
 #[ignore = "本物のサーバーが要る（FIXPLOR_DAV_URL）"]
 async fn real_server_round_trip() {

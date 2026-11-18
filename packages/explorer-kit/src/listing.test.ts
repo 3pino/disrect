@@ -14,8 +14,6 @@ const e = (name: string, kind: 'file' | 'dir' = 'file', mime: string | null = nu
   size,
   modified,
   mime,
-  message_id: null,
-  file_id: null,
 });
 
 describe('sortEntries', () => {
