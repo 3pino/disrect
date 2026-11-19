@@ -1,5 +1,10 @@
 @import '@3pino/design-system';
 
+/* アプリの色味（中立色とアクセントの色相） */
+:root {
+  --hue: 104;
+}
+
 html,
 body,
 #app {

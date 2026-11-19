@@ -49,7 +49,7 @@
       </StatusLine>
       <progress class="about-progress" max={st.total ?? undefined} value={st.total ? st.downloaded : undefined}></progress>
     {:else if st.kind === 'installing'}
-      <StatusLine kind="muted" busy>入れ替えています…（このあと、アプリを起動し直します）</StatusLine>
+      <StatusLine kind="muted" busy>アップデートしています…（このあと、アプリを起動し直します）</StatusLine>
     {:else if st.kind === 'error'}
       <StatusLine kind="error">エラー: {st.message}</StatusLine>
       <p class="about-note">うまくいかないときは、リリースページから直接ダウンロードできます。</p>
@@ -59,9 +59,9 @@
       <Button onclick={onclose}>閉じる</Button>
       {#if updater.supported}
         {#if st.kind === 'available'}
-          <Button class="about-install" variant="primary" onclick={() => void updater.install()}>ダウンロードして入れ替える</Button>
+          <Button class="about-install" variant="primary" onclick={() => void updater.install()}>アップデート</Button>
         {:else}
-          <Button class="about-check" disabled={busy} onclick={() => void updater.check()}>更新を確認</Button>
+          <Button class="about-check" disabled={busy} onclick={() => void updater.check()}>アップデートを確認</Button>
         {/if}
       {/if}
     </div>

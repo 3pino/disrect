@@ -351,18 +351,16 @@ describe('複数選択（選択モード）', () => {
     expect(ui.pluginBack).toHaveLength(before);
   });
 
-  it('削除はゴミ箱に移す（まとめて 1 回確認、取り消すトーストが出る）', async () => {
+  it('削除はゴミ箱に移す（確認なし。取り消すトーストが出る）', async () => {
     const el = await render();
     explorerSelection.enter();
     flushSync();
     pressRow(el, 'a.txt');
     pressRow(el, 'docs');
     el.querySelector<HTMLButtonElement>('button[aria-label="削除"]')!.click();
-    await vi.waitFor(() => expect(ui.confirmReq).not.toBeNull());
-    expect(ui.confirmReq!.title).toBe('2 件をゴミ箱に移しますか');
-    expect(h.trash).not.toHaveBeenCalled();
-    ui.confirmReq!.resolve(true);
+    // ゴミ箱へ移すだけなら、確認は出さない
     await vi.waitFor(() => expect(h.trash).toHaveBeenCalledTimes(2));
+    expect(ui.confirmReq).toBeNull();
     expect(h.trash.mock.calls.map((c) => c[0])).toEqual(['a.txt', 'docs']);
     // 取り消すトーストが出る
     expect(ui.toasts.some((t) => t.text?.includes('ゴミ箱に移しました') && t.action?.label === '取り消す')).toBe(true);
@@ -379,8 +377,6 @@ describe('複数選択（選択モード）', () => {
     pressRow(el, 'a.txt');
     pressRow(el, 'docs');
     el.querySelector<HTMLButtonElement>('button[aria-label="削除"]')!.click();
-    await vi.waitFor(() => expect(ui.confirmReq).not.toBeNull());
-    ui.confirmReq!.resolve(true);
     await vi.waitFor(() => expect(ui.toasts.some((t) => t.action?.label === '取り消す')).toBe(true));
     // 成功トースト: id-a のみ
     const undoToast = ui.toasts.find((t) => t.action?.label === '取り消す');
@@ -399,9 +395,8 @@ describe('複数選択（選択モード）', () => {
     flushSync();
     pressRow(el, 'a.txt');
     el.querySelector<HTMLButtonElement>('button[aria-label="削除"]')!.click();
-    await vi.waitFor(() => expect(ui.confirmReq).not.toBeNull());
-    ui.confirmReq!.resolve(true);
     await vi.waitFor(() => expect(h.trash).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(ui.toasts.some((t) => t.action?.label === '取り消す')).toBe(true));
     const undoToast = ui.toasts.find((t) => t.action?.label === '取り消す');
     expect(undoToast).toBeTruthy();
     // 置き場所を変更したことをシミュレート（置き場所の見分けが別の値を返す）
@@ -429,11 +424,9 @@ describe('複数選択（選択モード）', () => {
     flushSync();
     pressRow(el, 'a.txt');
     el.querySelector<HTMLButtonElement>('button[aria-label="削除"]')!.click();
-    await vi.waitFor(() => expect(ui.confirmReq).not.toBeNull());
-    ui.confirmReq!.resolve(true);
     await vi.waitFor(() => expect(h.trash).toHaveBeenCalledTimes(1));
     // バッファから a.txt が除去されている
-    expect(explorerBuffer.items.map((i) => i.path)).not.toContain('a.txt');
+    await vi.waitFor(() => expect(explorerBuffer.items.map((i) => i.path)).not.toContain('a.txt'));
   });
 
   it('複数ファイルアップロード: 1 件目成功後も 2 件目の同名確認が機能する', async () => {
@@ -1112,19 +1105,6 @@ describe('置き場所が変わったら、新しい置き場所へは書かな�
     expect(explorerBuffer.items).toEqual([{ path: 'a.txt', kind: 'file' }]);
   });
 
-  it('削除: 確認を待つあいだに切り替わったら、移さない', async () => {
-    const el = await render();
-    explorerSelection.enter();
-    flushSync();
-    pressNamed(el, 'a.txt');
-    el.querySelector<HTMLButtonElement>('button[aria-label="削除"]')!.click();
-    await vi.waitFor(() => expect(ui.confirmReq).not.toBeNull());
-    place.key = 'http://b.test';
-    ui.confirmReq!.resolve(true);
-    await vi.waitFor(() => expect(ui.toasts.some((t) => t.text.includes('置き場所が変わった'))).toBe(true));
-    expect(h.trash).not.toHaveBeenCalled();
-  });
-
   it('削除: 1 件目の応答を待つあいだに切り替わったら、2 件目は移さない', async () => {
     const first = deferred<{ id: string; original_path: string; kind: 'file'; size: number; deleted_at: number }>();
     h.trash.mockImplementationOnce(() => first.promise);
@@ -1134,8 +1114,6 @@ describe('置き場所が変わったら、新しい置き場所へは書かな�
     pressNamed(el, 'a.txt');
     pressNamed(el, 'pic.png');
     el.querySelector<HTMLButtonElement>('button[aria-label="削除"]')!.click();
-    await vi.waitFor(() => expect(ui.confirmReq).not.toBeNull());
-    ui.confirmReq!.resolve(true);
     await vi.waitFor(() => expect(h.trash).toHaveBeenCalledTimes(1));
     place.key = 'http://b.test';
     explorerBuffer.set('copy', [{ path: 'a.txt', kind: 'file' }]);
@@ -1152,8 +1130,6 @@ describe('置き場所が変わったら、新しい置き場所へは書かな�
     pressNamed(el, 'a.txt');
     pressNamed(el, 'pic.png');
     el.querySelector<HTMLButtonElement>('button[aria-label="削除"]')!.click();
-    await vi.waitFor(() => expect(ui.confirmReq).not.toBeNull());
-    ui.confirmReq!.resolve(true);
     await vi.waitFor(() => expect(h.trash).toHaveBeenCalledTimes(2));
     const undo = ui.toasts.find((t) => t.action?.label === '取り消す');
     expect(undo).toBeTruthy();
@@ -2294,5 +2270,174 @@ describe('ゴミ箱の無い置き場所（caps.trash が偽）の削除は、�
     await vi.waitFor(() => expect(ui.toasts.some((t) => t.text.includes('完全に削除できませんでした'))).toBe(true));
     expect(h.trash).not.toHaveBeenCalled();
     h.remove = saved;
+  });
+});
+
+/** PC で、項目の右クリックのメニュー・名前の文字を押しての書き換え・ドラッグでの囲み・フォルダのサイズ・ドラッグの印 */
+describe('PC の操作（右クリックのメニュー・名前を押して書き換え・囲んで選ぶ・フォルダのサイズ）', () => {
+  beforeEach(() => {
+    dsk.desktop = true;
+    explorerSelection.desktop = true;
+    h.trash.mockReset();
+    h.trash.mockResolvedValue({ id: 'x', original_path: 'a.txt', kind: 'file', size: 1, deleted_at: 0 });
+  });
+  afterEach(() => {
+    explorerSelection.desktop = false;
+    ui.toasts.length = 0;
+  });
+
+  const rightClick = (el: HTMLElement, name: string) => {
+    rowOf(el, name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 }));
+    flushSync();
+  };
+  const ctxItems = () => [...document.querySelectorAll('.file-explorer-context .menu-item')].map((b) => b.textContent?.trim());
+  const ctxClick = (text: string) => {
+    [...document.querySelectorAll<HTMLButtonElement>('.file-explorer-context .menu-item')].find((b) => b.textContent?.includes(text))!.click();
+    flushSync();
+  };
+
+  it('項目を右クリックすると、その項目を選んで、項目のメニュー（開く・コピー・切り取り・名前の変更・削除・プロパティ）を出す', async () => {
+    const el = await render();
+    rightClick(el, 'a.txt');
+    expect(explorerSelection.paths()).toEqual(['a.txt']);
+    expect(ctxItems()).toEqual(['開く', 'コピー', '切り取り', '名前の変更', '削除', 'プロパティ']);
+  });
+
+  it('選んでいる項目を右クリックすると、選びはそのまま（まとめて操作できる）。複数のときは、開く・名前の変更・プロパティを出さない', async () => {
+    const el = await render();
+    explorerSelection.replace(['a.txt', 'pic.png']);
+    flushSync();
+    rightClick(el, 'a.txt');
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
+    expect(ctxItems()).toEqual(['コピー', '切り取り', '削除']);
+  });
+
+  it('メニューの「削除」は、確認なしでゴミ箱へ移す', async () => {
+    const el = await render();
+    rightClick(el, 'a.txt');
+    ctxClick('削除');
+    await vi.waitFor(() => expect(h.trash).toHaveBeenCalledWith('a.txt'));
+    expect(ui.confirmReq).toBeNull();
+  });
+
+  it('メニューの「コピー」のあと、フォルダを右クリックすると「ここへ貼り付け」が出る', async () => {
+    const el = await render();
+    rightClick(el, 'a.txt');
+    ctxClick('コピー');
+    await vi.waitFor(() => expect(explorerBuffer.empty).toBe(false));
+    rightClick(el, 'docs');
+    expect(ctxItems()).toContain('ここへ貼り付け');
+  });
+
+  it('メニューの「プロパティ」で、プロパティを開く', async () => {
+    const el = await render();
+    rightClick(el, 'a.txt');
+    ctxClick('プロパティ');
+    expect(document.querySelector('.file-properties')).not.toBeNull();
+  });
+
+  it('ひとつだけ選んでいる項目の名前の文字を押すと、少し待って、名前の書き換えになる（ダブルクリックなら開く）', async () => {
+    const el = await render();
+    const textOf = (n: string) => rowOf(el, n).querySelector<HTMLElement>('.file-explorer-name-text')!;
+    const click = (t: HTMLElement, detail = 1) => {
+      t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }));
+      flushSync();
+    };
+    // 1 回目は選ぶだけ
+    click(textOf('a.txt'));
+    expect(explorerSelection.paths()).toEqual(['a.txt']);
+    expect(el.querySelector('.file-explorer-rename')).toBeNull();
+    // 2 回目（ダブルクリックでない押し）は、書き換え
+    click(textOf('a.txt'));
+    await vi.waitFor(() => expect(el.querySelector<HTMLTextAreaElement>('.file-explorer-rename')?.value).toBe('a.txt'));
+  });
+
+  it('名前の文字を続けて 2 回押す（ダブルクリック）では、書き換えに入らない', async () => {
+    const el = await render();
+    const t = rowOf(el, 'a.txt').querySelector<HTMLElement>('.file-explorer-name-text')!;
+    const click = (detail: number) => {
+      t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }));
+      flushSync();
+    };
+    click(1);
+    click(1); // 書き換えの待ちが始まる
+    click(2); // ダブルクリックの 2 回目: 待ちを取り消す
+    await new Promise((r) => setTimeout(r, 600));
+    flushSync();
+    expect(el.querySelector('.file-explorer-rename')).toBeNull();
+  });
+
+  /** マウスのポインターのイベント（jsdom には PointerEvent が無いので、必要な口を足す） */
+  const ptr = (type: string, x: number, y: number, extra: MouseEventInit = {}) => {
+    const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, ...extra });
+    Object.defineProperties(ev, { pointerType: { value: 'mouse' }, pointerId: { value: 1 } });
+    return ev;
+  };
+  /** 項目の位置（jsdom は配置しないので、縦に 40px ずつ並べたことにする） */
+  function layout(el: HTMLElement): HTMLElement {
+    const body = el.querySelector<HTMLElement>('.file-explorer-body')!;
+    Object.defineProperty(body, 'clientWidth', { value: 800, configurable: true });
+    Object.defineProperty(body, 'clientHeight', { value: 600, configurable: true });
+    [...el.querySelectorAll<HTMLElement>('.file-explorer-item')].forEach((li, i) => {
+      li.getBoundingClientRect = () => ({ left: 0, right: 800, top: i * 40, bottom: i * 40 + 40, width: 800, height: 40, x: 0, y: i * 40, toJSON: () => ({}) });
+    });
+    return body;
+  }
+
+  it('空きスペースから囲むと、重なった項目が選ばれる（囲んだあとのクリックでは、選びを外さない）', async () => {
+    const el = await render();
+    const body = layout(el);
+    // 項目は 0〜120px に並ぶ（docs・a.txt・pic.png）。下の空き（200px）から、上へ 2 件目までを囲む
+    body.dispatchEvent(ptr('pointerdown', 400, 200));
+    body.dispatchEvent(ptr('pointermove', 400, 50));
+    flushSync();
+    expect(el.ownerDocument.querySelector('.file-explorer-band') ?? document.querySelector('.file-explorer-band')).not.toBeNull();
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
+    body.dispatchEvent(ptr('pointerup', 400, 50));
+    body.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 400, clientY: 50 }));
+    flushSync();
+    expect(document.querySelector('.file-explorer-band')).toBeNull();
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
+  });
+
+  it('Ctrl を押して囲むと、いまの選びに足す。ただのクリック（動かさない）は、囲みにならず、選びを外す', async () => {
+    const el = await render();
+    const body = layout(el);
+    explorerSelection.replace(['a.txt']);
+    flushSync();
+    body.dispatchEvent(ptr('pointerdown', 400, 200, { ctrlKey: true }));
+    body.dispatchEvent(ptr('pointermove', 400, 30, { ctrlKey: true }));
+    body.dispatchEvent(ptr('pointerup', 400, 30));
+    body.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 400, clientY: 30 }));
+    await new Promise((r) => setTimeout(r, 5));
+    flushSync();
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'docs', 'pic.png'].sort());
+    // 動かさずに空きスペースを押す: 選びを外す
+    body.dispatchEvent(ptr('pointerdown', 400, 300));
+    body.dispatchEvent(ptr('pointerup', 400, 300));
+    body.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 400, clientY: 300 }));
+    flushSync();
+    expect(explorerSelection.count).toBe(0);
+  });
+
+  it('詳細の「サイズ」の列に、フォルダの大きさも出す（数えているあいだは …、上限で止めたら ≥）', async () => {
+    h.folderSize.mockResolvedValueOnce({ size: 2048, partial: true });
+    const el = await render();
+    await vi.waitFor(() => expect(rowOf(el, 'docs').querySelector('.file-explorer-col-size')?.textContent).toBe('≥ 2.0 KB'));
+    expect(h.folderSize).toHaveBeenCalledWith('docs');
+    expect(rowOf(el, 'a.txt').querySelector('.file-explorer-col-size')?.textContent).not.toBe('');
+  });
+
+  it('フォルダを運ぶドラッグには、フォルダの印も付く（ファイルだけのときは付かない）', async () => {
+    const el = await render();
+    const start = (name: string) => {
+      const set: string[] = [];
+      const ev = new Event('dragstart', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'dataTransfer', { value: { setData: (t: string) => set.push(t), effectAllowed: '' } });
+      rowOf(el, name).dispatchEvent(ev);
+      return set;
+    };
+    expect(start('docs')).toEqual(['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir']);
+    expect(start('a.txt')).toEqual(['application/x-explorer-kit-items']);
   });
 });

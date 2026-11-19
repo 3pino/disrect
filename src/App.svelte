@@ -4,11 +4,13 @@
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import Eye from '@lucide/svelte/icons/eye';
+  import Check from '@lucide/svelte/icons/check';
   import Plus from '@lucide/svelte/icons/plus';
   import Pencil from '@lucide/svelte/icons/pencil';
   import FileExplorer from '@3pino/explorer-kit/FileExplorer.svelte';
   import TabBar from './components/TabBar.svelte';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
+  import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
   import { baseName, createExplorer, ExplorerBuffer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
   import Toasts from '@3pino/app-kit-web/shell/Toasts.svelte';
   import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
@@ -50,6 +52,7 @@
   type Bundle = { id: string; explorer: Explorer; open: (req: { url: string; name: string }) => Promise<void>; local?: LocalFs; dav?: { base: string } };
   const LOCAL = 'local';
   const TABS_KEY = 'fixplor.tabs';
+  const PLACES_WIDTH_KEY = 'fixplor.placesWidth';
   /** タブ。タブごとに、開いた置き場所のエクスプローラー（切り替えても、開いていたフォルダ・選びを保つ）と、いま見ている置き場所を持つ */
   type Tab = { id: number; bundles: Map<string, Bundle>; currentId: string };
   let tabs = $state.raw<Tab[]>([]);
@@ -68,23 +71,62 @@
   let known = $state.raw<Record<string, Bundle>>({});
   let places = $state.raw<FsPlace[]>([]);
   let failed = $state('');
-  /** 場所の欄に打っている文字（開いているフォルダが変わったら、それに合わせる） */
-  let address = $state('');
   let dialog = $state.raw<{ place?: DavPlace; cred?: CredInfo | null; credError?: string; focusPassword?: boolean; pin?: string | null } | null>(null);
   /** 証明書を確認できない・変わった置き場所。利用者に確かめてもらうまで、案内を出す */
   let certIssue = $state.raw<Record<string, 'tls' | 'cert_changed'>>({});
-  /** 証明書を確かめるダイアログ（previous は、前に信頼した指紋） */
   /** 「バージョン情報」のダイアログ */
   let aboutOpen = $state(false);
-  // 623b308b306e5c64: 30bf30d6306e4e0089a7Ff0872ed3044753b9762Ff0930fb30c030a430a230ed30b03002958b304430663044308b3042304430603001300c623b308b300d306795893058308b
+  /** 狭い画面のタブの一覧。戻るの層（開いているあいだ、「戻る」で閉じる）。ダイアログも同じく host.addBack で登録する */
   let tabListOpen = $state(false);
   $effect(() => (tabListOpen ? untrack(() => host.addBack(() => (tabListOpen = false))) : undefined));
   $effect(() => (dialog ? untrack(() => host.addBack(() => (dialog = null))) : undefined));
   $effect(() => (certDialog ? untrack(() => host.addBack(() => (certDialog = null))) : undefined));
   $effect(() => (aboutOpen ? untrack(() => host.addBack(() => (aboutOpen = false))) : undefined));
+  /** 証明書を確かめるダイアログ（previous は、前に信頼した指紋） */
   let certDialog = $state.raw<{ place: DavPlace; previous: string | null } | null>(null);
   /** 認証が通らなかった置き場所（401）。入れ直してもらうまで、案内を出す */
   let authFailed = $state.raw<Record<string, true>>({});
+  // 左の場所の欄の幅（つまみをドラッグして変える。この端末に保存する）
+  const PLACES_MIN = 120;
+  const PLACES_MAX = 480;
+  const PLACES_DEFAULT = 200;
+  const clampWidth = (w: number): number => Math.min(PLACES_MAX, Math.max(PLACES_MIN, Math.round(w)));
+  const savedWidth = Number(read(PLACES_WIDTH_KEY));
+  let placesWidth = $state(Number.isFinite(savedWidth) && savedWidth > 0 ? clampWidth(savedWidth) : PLACES_DEFAULT);
+  let resizing = $state(false);
+
+  function startResize(ev: PointerEvent): void {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    const bar = ev.currentTarget as HTMLElement;
+    bar.setPointerCapture(ev.pointerId);
+    resizing = true;
+    const left = bar.parentElement!.getBoundingClientRect().left;
+    const move = (e: PointerEvent): void => {
+      placesWidth = clampWidth(e.clientX - left);
+    };
+    const end = (): void => {
+      resizing = false;
+      bar.removeEventListener('pointermove', move);
+      bar.removeEventListener('pointerup', end);
+      bar.removeEventListener('pointercancel', end);
+      write(PLACES_WIDTH_KEY, String(placesWidth));
+    };
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', end);
+    bar.addEventListener('pointercancel', end);
+  }
+
+  function resizeKey(ev: KeyboardEvent): void {
+    const step = ev.shiftKey ? 40 : 10;
+    if (ev.key === 'ArrowLeft') placesWidth = clampWidth(placesWidth - step);
+    else if (ev.key === 'ArrowRight') placesWidth = clampWidth(placesWidth + step);
+    else if (ev.key === 'Home') placesWidth = PLACES_DEFAULT;
+    else return;
+    ev.preventDefault();
+    write(PLACES_WIDTH_KEY, String(placesWidth));
+  }
+
   const creds = createCreds();
   const pins = createPins();
 
@@ -115,7 +157,7 @@
       const fs = sdFsOf.get(id);
       const v = sdList.find((s) => SD + s.id === id);
       if (!fs || !v) return null;
-      const made = makeBundle(id, fs, { caps: fs.caps, labels: { root: v.name, upload: 'ファイルを取り込む' } });
+      const made = makeBundle(id, fs, { caps: fs.caps, labels: { root: v.name } });
       made.nav.dir = fs.start;
       b = { id, explorer: made, open: externalOpener(host, fs), local: fs };
     } else if (id === LOCAL) {
@@ -124,7 +166,7 @@
       const made = makeBundle(LOCAL, fs, {
         // ゴミ箱の有無は置き場所の決まり（Android は「完全に削除」だけ）
         caps: fs.caps,
-        labels: { root: fs.windows ? 'PC' : 'コンピューター', upload: 'ファイルを取り込む' },
+        labels: { root: fs.windows ? 'PC' : 'コンピューター' },
       });
       made.nav.dir = fs.start;
       b = { id: LOCAL, explorer: made, open: externalOpener(host, fs), local: fs };
@@ -137,7 +179,7 @@
         davFsOf.set(id, fs);
       }
       // ゴミ箱は無い。削除は、確認のうえ完全に削除する
-      const made = makeBundle(p.id, fs, { caps: { restore: false, trash: false }, labels: { root: p.name, upload: 'ファイルを取り込む' } });
+      const made = makeBundle(p.id, fs, { caps: { restore: false, trash: false }, labels: { root: p.name } });
       b = { id: p.id, explorer: made, open: externalOpener(host, fs), dav: { base: p.url } };
     }
     tab.bundles.set(id, b);
@@ -249,23 +291,35 @@
     write(TABS_KEY, serializeTabs({ tabs: list, active: Math.max(0, tabs.findIndex((t) => t.id === activeId)) }));
   });
 
-  /** Android: 全ファイルへのアクセスが無ければ、許可の案内を出す（戻ったときに確かめ直す） */
+  /** Android: 全ファイルへのアクセスの許可が無い（許可されるまで、一覧の上に案内を出し続ける） */
+  let needAllFiles = $state(false);
+
+  // 許可されるまでは、設定画面から戻ったことが（端末によっては focus でも visibilitychange でも）届かないことがあるので、少しずつ確かめ続ける
+  $effect(() => {
+    if (!needAllFiles) return;
+    const timer = setInterval(() => void checkAllFiles(), 1500);
+    return () => clearInterval(timer);
+  });
+
+  /** Android: 全ファイルへのアクセスの許可を確かめる（起動時と、設定画面などから戻ったとき）。許可されたら、見ている一覧を読み直す */
   async function checkAllFiles(): Promise<void> {
-    if (await allFilesGranted()) return;
-    host.toast('この端末のファイルを見るには、「すべてのファイルへのアクセス」を許可してください', 'info', {
-      label: '許可する',
-      run: () => void openAllFilesSettings().catch((e) => host.toast(failureText(e), 'error')),
-    });
+    const granted = await allFilesGranted();
+    const was = needAllFiles;
+    needAllFiles = !granted;
+    if (granted && was) {
+      if (localFs) places = await localFs.places();
+      for (const t of tabs) for (const b of t.bundles.values()) b.explorer.nav.reload();
+    }
   }
 
   onMount(() => {
     backNav = startBackNav({ depth: () => host.shell.backDepth(0), back: () => host.back() }, history, window, { depthKey: 'fixplorDepth' });
     void checkAllFiles();
-    // 設定画面から戻ったとき、許可されていれば場所の一覧を読み直す
-    const onFocus = async () => {
-      if (localFs && (await allFilesGranted())) places = await localFs.places();
-    };
+    // 設定画面（許可のダイアログ）から戻ったとき、許可されたかを確かめ直す
+    const onFocus = () => void checkAllFiles();
+    const onVisible = () => document.visibilityState === 'visible' && onFocus();
     window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
     // アプリの更新を、裏で確かめる（対応している環境だけ。新しい版はトーストで 1 度だけ知らせる）
     void updater.loadVersion();
     const stopWatch = startUpdateWatch({ updater, notify: (text, action) => host.toast(text, 'info', action), openAbout: () => (aboutOpen = true) });
@@ -302,15 +356,11 @@
     })();
     return () => {
       window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
       backNav?.stop();
       backNav = null;
       stopWatch();
     };
-  });
-
-  $effect(() => {
-    if (!current || !explorer) return;
-    address = current.local ? current.local.osPath(explorer.nav.dir) : (current.dav?.base ?? '') + explorer.nav.dir;
   });
 
   /** 追加したネットワークの場所を開く（このタブで。初めてなら、置き場所を作る） */
@@ -473,12 +523,6 @@
     return st?.kind === 'error' ? st.message : null;
   }
 
-  function submitAddress(ev: SubmitEvent): void {
-    ev.preventDefault();
-    const typed = address.trim();
-    if (typed !== '' && current?.local) explorer?.nav.open(current.local.fromOsPath(typed));
-  }
-
   function toggleHidden(): void {
     settings.showHidden = !settings.showHidden;
     // 一覧の写しは、隠しファイルを除いたもの。読み直す
@@ -511,16 +555,6 @@
   {#if failed}
     <p class="status-line status-line-error start-error" role="alert">起動できませんでした: {failed}</p>
   {:else if current && explorer}
-    <header class="bar top-bar">
-      <IconButton label="戻る" title="戻る" disabled={!host.canBack} onclick={() => host.back()}><ArrowLeft size={18} /></IconButton>
-      <IconButton label="上のフォルダへ" title="上のフォルダへ" disabled={explorer.nav.dir === ''} onclick={() => explorer?.nav.up()}><ArrowUp size={18} /></IconButton>
-      <IconButton label="読み直す" title="読み直す" onclick={() => explorer?.nav.reload()}><RotateCw size={18} /></IconButton>
-      <form class="address" onsubmit={submitAddress}>
-        <input class="input" type="text" aria-label="場所" spellcheck="false" autocomplete="off" readonly={!current.local} bind:value={address} />
-      </form>
-      <IconButton label="隠しファイルを表示" title="隠しファイルを表示" active={settings.showHidden} aria-pressed={settings.showHidden} onclick={toggleHidden}><Eye size={18} /></IconButton>
-    </header>
-
     <TabBar
       tabs={tabItems}
       {activeId}
@@ -535,7 +569,7 @@
     />
 
     <div class="body">
-      <nav class="places scroll" aria-label="場所">
+      <nav class="places scroll" aria-label="場所" style:width="{placesWidth}px">
         {#each places as p (p.kind + p.path)}
           <button class="menu-item" type="button" aria-current={current.local && p.path === explorer.nav.dir ? 'page' : undefined} onclick={() => go(p.path)}>{placeLabel(p)}</button>
         {/each}
@@ -561,7 +595,28 @@
           {#if updater.supported && showUpdateBadge(updater.state)}<span class="update-dot" role="img" aria-label={UPDATE_BADGE_LABEL}></span>{/if}
         </button>
       </nav>
+      <!-- 場所の欄の幅を変えるつまみ（ドラッグ・左右の矢印キー。Home で元の幅）。フォーカスできる separator は、操作できる部品 -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
+      <div
+        class="places-resizer"
+        class:places-resizer-active={resizing}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="場所の欄の幅"
+        aria-valuemin={PLACES_MIN}
+        aria-valuemax={PLACES_MAX}
+        aria-valuenow={placesWidth}
+        tabindex="0"
+        onpointerdown={startResize}
+        onkeydown={resizeKey}
+      ></div>
       <main class="main">
+        {#if needAllFiles}
+          <p class="status-line status-line-error auth-banner" role="alert">
+            <span>この端末のファイルを見るには、「すべてのファイルへのアクセス」の許可が要ります。</span>
+            <Button onclick={() => void openAllFilesSettings().catch((e) => host.toast(failureText(e), 'error'))}>許可する</Button>
+          </p>
+        {/if}
         {#if certIssue[current.id] && saved.get(current.id)}
           {@const place = saved.get(current.id)!}
           <p class="status-line status-line-error auth-banner cert-banner" role="alert">
@@ -580,7 +635,16 @@
           </p>
         {/if}
         {#key current}
-          <FileExplorer {explorer} />
+          <FileExplorer {explorer}>
+            {#snippet lead()}
+              <IconButton label="戻る" title="戻る" disabled={!host.canBack} onclick={() => host.back()}><ArrowLeft size={16} /></IconButton>
+              <IconButton label="上のフォルダへ" title="上のフォルダへ" disabled={explorer.nav.dir === ''} onclick={() => explorer?.nav.up()}><ArrowUp size={16} /></IconButton>
+            {/snippet}
+            {#snippet menu(close)}
+              <MenuItem icon={RotateCw} onclick={() => { close(); explorer?.nav.reload(); }}>読み直す</MenuItem>
+              <MenuItem icon={Eye} onclick={() => { close(); toggleHidden(); }}>隠しファイルを表示{#if settings.showHidden}<Check size={14} />{/if}</MenuItem>
+            {/snippet}
+          </FileExplorer>
         {/key}
       </main>
     </div>
@@ -601,24 +665,16 @@
     height: 100%;
     background: var(--bg);
     color: var(--text);
+    /* 画面の上端（Android のステータスバー）の安全域は、ここ（いちばん上）で 1 回だけ取る */
+    padding-top: env(safe-area-inset-top);
+    box-sizing: border-box;
+  }
+  /* 共有の部品の上端のバーは、単独で使うときのために、自分で安全域を取る。ここでは外枠が取っているので、足さない */
+  .app :global(.file-explorer-bar.top-bar) {
+    padding-top: var(--space-4);
   }
   .start-error {
     padding: var(--space-6);
-  }
-  .bar {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding-inline: var(--space-4);
-    padding-bottom: var(--space-4);
-    border-bottom: 1px solid var(--border);
-  }
-  .address {
-    flex: 1;
-    min-width: 0;
-  }
-  .address .input {
-    width: 100%;
   }
   .body {
     display: flex;
@@ -629,10 +685,24 @@
     display: flex;
     flex-direction: column;
     flex: none;
-    width: 200px;
     padding: var(--space-3);
-    border-right: 1px solid var(--border);
     overflow-y: auto;
+  }
+  /* 場所の欄の幅を変えるつまみ（細い線。ドラッグの間は強調する） */
+  .places-resizer {
+    flex: none;
+    width: 5px;
+    margin-inline: -2px;
+    cursor: col-resize;
+    background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat;
+    touch-action: none;
+    z-index: 1;
+  }
+  .places-resizer:hover,
+  .places-resizer:focus-visible,
+  .places-resizer-active {
+    background: linear-gradient(var(--accent), var(--accent)) center / 2px 100% no-repeat;
+    outline: none;
   }
   .places > :global(*) {
     flex: none;
@@ -659,6 +729,9 @@
   }
   .places .menu-item {
     width: 100%;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--fs-base);
   }
   .places .menu-item[aria-current='page'] {
     background: var(--accent-soft);
@@ -695,10 +768,12 @@
   }
   .auth-banner {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
     margin: 0;
+    padding: var(--space-3) var(--space-4);
   }
   .banner-actions {
     display: flex;
@@ -712,7 +787,8 @@
     min-height: 0;
   }
   @media (max-width: 767px) {
-    .places {
+    .places,
+    .places-resizer {
       display: none;
     }
   }

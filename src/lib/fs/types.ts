@@ -17,6 +17,8 @@ export type FsEntry = {
   hidden: boolean;
   readonly: boolean;
   symlink: boolean;
+  /** Windows のショートカット（.lnk）の、リンク先の種類（ショートカットだけ） */
+  linkKind?: FsKind;
 };
 
 /** ネットワークの置き場所の一覧の 1 行（Rust の DavEntry）。path は、接続先からの相対（区切り `/`） */

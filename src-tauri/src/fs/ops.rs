@@ -90,6 +90,12 @@ pub struct Size {
 
 /// 大きさを数える。シンボリックリンクは辿らない（リンクそのものの大きさだけ）
 pub fn size(path: &Path) -> FsResult<Size> {
+    size_within(path, u64::MAX)
+}
+
+/// 大きさを数える。調べた項目が `limit` を超えたら、そこで止めて `partial`（数え切れていない）を真にする
+/// （一覧の「サイズ」の列で、大きなフォルダに長く掛からないようにするため）
+pub fn size_within(path: &Path, limit: u64) -> FsResult<Size> {
     let meta = fs::symlink_metadata(path).map_err(|e| FsError::io(&e, path))?;
     let mut total = Size { size: 0, files: 0, dirs: 0, partial: false };
     if !meta.is_dir() {
@@ -98,12 +104,18 @@ pub fn size(path: &Path) -> FsResult<Size> {
         return Ok(total);
     }
     let mut stack = vec![path.to_path_buf()];
+    let mut seen: u64 = 0;
     while let Some(dir) = stack.pop() {
         let Ok(rd) = fs::read_dir(&dir) else {
             total.partial = true;
             continue;
         };
         for item in rd {
+            seen += 1;
+            if seen > limit {
+                total.partial = true;
+                return Ok(total);
+            }
             let Ok(item) = item else {
                 total.partial = true;
                 continue;

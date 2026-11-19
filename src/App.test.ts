@@ -84,17 +84,21 @@ const row = (name: string): HTMLElement => {
 };
 
 describe('fixplor の画面（この端末のファイル）', () => {
-  it('ホームを開いて並べる。隠しファイルは出さない。場所の欄は OS のパス', async () => {
+  it('ホームを開いて並べる。隠しファイルは出さない。道筋は、いちばん上からのフォルダの名前', async () => {
     app = mount(App, { target });
     await settle();
     expect(called('fs_list')).toEqual([{ path: '/home/me' }]);
     expect(names()).toEqual(['docs', 'a.txt']);
-    expect(target.querySelector<HTMLInputElement>('input[aria-label="場所"]')!.value).toBe('/home/me');
+    expect([...target.querySelectorAll('.file-explorer-crumb')].map((c) => c.textContent)).toEqual(['コンピューター', 'home', 'me']);
+    expect(target.querySelector('input[aria-label="場所"]')).toBeNull();
     expect([...target.querySelectorAll('.places .menu-item')].map((b) => b.textContent)).toEqual(['ホーム', 'コンピューター']);
   });
 
   it('隠しファイルの切り替えは、読み直して反映し、次に開いたときも覚えている', async () => {
     app = mount(App, { target });
+    await settle();
+    // 隠しファイルの切り替えは、≡ のメニューの中
+    button('メニュー').click();
     await settle();
     button('隠しファイルを表示').click();
     await settle();
@@ -102,7 +106,7 @@ describe('fixplor の画面（この端末のファイル）', () => {
     expect(localStorage.getItem('fixplor.showHidden')).toBe('1');
   });
 
-  it('上のフォルダへ・戻る・場所の欄に打って開く', async () => {
+  it('上のフォルダへ・戻る', async () => {
     app = mount(App, { target });
     await settle();
     button('上のフォルダへ').click();
@@ -111,13 +115,6 @@ describe('fixplor の画面（この端末のファイル）', () => {
     button('戻る').click();
     await settle();
     expect(names()).toEqual(['docs', 'a.txt']);
-    const input = target.querySelector<HTMLInputElement>('input[aria-label="場所"]')!;
-    input.value = '/home/me/docs/';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await settle();
-    expect(names()).toEqual(['in.txt']);
-    expect(input.value).toBe('/home/me/docs');
   });
 
   it('Alt+← で戻る（Ctrl・Shift を一緒に押したときは、別の操作なので戻らない）', async () => {
@@ -170,10 +167,9 @@ describe('fixplor の画面（この端末のファイル）', () => {
   it('無いフォルダは、無いと出す（落ちない）', async () => {
     app = mount(App, { target });
     await settle();
-    const input = target.querySelector<HTMLInputElement>('input[aria-label="場所"]')!;
-    input.value = '/nope';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    // 開こうとしたフォルダが、そのあいだに消えていた
+    fake.tree.delete('/home/me/docs');
+    row('docs').querySelector<HTMLElement>('.file-explorer-row')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await settle();
     expect(names()).toEqual([]);
     expect(target.querySelector('.file-explorer')!.textContent).toMatch(/見つかりません|ありません/);
@@ -190,17 +186,15 @@ describe('fixplor の画面（この端末のファイル）', () => {
     expect(names()).toEqual(['in.txt']);
   });
 
-  it('選んで削除: 確認のあと OS のゴミ箱へ。「取り消す」は出さない（ここからは戻せない）', async () => {
+  it('選んで削除: 確認なしで OS のゴミ箱へ。「取り消す」は出さない（ここからは戻せない）', async () => {
     app = mount(App, { target });
     await settle();
     row('a.txt').querySelector<HTMLElement>('.file-explorer-row, a, button')!.click();
     await settle();
     button('削除').click();
     await settle();
-    expect(document.querySelector('.modal')!.textContent).toContain('OS のゴミ箱から元に戻せます');
-    expect(called('fs_trash')).toEqual([]);
-    button('ゴミ箱に移す').click();
-    await settle();
+    // ゴミ箱へ移すだけなので、確認は出ない
+    expect(document.querySelector('.modal')).toBeNull();
     expect(called('fs_trash')).toEqual([{ path: '/home/me/a.txt' }]);
     expect(names()).toEqual(['docs']);
     const toast = document.querySelector('.toast')!;
@@ -210,19 +204,6 @@ describe('fixplor の画面（この端末のファイル）', () => {
     toast.querySelector<HTMLButtonElement>('button[aria-label="閉じる"]')!.click();
     await settle();
     expect(document.querySelector('.toast')).toBeNull();
-  });
-
-  it('確認を取り消すと、何も消さない', async () => {
-    app = mount(App, { target });
-    await settle();
-    row('a.txt').querySelector<HTMLElement>('.file-explorer-row, a, button')!.click();
-    await settle();
-    button('削除').click();
-    await settle();
-    button('キャンセル').click();
-    await settle();
-    expect(called('fs_trash')).toEqual([]);
-    expect(names()).toEqual(['docs', 'a.txt']);
   });
 });
 
@@ -246,7 +227,7 @@ describe('検索（この端末）', () => {
     expect([...target.querySelectorAll('.file-explorer-hit-name')].map((n) => n.textContent)).toEqual(['in.txt']);
     button('in.txt のある場所を開く').click();
     await settle();
-    expect(target.querySelector<HTMLInputElement>('input[aria-label="場所"]')!.value).toBe('/home/me/docs');
+    expect([...target.querySelectorAll('.file-explorer-crumb')].map((c) => c.textContent)).toEqual(['コンピューター', 'home', 'me', 'docs']);
     expect(row('in.txt').querySelector('[aria-pressed="true"]')).not.toBeNull();
   });
 });

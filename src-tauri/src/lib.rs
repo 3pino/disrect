@@ -113,8 +113,9 @@ async fn fs_trash_purge(volume: String, id: String) -> FsResult<()> {
 }
 
 #[tauri::command]
-async fn fs_size(path: String) -> FsResult<Size> {
-    blocking("fs_size", move || fs::size(&fs::abs(&path)?)).await
+async fn fs_size(path: String, limit: Option<u64>) -> FsResult<Size> {
+    // limit: 調べる項目の上限（一覧のフォルダのサイズ用）。省くと、最後まで数える
+    blocking("fs_size", move || fs::size_within(&fs::abs(&path)?, limit.unwrap_or(u64::MAX))).await
 }
 
 /// 動いている検索（画面が付けた job の名前 → 中止の旗）

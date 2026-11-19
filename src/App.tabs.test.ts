@@ -93,12 +93,16 @@ const key = async (k: string, init: KeyboardEventInit = { ctrlKey: true }): Prom
   await settle();
   return ev;
 };
+/** 道筋（パンくず）のいちばん上から、フォルダを順に開いて行く（場所の欄は無い） */
 const goTo = async (path: string): Promise<void> => {
-  const input = target.querySelector<HTMLInputElement>('input[aria-label="場所"]')!;
-  input.value = path;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  target.querySelector<HTMLElement>('.file-explorer-crumb')!.click();
   await settle();
+  for (const seg of path.split('/').filter(Boolean)) {
+    const name = [...target.querySelectorAll<HTMLElement>('.file-explorer-name-text')].find((n) => n.textContent === seg);
+    // PC では、押すと選ぶので、ダブルクリックで開く
+    name!.closest('.file-explorer-item')!.querySelector<HTMLElement>('.file-explorer-row')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await settle();
+  }
 };
 const click = async (el: Element): Promise<void> => {
   (el as HTMLElement).click();
@@ -246,7 +250,19 @@ describe('タブ', () => {
 
   it('フォルダをタブの欄へドラッグして落とすと、新しいタブ（見ているタブは変えない）で開く。ファイル・知らない項目は開かない', async () => {
     await start();
-    const types = ['application/x-explorer-kit-items'];
+    // フォルダを含むドラッグには、フォルダの印も付く（ファイルだけのドラッグには付かない）
+    const types = ['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir'];
+    // ファイルだけのドラッグは、受けない（色も変えない）
+    const over = drag('dragover', [types[0]]);
+    target.querySelector('.tabs')!.dispatchEvent(over);
+    await settle();
+    expect(over.defaultPrevented).toBe(false);
+    expect(target.querySelector('.tabs')!.classList.contains('tabs-dropping')).toBe(false);
+    const overDir = drag('dragover', types);
+    target.querySelector('.tabs')!.dispatchEvent(overDir);
+    await settle();
+    expect(overDir.defaultPrevented).toBe(true);
+    expect(target.querySelector('.tabs')!.classList.contains('tabs-dropping')).toBe(true);
     target.querySelector('.tabs')!.dispatchEvent(drag('drop', types, { [types[0]]: 'home/me/docs|home/me/a.txt|home/me/nowhere' }));
     await settle();
     expect(tabLabels()).toEqual(['me', 'docs']);

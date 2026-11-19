@@ -6,6 +6,8 @@ import { fromOs, isWindowsPath, toOs } from './mapping';
 
 /** Android: 画面のいちばん上は内部ストレージ（ここの下だけを見せる。SD カードは、今はまだ見せない） */
 export const ANDROID_ROOT = '/storage/emulated/0';
+/** 一覧のフォルダのサイズで、調べる項目の上限（これを超えたら「以上」と出す） */
+const FOLDER_SIZE_LIMIT = 50_000;
 /** Android: アプリの中のゴミ箱（内部ストレージの直下。Rust の trash.rs と同じ名前） */
 export const TRASH_DIR = '.fixplor-trash';
 import { runner, tauriCall, toFsError, type Call } from './call';
@@ -110,6 +112,8 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
       size: raw.size ?? 0,
       modified: raw.modified ?? 0,
       mime: null,
+      // ショートカットは、リンク先がフォルダなら、フォルダのアイコンで見せる（押したときの動きは、ふつうのファイルのまま）
+      ...(raw.linkKind === 'dir' ? { iconKind: 'dir' as const } : {}),
     };
   };
   const places = async (): Promise<FsPlace[]> =>
@@ -218,6 +222,11 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     async size(path) {
       const s = await run<FsSize>('fs_size', { path: os(path) });
       return { size: s.size, files: s.files, dirs: s.dirs };
+    },
+    // 一覧の「サイズ」の列用。巨大なフォルダ（ホーム・ドライブ全体など）で長く掛からないよう、調べる項目に上限を置く
+    async folderSize(path) {
+      const s = await run<FsSize>('fs_size', { path: os(path), limit: FOLDER_SIZE_LIMIT });
+      return { size: s.size, partial: s.partial };
     },
     move: async (from, to, overwrite) => entry(await run<FsEntry>('fs_move', { from: os(from), to: os(to), overwrite: overwrite === true })),
     copy: async (from, to, overwrite) => entry(await run<FsEntry>('fs_copy', { from: os(from), to: os(to), overwrite: overwrite === true })),

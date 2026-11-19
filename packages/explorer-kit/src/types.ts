@@ -32,6 +32,8 @@ export type Entry = {
   mime: string | null;
   /** ゴミ箱の仮想のフォルダの中の項目だけ */
   trash?: TrashNode;
+  /** 一覧のアイコンだけを、この種類で見せる（Windows のショートカット（.lnk）の、リンク先の種類）。押したときの動きは変わらない */
+  iconKind?: EntryKind;
 };
 
 export type Size = { size: number; files: number; dirs: number };
@@ -60,6 +62,11 @@ export interface ExplorerApi {
    */
   remove?(path: string): Promise<void>;
   size(path: string): Promise<Size>;
+  /**
+   * 一覧の「サイズ」の列に出す、フォルダの大きさ（任意。持たない置き場所は、フォルダの欄を空にする）。
+   * 大きなフォルダで長く掛からないよう、数える量に上限を持つこと。上限で止めたら partial を真にする（画面は「以上」と出す）。
+   */
+  folderSize?(path: string): Promise<{ size: number; partial: boolean }>;
   move(from: string, to: string, overwrite?: boolean): Promise<Entry>;
   copy(from: string, to: string, overwrite?: boolean): Promise<Entry>;
   /** 進み具合つきで送る（ファイルの選択・貼り付け） */

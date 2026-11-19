@@ -136,7 +136,7 @@ describe('アプリの更新', () => {
     expect(modalText()).toContain('あれ');
   });
 
-  it('「ダウンロードして入れ替える」: 進みを出し、終わったらアプリを起動し直す', async () => {
+  it('「アップデート」: 進みを出し、終わったらアプリを起動し直す', async () => {
     h.state.update = { version: '0.2.0', body: '' };
     app = mount(App, { target });
     await settle();
@@ -144,7 +144,7 @@ describe('アプリの更新', () => {
     await settle();
     // 取得の途中で止めて、進みの表示を見る
     h.state.holdDownload = () => {};
-    button('ダウンロードして入れ替える').click();
+    button('アップデート').click();
     await settle();
     expect(modalText()).toContain('ダウンロード中');
     expect(modalText()).toContain('40%');
@@ -153,16 +153,16 @@ describe('アプリの更新', () => {
     h.state.holdDownload();
     await settle();
     expect(h.state.log.slice(-2)).toEqual(['download', 'relaunch']);
-    expect(modalText()).toContain('入れ替えています');
+    expect(modalText()).toContain('アップデートしています');
   });
 
-  it('「更新を確認」: 最新なら「最新です」。新しい版が無いときに、押せる（確認中は押せない）', async () => {
+  it('「アップデートを確認」: 最新なら「最新です」。新しい版が無いときに、押せる（確認中は押せない）', async () => {
     app = mount(App, { target });
     await settle();
     aboutRow().click();
     await settle();
     expect(document.querySelector('.about-install')).toBeNull();
-    button('更新を確認').click();
+    button('アップデートを確認').click();
     await settle();
     expect(modalText()).toContain('最新です');
     expect(h.state.log.filter((l) => l === 'check')).toHaveLength(2);
@@ -178,7 +178,7 @@ describe('アプリの更新', () => {
     expect(document.querySelector('.toast')).toBeNull();
     aboutRow().click();
     await settle();
-    button('更新を確認').click();
+    button('アップデートを確認').click();
     await settle();
     expect(modalText()).toContain('エラー: ネットワークに接続できません');
     button('リリースページを開く').click();

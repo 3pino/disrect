@@ -23,6 +23,8 @@ export const h = {
   list: vi.fn(async (_path?: string): Promise<Entry[]> => h.current ?? listing),
   /** フォルダのサイズ（プロパティ） */
   size: vi.fn(async (_path?: string) => ({ size: 12345, files: 3, dirs: 1 })),
+  /** 一覧のフォルダのサイズ（詳細の「サイズ」の列） */
+  folderSize: vi.fn(async (_path?: string) => ({ size: 2048, partial: false })),
   upload: vi.fn((_path: string, _file: Blob, _onProgress?: (ratio: number) => void): UploadHandle => ({ promise: new Promise(() => {}), abort: () => {} })),
   write: vi.fn(async (path: string, _body?: Blob | ArrayBuffer | string) => ({ ...entry(path.split('/').pop()!), path })),
   mkdir: vi.fn(async (_path?: string) => ({}) as Entry),
@@ -120,6 +122,7 @@ const api: ExplorerApi = {
   purge: (...a) => h.purge(...a),
   remove: (...a) => h.remove(...a),
   size: (...a) => h.size(...a),
+  folderSize: (...a) => h.folderSize(...a),
   move: (...a) => h.move(...a) as Promise<Entry>,
   copy: (...a) => h.copy(...a) as Promise<Entry>,
   upload: (...a) => h.upload(...a),

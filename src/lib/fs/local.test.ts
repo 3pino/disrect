@@ -46,6 +46,23 @@ describe('この端末の置き場所（POSIX）', () => {
     expect((await fs.api.list('a')).map((e) => e.name)).toEqual(['.env', 'seen']);
   });
 
+  it('フォルダのサイズ（一覧の列用）は、調べる項目に上限を付けて数える。上限で止まったら partial', async () => {
+    const { call, calls } = fake({ fs_size: { size: 10, files: 2, dirs: 1, partial: true } });
+    const fs = await createLocalFs({ call });
+    expect(await fs.api.folderSize!('home/me/sub')).toEqual({ size: 10, partial: true });
+    expect(calls[1]).toEqual(['fs_size', { path: '/home/me/sub', limit: 50_000 }]);
+    // プロパティの大きさは、上限なし
+    await fs.api.size('home/me/sub');
+    expect(calls[2]).toEqual(['fs_size', { path: '/home/me/sub' }]);
+  });
+
+  it('フォルダを指すショートカット（.lnk）は、フォルダのアイコンで見せる（種類はファイルのまま）', async () => {
+    const { call } = fake({ fs_list: [raw('/a/docs.lnk', { linkKind: 'dir' }), raw('/a/f.lnk', { linkKind: 'file' }), raw('/a/x.txt')] });
+    const fs = await createLocalFs({ call });
+    const list = await fs.api.list('a');
+    expect(list.map((e) => [e.name, e.kind, e.iconKind])).toEqual([['docs.lnk', 'file', 'dir'], ['f.lnk', 'file', undefined], ['x.txt', 'file', undefined]]);
+  });
+
   it('書き込みは、中身を生のバイト列で、パスをヘッダーで送る', async () => {
     const { call, calls } = fake({ fs_write: raw('/a/メモ.txt') });
     const fs = await createLocalFs({ call });

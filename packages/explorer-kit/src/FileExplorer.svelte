@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import { onMount, tick, untrack, type Snippet } from 'svelte';
+  import { SvelteMap } from 'svelte/reactivity';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import FileIcon from '@lucide/svelte/icons/file';
   import FileText from '@lucide/svelte/icons/file-text';
@@ -14,6 +15,9 @@
   import Copy from '@lucide/svelte/icons/copy';
   import Scissors from '@lucide/svelte/icons/scissors';
   import Trash from '@lucide/svelte/icons/trash';
+  import Info from '@lucide/svelte/icons/info';
+  import Pencil from '@lucide/svelte/icons/pencil';
+  import FolderOpen from '@lucide/svelte/icons/folder-open';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
   import PanelBar from '@3pino/ui-kit-web/PanelBar.svelte';
   import Button from '@3pino/ui-kit-web/Button.svelte';
@@ -21,6 +25,7 @@
   import TextInput from '@3pino/ui-kit-web/TextInput.svelte';
 
   import EntryActions from './EntryActions.svelte';
+  import FileProperties from './FileProperties.svelte';
   import Check from '@lucide/svelte/icons/check';
   import MenuIcon from '@lucide/svelte/icons/menu';
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
@@ -33,7 +38,7 @@
   import { breadcrumbs, entryAction, kindLabel, sortEntries } from './listing';
   import type { ViewMode } from './stores/view.svelte';
   import { baseName, parentOf } from './path';
-  import { childPath, EXPLORER_DRAG_TYPE, inSpecialDir, overwriteConfirm, permanentDeleteConfirm, planUpload, renameAllowed, renameTarget, ruleTexts, sameNameEntry, trashManyConfirm } from './ops';
+  import { childPath, EXPLORER_DRAG_DIR_TYPE, EXPLORER_DRAG_TYPE, inSpecialDir, overwriteConfirm, permanentDeleteConfirm, planUpload, renameAllowed, renameTarget, ruleTexts, sameNameEntry } from './ops';
   import { runTransfer, transferFailure, type TransferItem, type TransferOp } from './transfer';
   import { displayEntry, entryLabel, trashItemOf, trashPlace, virtualDir, writeBlockReason } from './trashFolder';
   import { allWholeTrash, copyBlockedReason, cutBlockedReason, deleteBlockedReason, transferItemOf } from './selection';
@@ -44,7 +49,13 @@
   // エクスプローラーの画面（一覧・アイコン表示・選択・コピー・移動・ゴミ箱・名前の変更・外からの取り込み）。
   // 置き場所（api）と、本体から借りる機能（host）は explorer で受け取る（explorer.ts）。この部品の一生のあいだ変わらない
   // （別の置き場所を見せるときは、{#key} で作り直す）。
-  const props: { explorer: Explorer } = $props();
+  const props: {
+    explorer: Explorer;
+    /** ≡ のメニューの先頭に足す項目（本体の操作。引数は、押したあとにメニューを閉じる関数） */
+    menu?: Snippet<[() => void]>;
+    /** パンくずの行の左に足す部品（本体の「戻る」「上へ」など） */
+    lead?: Snippet;
+  } = $props();
   function pick(): Explorer {
     return props.explorer;
   }
@@ -107,6 +118,7 @@
     untrack(() => {
       explorerSelection.clear();
       renamingPath = null;
+      clearTimeout(renameTimer);
     });
   });
 
@@ -129,6 +141,55 @@
   const dirView = $derived(explorerView.of(fileExplorer.dir));
   function setView(v: ViewMode): void {
     explorerView.setView(fileExplorer.dir, v);
+  }
+
+  /** 一覧に並べる項目（並び順・名前の絞り込みを反映したもの） */
+  const shownEntries = $derived.by((): Entry[] => {
+    if (listing?.kind !== 'ok') return [];
+    const all = sortEntries([...listing.entries.values()].map(displayEntry), dirView.sortKey, dirView.sortOrder);
+    return search.filtering ? all.filter((x) => matchesName(x.name, search.text)) : all;
+  });
+
+  // ---- フォルダのサイズ（詳細の「サイズ」の列）。置き場所が folderSize を持つときだけ、フォルダを 1 つずつ順に数える ----
+  type FolderSize = { size: number; partial: boolean } | 'loading' | 'error';
+  const folderSizes = new SvelteMap<string, FolderSize>();
+  let sizeGen = 0;
+  let sizeListing: unknown = null;
+  $effect(() => {
+    const count = api.folderSize;
+    if (!count || dirView.view !== 'details' || listing?.kind !== 'ok') return;
+    const dirs = shownEntries.filter((e) => e.kind === 'dir' && !e.trash);
+    const gen = ++sizeGen;
+    untrack(() => {
+      // 一覧を読み直したら、数え直す（中の変化は、フォルダの更新日時には出ないので）
+      if (sizeListing !== listing) {
+        folderSizes.clear();
+        sizeListing = listing;
+      }
+      void (async () => {
+        for (const e of dirs) {
+          if (gen !== sizeGen) return;
+          if (folderSizes.has(e.path)) continue;
+          folderSizes.set(e.path, 'loading');
+          try {
+            folderSizes.set(e.path, await count.call(api, e.path));
+          } catch {
+            folderSizes.set(e.path, 'error');
+          }
+        }
+      })();
+    });
+    return () => {
+      sizeGen++;
+    };
+  });
+  /** 詳細の「サイズ」の列に出す文字 */
+  function sizeCell(e: Entry): string {
+    if (e.kind === 'file') return formatSize(e.size);
+    const s = e.trash ? undefined : folderSizes.get(e.path);
+    if (!s || s === 'error') return '';
+    if (s === 'loading') return '…';
+    return `${s.partial ? '≥ ' : ''}${formatSize(s.size)}`;
   }
 
 
@@ -404,12 +465,12 @@
 
   let pasting = $state(false);
 
-  async function paste(): Promise<void> {
+  async function paste(dir: string = fileExplorer.dir): Promise<void> {
     const mode = explorerBuffer.mode;
     if (pasting || !mode || explorerBuffer.empty) return;
     pasting = true;
     try {
-      await transferInScope(mode, [...explorerBuffer.items], fileExplorer.dir);
+      await transferInScope(mode, [...explorerBuffer.items], dir);
     } finally {
       pasting = false;
     }
@@ -535,11 +596,10 @@
   }
 
   /** 貼り付け（バーのボタン・空きスペースのメニュー）。OS のクリップボードを読んで、何を貼るか決める */
-  async function pasteAny(): Promise<void> {
+  async function pasteAny(dir: string = fileExplorer.dir): Promise<void> {
     if (pasting) return;
-    const dir = fileExplorer.dir;
     // バッファをクリップボードに書けていない（結び付いていない）なら、クリップボードは読まずにバッファを貼る
-    if (!explorerBuffer.empty && explorerBuffer.clipText === null) return paste();
+    if (!explorerBuffer.empty && explorerBuffer.clipText === null) return paste(dir);
     await pasteWith(dir, await host.clipboard.readText(), [], () => host.clipboard.readImage());
   }
 
@@ -555,11 +615,11 @@
       if (sent.length === 1) renameAfterPaste(dir, sent[0]);
       return;
     }
-    if (!explorerBuffer.empty && (explorerBuffer.clipText === null || text === explorerBuffer.clipText)) return paste();
+    if (!explorerBuffer.empty && (explorerBuffer.clipText === null || text === explorerBuffer.clipText)) return paste(dir);
     const img = await image();
     if (img) return renameAfterPaste(dir, await sendOne(dir, img));
     if (text) return renameAfterPaste(dir, await sendOne(dir, new File([text], host.clipboard.textName(), { type: 'text/plain' })));
-    if (!explorerBuffer.empty) return paste();
+    if (!explorerBuffer.empty) return paste(dir);
     host.toast('クリップボードに貼り付けられるものがありません');
   }
 
@@ -587,7 +647,10 @@
 
   // ---- 空きスペースの長押し（マウスは右クリック）のメニュー: アップロード・新しいフォルダ・貼り付け ----
 
-  let ctx = $state<{ x: number; y: number } | null>(null);
+  /** item が真なら、選んでいる項目のメニュー（マウスの右クリック）。偽なら、空きスペースのメニュー */
+  let ctx = $state<{ x: number; y: number; item?: boolean } | null>(null);
+  /** プロパティを開いている項目（項目のメニューから） */
+  let propsEntry = $state<Entry | null>(null);
   let ctxTimer: ReturnType<typeof setTimeout> | undefined;
   let ctxFrom: { x: number; y: number } | null = null;
   /** 長押しでメニューを出した直後（指を離したときのタップで、出たメニューの幕を押して閉じないように） */
@@ -598,8 +661,8 @@
     return t instanceof Element && !t.closest('.file-explorer-item, .file-explorer-menu, .menu-backdrop, .file-explorer-columns, button, a, input, textarea');
   }
 
-  function openCtx(x: number, y: number): void {
-    ctx = { x, y };
+  function openCtx(x: number, y: number, item = false): void {
+    ctx = { x, y, item };
     void refreshClip();
   }
 
@@ -805,7 +868,8 @@
     const scope = beginScope();
     // ゴミ箱の無い置き場所は、完全な削除（元に戻せないので、その文で確認する）
     const permanent = !explorer.caps.trash;
-    if (!(await host.confirm(permanent ? permanentDeleteConfirm(items) : trashManyConfirm(rules, items, explorer.caps.restore)))) return;
+    // ゴミ箱へ移すだけなら、確認は出さない（終わりの知らせに、取り消せるなら「取り消す」が付く）。完全な削除は、確認してから
+    if (permanent && !(await host.confirm(permanentDeleteConfirm(items)))) return;
     if (!scope.alive()) {
       host.toast(SERVER_CHANGED, 'error');
       return;
@@ -893,18 +957,163 @@
     // 項目の「…」の上の長押しは、選択に入れない
     if (ev.target instanceof Element && ev.target.closest('.explorer-entry-actions, .file-explorer-rename')) return;
     longPressed = false;
+    // タッチ・ペンでは、項目を HTML5 のドラッグにしない（長押しからのなぞりを、範囲の選択に使うため。長押しで、ブラウザがドラッグを始めてしまうのを避ける）
+    touchPointer = ev.pointerType !== 'mouse';
     pressFrom = { x: ev.clientX, y: ev.clientY };
     pressLog = ev.pointerType === 'mouse' ? null : { t: Date.now(), type: ev.pointerType };
     clearTimeout(pressTimer);
     pressTimer = setTimeout(() => {
       longPressed = true;
       pressFrom = null;
+      const before = explorerSelection.paths();
       explorerSelection.start(path);
+      // タッチ・ペンは、そのまま指をなぞると範囲を選ぶ（長押しのまま、ドラッグでの選択を始める）
+      if (pressLog) touchDrag = { anchor: path, base: before, x: ev.clientX, y: ev.clientY };
       logPress('選択モードに入った');
     }, LONG_PRESS_MS);
   }
 
+  // ---- ドラッグでの複数選択 ----
+  //  - マウス: 空きスペースから四角く囲む（Ctrl・Shift を押していれば、いまの選びに足す）
+  //  - タッチ: 長押しで選んだ項目から、指をなぞった範囲まで
+  /** 直前の押しがタッチ・ペンか（そのあいだ、項目はドラッグ（HTML5）にしない） */
+  let touchPointer = $state(false);
+  /** タッチの長押しから続くなぞり（anchor は最初の項目、base はそれまでの選び） */
+  let touchDrag: { anchor: string; base: string[]; x: number; y: number } | null = null;
+  /** マウスの囲み（画面の座標）。base はそれまでの選び。moved は、動かし始めたか */
+  let band = $state<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  let bandFrom: { x: number; y: number; base: string[]; pointerId: number } | null = null;
+  /** 囲みを終えた直後のクリック（空きスペースを押した扱いで、選びを外さない） */
+  let bandJustEnded = false;
+  let bodyEl: HTMLDivElement | undefined = $state();
+  let scrollTimer: ReturnType<typeof setInterval> | undefined;
+
+  const itemEls = (): HTMLElement[] => (bodyEl ? [...bodyEl.querySelectorAll<HTMLElement>('li.file-explorer-item[data-path]')] : []);
+
+  /** 画面の座標の下にある項目のパス */
+  function pathAt(x: number, y: number): string | null {
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('li.file-explorer-item[data-path]');
+    return el?.dataset.path ?? null;
+  }
+
+  /** 長押しした項目から、いまの指の下の項目まで（並んでいる順）を、それまでの選びに足して選ぶ */
+  function selectRangeTo(x: number, y: number): void {
+    if (!touchDrag) return;
+    const cur = pathAt(x, y);
+    if (cur === null) return;
+    const order = shownEntries.map((e) => e.path);
+    const a = order.indexOf(touchDrag.anchor);
+    const b = order.indexOf(cur);
+    if (a < 0 || b < 0) return;
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    explorerSelection.replace([...touchDrag.base, ...order.slice(lo, hi + 1)]);
+  }
+
+  /** 囲みの四角と重なる項目を選ぶ */
+  function selectBand(): void {
+    if (!band || !bandFrom) return;
+    const left = Math.min(band.x1, band.x2);
+    const right = Math.max(band.x1, band.x2);
+    const top = Math.min(band.y1, band.y2);
+    const bottom = Math.max(band.y1, band.y2);
+    const hit = itemEls()
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.left < right && r.right > left && r.top < bottom && r.bottom > top;
+      })
+      .map((el) => el.dataset.path!);
+    explorerSelection.replace([...bandFrom.base, ...hit]);
+  }
+
+  /** 囲み・なぞりの間、端に近ければスクロールする（指・ポインターが止まっていても続ける） */
+  function startAutoScroll(): void {
+    if (scrollTimer) return;
+    scrollTimer = setInterval(() => {
+      const pos = band ? { x: band.x2, y: band.y2 } : touchDrag ? { x: touchDrag.x, y: touchDrag.y } : null;
+      if (!pos || !bodyEl) return stopAutoScroll();
+      const r = bodyEl.getBoundingClientRect();
+      const edge = 32;
+      const dy = pos.y < r.top + edge ? -12 : pos.y > r.bottom - edge ? 12 : 0;
+      if (dy === 0) return;
+      bodyEl.scrollTop += dy;
+      if (band) selectBand();
+      else selectRangeTo(pos.x, pos.y);
+    }, 30);
+  }
+  function stopAutoScroll(): void {
+    clearInterval(scrollTimer);
+    scrollTimer = undefined;
+  }
+
+  function bandStart(ev: PointerEvent): void {
+    if (ev.pointerType !== 'mouse' || ev.button !== 0 || !bodyEl || !isEmptySpot(ev.target)) return;
+    // スクロールバーの上は、囲みにしない
+    const r = bodyEl.getBoundingClientRect();
+    if (ev.clientX >= r.left + bodyEl.clientWidth || ev.clientY >= r.top + bodyEl.clientHeight) return;
+    bandFrom = { x: ev.clientX, y: ev.clientY, base: ev.ctrlKey || ev.metaKey || ev.shiftKey ? explorerSelection.paths() : [], pointerId: ev.pointerId };
+  }
+
+  function bandMove(ev: PointerEvent): void {
+    if (!bandFrom || ev.pointerId !== bandFrom.pointerId) return;
+    if (!band) {
+      if (Math.abs(ev.clientX - bandFrom.x) < 5 && Math.abs(ev.clientY - bandFrom.y) < 5) return;
+      bodyEl?.setPointerCapture?.(ev.pointerId);
+      band = { x1: bandFrom.x, y1: bandFrom.y, x2: ev.clientX, y2: ev.clientY };
+      startAutoScroll();
+    } else {
+      band = { ...band, x2: ev.clientX, y2: ev.clientY };
+    }
+    selectBand();
+  }
+
+  function bandEnd(ev: PointerEvent): void {
+    if (!bandFrom || ev.pointerId !== bandFrom.pointerId) return;
+    if (band) {
+      bandJustEnded = true;
+      setTimeout(() => (bandJustEnded = false), 0);
+      if (bodyEl?.hasPointerCapture?.(ev.pointerId)) bodyEl.releasePointerCapture(ev.pointerId);
+    }
+    band = null;
+    bandFrom = null;
+    stopAutoScroll();
+  }
+
+  function touchDragMove(ev: PointerEvent): void {
+    if (!touchDrag) return;
+    touchDrag.x = ev.clientX;
+    touchDrag.y = ev.clientY;
+    selectRangeTo(ev.clientX, ev.clientY);
+    startAutoScroll();
+  }
+
+  function touchDragEnd(): void {
+    touchDrag = null;
+    if (!band) stopAutoScroll();
+  }
+
+  // タッチのなぞりの間は、画面のスクロールをさせない（passive でない touchmove でだけ止められる）
+  $effect(() => {
+    const el = bodyEl;
+    if (!el) return;
+    const stop = (ev: TouchEvent): void => {
+      if (touchDrag && ev.cancelable) ev.preventDefault();
+    };
+    // touchstart も passive でなく登録する（Chrome は、touchstart が passive だと、そのあとの touchmove を待たずにスクロールを始めてしまう）
+    const hold = (): void => {};
+    el.addEventListener('touchstart', hold, { passive: false });
+    el.addEventListener('touchmove', stop, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', hold);
+      el.removeEventListener('touchmove', stop);
+      stopAutoScroll();
+    };
+  });
+
   function pressMove(ev: PointerEvent): void {
+    if (touchDrag) {
+      touchDragMove(ev);
+      return;
+    }
     if (!pressFrom) return;
     const dx = Math.abs(ev.clientX - pressFrom.x);
     const dy = Math.abs(ev.clientY - pressFrom.y);
@@ -923,8 +1132,17 @@
    * 右クリック・WebView の長押し（Android は振動して contextmenu が来る）。選択モードなら既定のメニューを出さない。
    * タッチの長押しで、こちらのタイマーより先に止められて選択モードに入れていなければ、ここで入る
    */
-  function rowContextMenu(ev: MouseEvent, path: string): void {
+  function rowContextMenu(ev: MouseEvent, e: Entry): void {
+    const path = e.path;
     const touch = pressLog !== null;
+    if (!touch && explorerSelection.desktop) {
+      // PC のマウスの右クリック: 項目のメニュー。選んでいない項目なら、その項目だけを選んでから出す
+      ev.preventDefault();
+      clearTimeout(renameTimer);
+      if (!explorerSelection.has(path)) explorerSelection.replace([path]);
+      openCtx(ev.clientX, ev.clientY, true);
+      return;
+    }
     if (touch) logPress(`contextmenu 長押し済み=${longPressed}`);
     if (touch && !explorerSelection.active && !longPressed) {
       clearTimeout(pressTimer);
@@ -936,6 +1154,10 @@
     if (explorerSelection.showing || longPressed) ev.preventDefault();
   }
 
+  /** 名前の文字を押してから書き換えに入るまでの待ち（ダブルクリックで開くのと見分ける） */
+  const RENAME_DELAY_MS = 450;
+  let renameTimer: ReturnType<typeof setTimeout> | undefined;
+
   /** 行を押したとき（選択モードの中では選び直す。長押しの直後は何もしない。名前の文字を押したら書き換える） */
   function rowClick(ev: MouseEvent, e: Entry, open: () => void): void {
     if (longPressed) {
@@ -943,10 +1165,25 @@
       ev.preventDefault();
       return;
     }
+    clearTimeout(renameTimer);
     if (explorerSelection.active) {
       ev.preventDefault();
       // PC: ダブルクリックの 2 回目の押しでは選び直さない（開くのは dblclick）
       if (explorerSelection.desktop && ev.detail >= 2) return;
+      // PC: ひとつだけ選んでいる項目の名前の文字を押すと、名前を書き換える（ダブルクリックと見分けるため、少し待つ）。
+      // ほかの押しは、選ぶ・外す（Ctrl・Shift を押しながらなら、名前の上でも選ぶ・外す）
+      if (
+        explorerSelection.desktop &&
+        !(ev.ctrlKey || ev.metaKey || ev.shiftKey) &&
+        explorerSelection.count === 1 &&
+        explorerSelection.has(e.path) &&
+        ev.target instanceof Element &&
+        ev.target.closest('.file-explorer-name-text') &&
+        !renameBlock(e)
+      ) {
+        renameTimer = setTimeout(() => startRename(e), RENAME_DELAY_MS);
+        return;
+      }
       explorerSelection.toggle(e.path);
       return;
     }
@@ -1085,6 +1322,7 @@
 
   /** 空きスペース（項目の外）を押したら、選択を解除する。項目・バー・メニュー・パンくずは解除しない */
   function onbodyclick(ev: MouseEvent): void {
+    if (bandJustEnded) return;
     if (!explorerSelection.showing || ctx) return;
     if (ev.target instanceof Element && ev.target.closest('.file-explorer-item, .file-explorer-menu, .menu-backdrop, .file-explorer-bar, .file-explorer-crumbs, .file-explorer-columns')) return;
     explorerSelection.clear();
@@ -1103,12 +1341,16 @@
 
   function startItemDrag(ev: DragEvent, e: Entry): void {
     if (renamingPath === e.path) { ev.preventDefault(); return; }
+    // タッチのなぞり（範囲の選択）の間は、項目のドラッグにしない
+    if (touchDrag) { ev.preventDefault(); return; }
     const item = transferItemOf(e);
     // 選択中にドラッグしたら選択中の全項目を、そうでなければその 1 件だけ
     const items = explorerSelection.active && explorerSelection.has(e.path) ? selectedItems : [item];
     dragItems = items;
     ev.dataTransfer!.effectAllowed = 'copyMove';
     ev.dataTransfer!.setData(EXPLORER_DRAG_TYPE, items.map((i) => i.path).join('|'));
+    // フォルダが含まれるときだけ印を付ける（ドロップ先が、落とす前にフォルダかを見分けられる）
+    if (items.some((i) => i.kind === 'dir')) ev.dataTransfer!.setData(EXPLORER_DRAG_DIR_TYPE, '1');
   }
 
   function endItemDrag(): void {
@@ -1501,6 +1743,7 @@
       <IconButton label="メニュー" title="メニュー" active={menuOpen} onclick={() => (menuOpen = !menuOpen)}><MenuIcon size={18} /></IconButton>
       {#if menuOpen}
         <Menu class="file-explorer-popup-menu file-explorer-menu" label="{labels.root}の操作" onclose={() => (menuOpen = false)}>
+          {@render props.menu?.(() => (menuOpen = false))}
           {#if canCreateFolder}
             <MenuItem icon={FolderPlus} onclick={() => run(openMkdir)}>新しいフォルダ</MenuItem>
           {/if}
@@ -1523,6 +1766,7 @@
   </PanelBar>
   <!-- パンくず: 上端の下の行。場所を示すだけ（押すと、その場所へ） -->
   <nav class="file-explorer-crumbs" aria-label="場所">
+    {@render props.lead?.()}
     <!-- パンくずもドロップ先（内部 DnD でそのフォルダへ移動・コピー） -->
     <button type="button" class="file-explorer-crumb" data-drop-dir="" class:file-explorer-crumb-drag-over={dragTarget === '__crumb__'}
       onclick={() => fileExplorer.open('')}
@@ -1581,16 +1825,30 @@
   <!-- 項目の外側（空きスペース）を押すと、選択を解除する（項目・バー・メニュー・パンくずは解除しない）。長押し・右クリックでメニュー -->
   <!-- 詳細は、狭い画面では横にはみ出させてスワイプで見る（「…」は右端に固定して常に見せる） -->
   <div
+    bind:this={bodyEl}
     class="scroll file-explorer-body"
+    class:file-explorer-body-banding={band !== null}
     class:file-explorer-body-details={dirView.view === 'details'}
     class:file-explorer-body-drag-target={dragTarget === ''}
     class:file-explorer-body-external-drop={externalDragOver}
     role="presentation"
     onclick={onbodyclick}
-    onpointerdown={bodyPressStart}
-    onpointermove={bodyPressMove}
-    onpointerup={bodyPressEnd}
-    onpointercancel={bodyPressEnd}
+    onpointerdown={(ev) => {
+      bodyPressStart(ev);
+      bandStart(ev);
+    }}
+    onpointermove={(ev) => {
+      bodyPressMove(ev);
+      bandMove(ev);
+    }}
+    onpointerup={(ev) => {
+      bodyPressEnd();
+      bandEnd(ev);
+    }}
+    onpointercancel={(ev) => {
+      bodyPressEnd();
+      bandEnd(ev);
+    }}
     ontouchend={bodyTouchEnd}
     oncontextmenu={bodyContextMenu}
     ondragover={bodyDragOver}
@@ -1625,8 +1883,7 @@
     {:else if listing.entries.size === 0}
       <p class="file-explorer-status muted">このフォルダには、まだ何もありません。</p>
     {:else}
-      {@const all = sortEntries([...listing.entries.values()].map(displayEntry), dirView.sortKey, dirView.sortOrder)}
-      {@const sorted = search.filtering ? all.filter((x) => matchesName(x.name, search.text)) : all}
+      {@const sorted = shownEntries}
       {#if dirView.view === 'details'}
         <div class="file-explorer-columns" aria-hidden="true">
           <span class="file-explorer-col-name">名前</span>
@@ -1642,21 +1899,29 @@
       <ul class="file-explorer-list file-explorer-view-{dirView.view}">
         {#each sorted as e (e.path)}
           {@const action = entryAction(e, host.viewerKind)}
+          {@const iconAction = e.iconKind === 'dir' ? 'enter' : action}
           {@const thumb = dirView.view === 'grid' ? urls.thumbUrl(e) : null}
           {@const pdf = dirView.view === 'grid' ? urls.pdfSource(e) : null}
           {@const renaming = renamingPath === e.path}
           <li
             class="file-explorer-item"
+            data-path={e.path}
             class:file-explorer-item-cut={explorerBuffer.isCut(e.path)}
             class:file-explorer-item-selected={explorerSelection.has(e.path)}
             class:file-explorer-item-drag-target={e.kind === 'dir' && dragTarget === e.path}
-            draggable={!renamingPath || renamingPath !== e.path}
+            draggable={(!renamingPath || renamingPath !== e.path) && !touchPointer}
             onpointerdown={(ev) => pressStart(ev, e.path)}
             onpointermove={pressMove}
-            onpointerup={() => pressEnd('pointerup')}
+            onpointerup={() => {
+              touchDragEnd();
+              pressEnd('pointerup');
+            }}
             onpointerleave={() => pressEnd('pointerleave')}
-            onpointercancel={() => pressEnd('pointercancel')}
-            oncontextmenu={(ev) => rowContextMenu(ev, e.path)}
+            onpointercancel={() => {
+              touchDragEnd();
+              pressEnd('pointercancel');
+            }}
+            oncontextmenu={(ev) => rowContextMenu(ev, e)}
             ondragstart={(ev) => startItemDrag(ev, e)}
             ondragend={endItemDrag}
             ondragover={e.kind === 'dir' ? (ev) => folderDragOver(ev, e.path) : undefined}
@@ -1698,7 +1963,7 @@
                     <img src={thumb} alt="" loading="lazy" decoding="async" />
                   {:else if pdf && PdfThumb}
                     <PdfThumb url={pdf.url} key={pdf.key} />
-                  {:else if action === 'enter'}<Folder size={64} />{:else if action === 'image'}<ImageIcon size={64} />{:else if action === 'pdf'}<FileText size={64} />{:else}<FileIcon size={64} />{/if}
+                  {:else if iconAction === 'enter'}<Folder size={64} />{:else if iconAction === 'image'}<ImageIcon size={64} />{:else if iconAction === 'pdf'}<FileText size={64} />{:else}<FileIcon size={64} />{/if}
                 </span>
                 {@render name()}
               {:else}
@@ -1706,29 +1971,44 @@
                 <span class="file-explorer-icon">
                   {#if explorerSelection.showing}
                     <span class="file-explorer-check" class:file-explorer-check-on={explorerSelection.has(e.path)}>{#if explorerSelection.has(e.path)}<SquareCheck size={18} />{:else}<Square size={18} />{/if}</span>
-                  {:else if action === 'enter'}<Folder size={18} />{:else if action === 'image'}<ImageIcon size={18} />{:else if action === 'pdf'}<FileText size={18} />{:else}<FileIcon size={18} />{/if}
+                  {:else if iconAction === 'enter'}<Folder size={18} />{:else if iconAction === 'image'}<ImageIcon size={18} />{:else if iconAction === 'pdf'}<FileText size={18} />{:else}<FileIcon size={18} />{/if}
                 </span>
                 {@render name()}
                 <span class="file-explorer-col-kind">{kindLabel(e, host.isImage)}</span>
-                <span class="file-explorer-col-size">{e.kind === 'file' ? formatSize(e.size) : ''}</span>
+                <span class="file-explorer-col-size">{sizeCell(e)}</span>
                 <span class="file-explorer-col-date">{formatStamp(e.modified, now)}</span>
               {/if}
             {/snippet}
             {#if renaming}
               <!-- 書き換え中は、入力欄を入れるため押せる行（button・a）にしない -->
               <div class="file-explorer-row">{@render row()}</div>
-            {:else if explorerSelection.active}
-              <!-- 選ぶ操作の行（タッチの選択モード・PC の常時）。PC は、ダブルクリック・Enter で開く -->
-              <button type="button" class="file-explorer-row" aria-pressed={explorerSelection.has(e.path)}
-                data-drop-dir={explorerSelection.desktop && e.kind === 'dir' ? e.path : undefined}
-                ondblclick={explorerSelection.desktop ? () => activateEntry(e) : undefined}
-                onclick={(ev) => rowClick(ev, e, () => {})} onkeydown={(ev) => rowKey(ev, e)}>{@render row()}</button>
-            {:else if action === 'enter'}
-              <button type="button" class="file-explorer-row" data-drop-dir={e.path} onclick={(ev) => rowClick(ev, e, () => fileExplorer.open(e.path))} onkeydown={(ev) => rowKey(ev, e)}>{@render row()}</button>
-            {:else if action !== 'file'}
-              <button type="button" class="file-explorer-row" onclick={(ev) => rowClick(ev, e, () => openViewer(e))} onkeydown={(ev) => rowKey(ev, e)}>{@render row()}</button>
             {:else}
-              <a class="file-explorer-row" href={urls.href(e)} download={e.name} target="_blank" rel="noopener" onclick={(ev) => rowClick(ev, e, () => host.download.intercept(ev, { url: urls.href(e), name: e.name }))} onkeydown={(ev) => rowKey(ev, e)}>{@render row()}</a>
+              <!-- 行の要素は、選択モードに入っても作り直さない（長押しの指の下の要素が消えると、ブラウザが指の操作を取り消し、なぞりでの範囲の選択が途切れる）。
+                   ファイルは <a>、ほかは <button>。選択モード（タッチの長押し・PC の常時）の間は、押すと選ぶ・外す（開くのは PC のダブルクリック・Enter）。
+                   選択モードの <a> は、リンクにしない（href を付けない） -->
+              {@const sel = explorerSelection.active}
+              {@const link = action === 'file'}
+              <svelte:element
+                this={link ? 'a' : 'button'}
+                class="file-explorer-row"
+                type={link ? undefined : 'button'}
+                role={link && sel ? 'button' : undefined}
+                href={link && !sel ? urls.href(e) : undefined}
+                download={link && !sel ? e.name : undefined}
+                target={link && !sel ? '_blank' : undefined}
+                rel={link && !sel ? 'noopener' : undefined}
+                aria-pressed={sel ? explorerSelection.has(e.path) : undefined}
+                data-drop-dir={(sel ? explorerSelection.desktop && e.kind === 'dir' : action === 'enter') ? e.path : undefined}
+                ondblclick={sel && explorerSelection.desktop ? () => activateEntry(e) : undefined}
+                onclick={(ev: MouseEvent) =>
+                  rowClick(ev, e, () => {
+                    if (sel) return;
+                    if (action === 'enter') fileExplorer.open(e.path);
+                    else if (link) host.download.intercept(ev, { url: urls.href(e), name: e.name });
+                    else openViewer(e);
+                  })}
+                onkeydown={(ev: KeyboardEvent) => rowKey(ev, e)}
+              >{@render row()}</svelte:element>
             {/if}
             <!-- 「…」（プロパティ）は、選択中も含めて常に見せる -->
             <EntryActions {explorer} entry={e} placement={dirView.view === 'grid' ? 'overlay' : 'inline'} />
@@ -1739,19 +2019,57 @@
   </div>
 </div>
 
-<!-- 空きスペースの長押し・右クリックのメニュー（押したところに出す） -->
+{#if band}
+  <div class="file-explorer-band" style:left="{Math.min(band.x1, band.x2)}px" style:top="{Math.min(band.y1, band.y2)}px" style:width="{Math.abs(band.x2 - band.x1)}px" style:height="{Math.abs(band.y2 - band.y1)}px"></div>
+{/if}
+
+<!-- 長押し・右クリックのメニュー（押したところに出す）。項目の上のマウスの右クリックは項目のメニュー、空きスペースはフォルダのメニュー -->
 {#if ctx}
   <div class="file-explorer-context" style:left="{ctx.x}px" style:top="{ctx.y}px">
-    <Menu class="file-explorer-context-menu file-explorer-menu" label="このフォルダの操作" onclose={() => (ctx = null)}>
-      <MenuItem icon={Upload} onclick={() => runCtx(() => fileInput?.click())}>{labels.upload}</MenuItem>
-      {#if canCreateFolder}
-        <MenuItem icon={FolderPlus} onclick={() => runCtx(openMkdir)}>新しいフォルダ</MenuItem>
-      {/if}
-      {#if canPaste}
-        <MenuItem icon={ClipboardPaste} disabled={pasting} onclick={() => runCtx(() => void pasteAny())}>貼り付け</MenuItem>
-      {/if}
-    </Menu>
+    {#if ctx.item}
+      {@const only = selectedEntries.length === 1 ? selectedEntries[0] : null}
+      <Menu class="file-explorer-context-menu file-explorer-menu" label="選んだ項目の操作" onclose={() => (ctx = null)}>
+        {#if only && !allWhole}
+          <MenuItem icon={FolderOpen} onclick={() => runCtx(() => activateEntry(only))}>開く</MenuItem>
+        {/if}
+        {#if !allWhole}
+          <MenuItem icon={Copy} disabled={copyBlocked !== null} onclick={() => runCtx(copySelected)}>コピー</MenuItem>
+        {/if}
+        <MenuItem icon={Scissors} disabled={cutBlocked !== null} onclick={() => runCtx(cutSelected)}>切り取り</MenuItem>
+        {#if only && only.kind === 'dir' && !only.trash && canPaste && writeBlock(only.path) === null}
+          <MenuItem icon={ClipboardPaste} disabled={pasting} onclick={() => runCtx(() => void pasteAny(only.path))}>ここへ貼り付け</MenuItem>
+        {/if}
+        {#if only && !allWhole && !renameBlock(only)}
+          <MenuItem icon={Pencil} onclick={() => runCtx(() => setTimeout(() => startRename(only), 0))}>名前の変更</MenuItem>
+        {/if}
+        {#if allWhole}
+          <MenuItem icon={RotateCcw} disabled={actionBusy} onclick={() => runCtx(() => void restoreSelected())}>元へ戻す</MenuItem>
+          <MenuItem icon={Trash} disabled={deleteBlocked !== null || actionBusy} onclick={() => runCtx(removeSelected)}>完全削除</MenuItem>
+        {:else}
+          <MenuItem icon={Trash} disabled={deleteBlocked !== null || actionBusy} onclick={() => runCtx(removeSelected)}>削除</MenuItem>
+        {/if}
+        {#if only}
+          <MenuItem icon={Info} onclick={() => runCtx(() => (propsEntry = only))}>プロパティ</MenuItem>
+        {/if}
+      </Menu>
+    {:else}
+      <Menu class="file-explorer-context-menu file-explorer-menu" label="このフォルダの操作" onclose={() => (ctx = null)}>
+        {#if labels.upload}
+          <MenuItem icon={Upload} onclick={() => runCtx(() => fileInput?.click())}>{labels.upload}</MenuItem>
+        {/if}
+        {#if canCreateFolder}
+          <MenuItem icon={FolderPlus} onclick={() => runCtx(openMkdir)}>新しいフォルダ</MenuItem>
+        {/if}
+        {#if canPaste}
+          <MenuItem icon={ClipboardPaste} disabled={pasting} onclick={() => runCtx(() => void pasteAny())}>貼り付け</MenuItem>
+        {/if}
+      </Menu>
+    {/if}
   </div>
+{/if}
+
+{#if propsEntry}
+  <FileProperties {explorer} entry={propsEntry} onclose={() => (propsEntry = null)} />
 {/if}
 
 {#if mkdirOpen}
@@ -1869,6 +2187,30 @@
     flex: 1;
     min-height: 0;
     padding: var(--space-4);
+  }
+  /* タッチ: 項目の長押しは、文字の選択（ブラウザが指の操作を取り上げ、なぞりでの範囲の選択が途切れる）にしない。名前の書き換えの入力欄は、そのまま */
+  @media (pointer: coarse) {
+    .file-explorer-item {
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+    .file-explorer-item .file-explorer-rename {
+      user-select: text;
+      -webkit-user-select: text;
+    }
+  }
+  /* 囲んで選んでいる間は、文字を選択させない */
+  .file-explorer-body-banding {
+    user-select: none;
+  }
+  /* マウスで囲んでいる四角（画面の座標。押したものには触らない） */
+  .file-explorer-band {
+    position: fixed;
+    z-index: 1;
+    pointer-events: none;
+    border: 1px solid var(--accent);
+    background: color-mix(in oklch, var(--accent) 18%, transparent);
   }
   /* 詳細: 狭い画面では、列を縮めずに横へはみ出させ、スワイプで見る（右の余白は無くし、右端に固定した「…」の外に列が覗かないようにする） */
   .file-explorer-body-details {
@@ -2014,6 +2356,9 @@
     top: calc(100% + 6px);
     right: 0;
     min-width: 12em;
+    /* 項目の文字を折り返さない（本体が足す項目の名前が長くても） */
+    width: max-content;
+    max-width: 90vw;
   }
   .file-explorer-menu-head {
     margin: var(--space-3) 0 0;

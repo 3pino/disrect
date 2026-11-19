@@ -7,7 +7,7 @@
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
   import Menu from '@3pino/ui-kit-web/Menu.svelte';
   import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
-  import { EXPLORER_DRAG_TYPE } from '@3pino/explorer-kit';
+  import { EXPLORER_DRAG_DIR_TYPE, EXPLORER_DRAG_TYPE } from '@3pino/explorer-kit';
 
   // タブの欄。タブは「置き場所 + フォルダ」（中身の状態は App が持つ）。ここは見せて、押された・動かされたことを知らせるだけ。
   //  - 押す: 切り替え。真ん中のボタン: 閉じる。右クリック: メニュー（複製・左右へ移す・閉じる・ほかを閉じる）。
@@ -36,7 +36,7 @@
     oncloseothers: (id: number) => void;
     /** 落とされたもの（エクスプローラーのドラッグのパス）のうち、フォルダを新しいタブで開く */
     ondropfolders: (paths: string[]) => void;
-    /** 72ed3044753b9762306e30bf30d6306e4e0089a7Ff08958b304430663044308b304230443060306f3001300c623b308b300d306795893058308bFf09 */
+    /** 狭い画面のタブの一覧（開いているあいだは、「戻る」で閉じる） */
     listOpen?: boolean;
   } = $props();
 
@@ -86,7 +86,8 @@
     if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
   }
   const isTabDrag = (ev: DragEvent): boolean => !!ev.dataTransfer?.types.includes(TAB_DRAG);
-  const isFolderDrag = (ev: DragEvent): boolean => !!ev.dataTransfer?.types.includes(EXPLORER_DRAG_TYPE);
+  // フォルダを含むドラッグだけを受ける（ファイルだけのドラッグでは、色も変えない。落とされても、タブを作る機能が無いので）
+  const isFolderDrag = (ev: DragEvent): boolean => !!ev.dataTransfer?.types.includes(EXPLORER_DRAG_TYPE) && !!ev.dataTransfer.types.includes(EXPLORER_DRAG_DIR_TYPE);
 
   function dragOverTab(ev: DragEvent, i: number): void {
     if (isTabDrag(ev)) {

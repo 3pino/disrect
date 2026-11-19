@@ -60,6 +60,14 @@ export class ExplorerSelection {
     for (const p of paths) this.set.add(p);
   }
 
+  /** 選びを、与えた項目だけに置き換える（ドラッグでの範囲選択）。1 件以上なら選択モードに入る */
+  replace(paths: Iterable<string>): void {
+    this.set.clear();
+    for (const p of paths) this.set.add(p);
+    if (this.set.size > 0) this.mode = true;
+    else if (!this.desktop) this.mode = false;
+  }
+
   /** 選びを外し、選択モードを終える（PC は操作が続く） */
   clear(): void {
     this.mode = false;

@@ -225,6 +225,10 @@ fn size_counts_files_and_folders_below() {
     assert_eq!(size(&root).unwrap(), Size { size: 8, files: 2, dirs: 2, partial: false });
     assert_eq!(size(&root.join("one")).unwrap(), Size { size: 5, files: 1, dirs: 0, partial: false });
     assert_eq!(size(&root.join("nope")).unwrap_err().code, "not_found");
+    // 調べる項目に上限があると、そこで止めて partial にする
+    let limited = size_within(&root, 1).unwrap();
+    assert!(limited.partial);
+    assert!(!size_within(&root, 100).unwrap().partial);
 }
 
 #[test]

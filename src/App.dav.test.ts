@@ -124,7 +124,7 @@ async function addPlace(name = '自宅', url = 'https://nas.example/dav'): Promi
 }
 
 describe('ネットワークの場所（WebDAV）', () => {
-  it('追加すると、左の一覧に出て、すぐ開く。一覧は Rust の dav_list から。場所の欄は URL（読むだけ）', async () => {
+  it('追加すると、左の一覧に出て、すぐ開く。一覧は Rust の dav_list から', async () => {
     app = mount(App, { target });
     await settle();
     await addPlace();
@@ -132,9 +132,6 @@ describe('ネットワークの場所（WebDAV）', () => {
     expect(called('dav_list')).toEqual([{ place: places.list[0].id, base: 'https://nas.example/dav/', path: '' }]);
     expect(called('dav_cred_set')).toEqual([]);
     expect(names()).toEqual(['docs', 'a.txt']);
-    const addr = target.querySelector<HTMLInputElement>('input[aria-label="場所"]')!;
-    expect(addr.value).toBe('https://nas.example/dav/');
-    expect(addr.readOnly).toBe(true);
     // 覚えには名前と URL だけ
     expect(JSON.parse(localStorage.getItem('fixplor.places')!)).toEqual([{ id: places.list[0].id, name: '自宅', url: 'https://nas.example/dav/' }]);
   });
