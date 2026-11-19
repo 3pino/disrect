@@ -1,7 +1,10 @@
 # fixplor プラグイン（Disnans 用）
 
 Disnans の共有フォルダを、fixplor と同じエクスプローラーの部品（`@3pino/explorer-kit`）で見る・操作するプラグイン。
-Disnans の本体に組み込みのエクスプローラーを置き換えるための土台（`docs/proposals/fixplor-independence.md` の段 5）。
+Disnans の標準のプラグイン（コアプラグイン）で、Disnans のアプリが、固定した版を同梱している（利用者は無効にできない。入口は、ナビバーへ利用者が足す）。
+
+提供するもの: 共有フォルダの一覧・アイコン表示・並べ替え・コピー／切り取り／貼り付け・ドラッグでの移動・名前の変更・新しいフォルダ・プロパティ・ゴミ箱（Disnans の `.trash`。戻す・完全に消す）・アップロード・写真と PDF の拡大表示・名前の絞り込み・チャットのファイルリンクからフォルダを開く。
+アプリ（fixplor）にあるタブ・ネットワークの場所（WebDAV）・サブフォルダの検索は、このプラグインにはない（Disnans にはメッセージの検索が別にある）。
 
 - 画面と決まりは共有の部品。このプラグインは、その 2 つの口へ本体の実装を渡して、パネル（view）の `containerEl` に載せるだけ。
   - 置き場所（`ExplorerApi`）: `this.files`（共有フォルダ）→ `src/files-api.ts`、項目の URL → `src/urls.ts`（作るのは本体の `files.url`）
@@ -21,7 +24,7 @@ DISNANS_APP=~/repos/disnans/app xvfb-run -a npm run check:host
                            # 仮の共有フォルダのサーバーを立てる（Disnans のリポジトリは読むだけ。CI には入れない）
 ```
 
-大きさ: `main.js` 約 174 KB（gzip 50 KB）・`styles.css` 約 11 KB（gzip 2 KB）。
+大きさ: `main.js` 約 183 KB（gzip 53 KB）・`styles.css` 約 12 KB（gzip 2 KB）。
 
 ## 配る
 
