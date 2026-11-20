@@ -10,7 +10,7 @@
   import TabBar from './components/TabBar.svelte';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
   import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
-  import { createExplorer, ExplorerBuffer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
+  import { baseName, createExplorer, ExplorerBuffer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
   import Toasts from '@3pino/app-kit-web/shell/Toasts.svelte';
   import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
   import { isBackKey } from '@3pino/app-kit-web/core/backNav';
@@ -78,6 +78,9 @@
   /** 狭い画面のタブの一覧。戻るの層（開いているあいだ、「戻る」で閉じる）。ダイアログも同じく host.addBack で登録する */
   let tabListOpen = $state(false);
   $effect(() => (tabListOpen ? untrack(() => host.addBack(() => (tabListOpen = false))) : undefined));
+  /** 狭い画面（Android など）の、左から出す場所の欄。開いているあいだは、「戻る」でも閉じる */
+  let navOpen = $state(false);
+  $effect(() => (navOpen ? untrack(() => host.addBack(() => (navOpen = false))) : undefined));
   $effect(() => (dialog ? untrack(() => host.addBack(() => (dialog = null))) : undefined));
   $effect(() => (certDialog ? untrack(() => host.addBack(() => (certDialog = null))) : undefined));
   $effect(() => (aboutOpen ? untrack(() => host.addBack(() => (aboutOpen = false))) : undefined));
@@ -255,6 +258,19 @@
     const t = tabs.find((x) => x.id === id);
     const b = t?.bundles.get(t.currentId);
     if (t && b) addTab({ place: b.id, dir: b.explorer.nav.dir, afterId: id });
+  }
+
+  /** エクスプローラーからドラッグされた項目のうち、フォルダを、新しいタブで開く（このフォルダの一覧で見つかるものだけ） */
+  function openFoldersInTabs(paths: string[]): void {
+    const ex = explorer;
+    const here = current?.id;
+    if (!ex || !here) return;
+    const st = ex.index.state(ex.nav.dir);
+    if (st?.kind !== 'ok') return;
+    for (const path of paths) {
+      const e = st.entries.get(baseName(path));
+      if (e?.kind === 'dir' && e.path === path) addTab({ place: here, dir: path, focus: false });
+    }
   }
 
   const tabItems = $derived(
@@ -529,9 +545,53 @@
   function onMouseUp(ev: MouseEvent): void {
     if (ev.button === 3 && host.back()) ev.preventDefault();
   }
+
+  // ---- 狭い画面: 右へのスワイプで場所の欄を出し、左へのスワイプ（か、外側を押す・戻る）で閉じる ----
+  /** スワイプとみなす横の距離（px）。縦より横が大きいときだけ */
+  const NAV_SWIPE_PX = 56;
+  /** 向きを決めるまでの距離（px） */
+  const NAV_SWIPE_START_PX = 12;
+  /** CSS の「場所の欄を、左から出す画面」の幅と同じ */
+  const NARROW_QUERY = '(max-width: 767px)';
+  let swipe: { x: number; y: number; target: EventTarget | null; dir: 'h' | 'v' | null } | null = null;
+
+  /** 指の下に、右へ動かすと横にスクロールするもの（左へ戻れる、横に長い一覧）があるか。あれば、スワイプはそちらの操作 */
+  function scrollsBackLeft(target: EventTarget | null): boolean {
+    for (let el = target instanceof Element ? target : null; el; el = el.parentElement) {
+      if (el.scrollLeft > 0 && /auto|scroll/.test(getComputedStyle(el).overflowX)) return true;
+    }
+    return false;
+  }
+
+  function swipeStart(ev: TouchEvent): void {
+    swipe = null;
+    if (ev.touches.length !== 1 || typeof window.matchMedia !== 'function' || !window.matchMedia(NARROW_QUERY).matches) return;
+    // 入力欄・ダイアログ・メニューの上の操作は、スワイプにしない
+    if (ev.target instanceof Element && ev.target.closest('input, textarea, dialog, [role="dialog"], [role="menu"], .menu-backdrop')) return;
+    swipe = { x: ev.touches[0].clientX, y: ev.touches[0].clientY, target: ev.target, dir: null };
+  }
+
+  function swipeMove(ev: TouchEvent): void {
+    // 一覧の長押しからのなぞり（範囲の選択）は、touchmove を止めている。それはスワイプにしない
+    if (!swipe || ev.defaultPrevented || ev.touches.length !== 1) return;
+    const dx = ev.touches[0].clientX - swipe.x;
+    const dy = ev.touches[0].clientY - swipe.y;
+    if (swipe.dir === null) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < NAV_SWIPE_START_PX) return;
+      swipe.dir = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'h' : 'v';
+    }
+    if (swipe.dir === 'v' || Math.abs(dx) < NAV_SWIPE_PX) return;
+    if (dx > 0 && !navOpen && !scrollsBackLeft(swipe.target)) navOpen = true;
+    else if (dx < 0 && navOpen) navOpen = false;
+    swipe = null;
+  }
+
+  function swipeEnd(): void {
+    swipe = null;
+  }
 </script>
 
-<svelte:window onkeydown={onKey} onmouseup={onMouseUp} />
+<svelte:window onkeydown={onKey} onmouseup={onMouseUp} ontouchstart={swipeStart} ontouchmove={swipeMove} ontouchend={swipeEnd} ontouchcancel={swipeEnd} />
 
 <div class="app">
   {#if failed}
@@ -546,11 +606,17 @@
       onduplicate={duplicateTab}
       onmove={moveTab}
       oncloseothers={closeOthers}
+      ondropfolders={openFoldersInTabs}
       bind:listOpen={tabListOpen}
     />
 
     <div class="body">
-      <nav class="places scroll" aria-label="場所" style:width="{placesWidth}px">
+      <!-- 狭い画面: 場所の欄が開いているあいだ、残りを暗くする幕。押すと閉じる -->
+      <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+      <div class="nav-scrim" class:nav-scrim-open={navOpen} onclick={() => (navOpen = false)}></div>
+      <!-- 場所や「バージョン情報」を押したら、狭い画面では場所の欄を閉じる（押しは、各ボタンの処理のあとでここへ届く） -->
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+      <nav class="places scroll" class:places-open={navOpen} aria-label="場所" style:width="{placesWidth}px" onclick={() => (navOpen = false)}>
         {#each places as p (p.kind + p.path)}
           <button class="menu-item" type="button" aria-current={current.local && p.path === explorer.nav.dir ? 'page' : undefined} onclick={() => go(p.path)}>{placeLabel(p)}</button>
         {/each}
@@ -766,10 +832,55 @@
     min-width: 0;
     min-height: 0;
   }
+  .nav-scrim {
+    display: none;
+  }
+  /* 狭い画面: 場所の欄は、左から出す引き出し。開いているあいだはこれがいちばん上で、残りは幕で暗くする */
   @media (max-width: 767px) {
-    .places,
     .places-resizer {
       display: none;
+    }
+    .places {
+      position: fixed;
+      inset-block: 0;
+      inset-inline-start: 0;
+      z-index: var(--z-drawer, 50);
+      /* 幅を変えるつまみは無いので、決まった幅。画面の左の端と上下の安全域は、自分で取る */
+      width: min(280px, 85vw) !important;
+      box-sizing: border-box;
+      padding-top: calc(env(safe-area-inset-top) + var(--space-3));
+      padding-bottom: calc(env(safe-area-inset-bottom) + var(--space-3));
+      padding-left: calc(env(safe-area-inset-left) + var(--space-3));
+      background: var(--bg);
+      border-right: 1px solid var(--border);
+      transform: translateX(-100%);
+      visibility: hidden;
+      transition: transform 0.2s ease, visibility 0s linear 0.2s;
+    }
+    .places-open {
+      transform: none;
+      visibility: visible;
+      transition: transform 0.2s ease, visibility 0s;
+    }
+    .nav-scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: calc(var(--z-drawer, 50) - 1);
+      background: rgb(0 0 0 / 0.5);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .nav-scrim-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+  @media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+    .places,
+    .nav-scrim {
+      transition: none;
     }
   }
 </style>

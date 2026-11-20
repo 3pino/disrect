@@ -8,6 +8,8 @@ export { childPath };
 
 /** ドラッグで運ぶ項目の印（DataTransfer の種類）。ほかのアプリのドロップ先が、この部品のドラッグかを見分けるのに使う */
 export const EXPLORER_DRAG_TYPE = 'application/x-explorer-kit-items';
+/** ドラッグする項目にフォルダがあるときだけ付ける印（ドロップ先が、落とす前にフォルダかを見分ける） */
+export const EXPLORER_DRAG_DIR_TYPE = 'application/x-explorer-kit-has-dir';
 
 /** ダブルクリックとみなす間隔（ms）。名前の文字を押してから、書き換えに入るまでの待ちにも使う */
 export const DOUBLE_CLICK_MS = 300;

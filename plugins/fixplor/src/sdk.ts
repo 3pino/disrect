@@ -106,7 +106,7 @@ export type HostView = {
 export interface HostPluginBase {
   readonly files: HostFiles;
   readonly app: { readonly isMobile: boolean; readonly platform: HostPlatform };
-  /** 旧い保存先の値（最初の saveData まで。対象でなければ null） */
+  /** 古い保存先の値（最初の saveData まで。対象でなければ null） */
   readonly legacyData: unknown;
   loadData(): Promise<unknown>;
   saveData(data: unknown): Promise<void>;

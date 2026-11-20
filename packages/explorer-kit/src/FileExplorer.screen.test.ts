@@ -1214,14 +1214,14 @@ describe('PC の選択（0 件でも続く。ダブルクリック・Enter で�
     expect(el.querySelector('.file-explorer-row')!.tagName).toBe('BUTTON');
   });
 
-  it('シングルクリックでは開かない・名前の文字を押しても書き換えにならない', async () => {
+  it('シングルクリックでは開かない・名前の文字を押しても、すぐには書き換えにならない（選びもしない）', async () => {
     const el = await render();
     const name = rowOf(el, 'docs').querySelector<HTMLElement>('.file-explorer-name-text')!;
     name.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
     flushSync();
     expect(fileExplorer.dir).toBe('');
     expect(el.querySelector('.file-explorer-rename')).toBeNull();
-    expect(count(el)).toBe('1 件選択中');
+    expect(count(el)).toBe('3 件');
   });
 
   it('ダブルクリックでフォルダを開く（2 回目の押しでは選び直さない）', async () => {
@@ -2336,12 +2336,14 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     expect(document.querySelector('.file-properties')).not.toBeNull();
   });
 
-  it('名前の文字を押すと（選んでいなくても）、その項目を選んで、少し待って、名前の書き換えになる', async () => {
+  it('名前の文字を押すと、選びは変えずに、少し待って、名前の書き換えになる', async () => {
     const el = await render();
     const textOf = (n: string) => rowOf(el, n).querySelector<HTMLElement>('.file-explorer-name-text')!;
+    explorerSelection.replace(['docs']);
+    flushSync();
     textOf('a.txt').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
     flushSync();
-    expect(explorerSelection.paths()).toEqual(['a.txt']);
+    expect(explorerSelection.paths()).toEqual(['docs']);
     // 待つあいだは、まだ書き換えない（ダブルクリックなら開くため）
     expect(el.querySelector('.file-explorer-rename')).toBeNull();
     await vi.waitFor(() => expect(el.querySelector<HTMLTextAreaElement>('.file-explorer-rename')?.value).toBe('a.txt'));
@@ -2417,6 +2419,27 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
   });
 
+  it('囲んでいるあいだに一覧がスクロールしたら、四角の始点も一緒に動く（選びが、スクロールだけで増え続けない）', async () => {
+    const el = await render();
+    const body = layout(el);
+    let top = 0;
+    Object.defineProperty(body, 'scrollTop', { get: () => top, set: (v: number) => (top = v), configurable: true });
+    // 一覧の中の y=200 から、画面の y=10 まで囲む（どの 3 件も重なる）
+    body.dispatchEvent(ptr('pointerdown', 400, 200));
+    body.dispatchEvent(ptr('pointermove', 400, 10));
+    flushSync();
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'docs', 'pic.png']);
+    // 一覧が 150px スクロールすると、始点は画面の y=50 へ動く（ポインターはそのまま）
+    top = 150;
+    body.dispatchEvent(new Event('scroll'));
+    flushSync();
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'docs']);
+    const band = document.querySelector<HTMLElement>('.file-explorer-band')!;
+    expect(band.style.top).toBe('10px');
+    expect(band.style.height).toBe('40px');
+    body.dispatchEvent(ptr('pointerup', 400, 10));
+  });
+
   it('選んでいない項目の上からも囲める（選んでいる項目の上は、ドラッグで移すので囲まない）', async () => {
     const el = await render();
     const body = layout(el);
@@ -2465,5 +2488,18 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     await vi.waitFor(() => expect(rowOf(el, 'docs').querySelector('.file-explorer-col-size')?.textContent).toBe('≥ 2.0 KB'));
     expect(h.folderSize).toHaveBeenCalledWith('docs');
     expect(rowOf(el, 'a.txt').querySelector('.file-explorer-col-size')?.textContent).not.toBe('');
+  });
+
+  it('フォルダを運ぶドラッグには、フォルダの印も付く（ファイルだけのときは付かない）', async () => {
+    const el = await render();
+    const start = (name: string) => {
+      const set: string[] = [];
+      const ev = new Event('dragstart', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'dataTransfer', { value: { setData: (t: string) => set.push(t), effectAllowed: '' } });
+      rowOf(el, name).dispatchEvent(ev);
+      return set;
+    };
+    expect(start('docs')).toEqual(['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir']);
+    expect(start('a.txt')).toEqual(['application/x-explorer-kit-items']);
   });
 });

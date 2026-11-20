@@ -324,7 +324,7 @@ describe('フォルダごとの表示の保存（プラグインのデータ）'
     expect(counter.saves).toBe(0);
   });
 
-  it('プラグインの保存が空のときだけ、本体の旧い保存先の中身（legacyData）を使う', async () => {
+  it('プラグインの保存が空のときだけ、本体の古い保存先の中身（legacyData）を使う', async () => {
     const legacy = { docs: { view: 'grid', sortKey: 'name', sortOrder: 'asc' } };
     const first = await boot(fakeDisnans(fakeFiles(tree), { legacy }));
     expect(first.view.explorer!.view.of('docs').view).toBe('grid');

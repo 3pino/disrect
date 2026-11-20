@@ -37,7 +37,7 @@
   import { breadcrumbs, entryAction, kindLabel, sortEntries } from './listing';
   import type { ViewMode } from './stores/view.svelte';
   import { baseName, parentOf } from './path';
-  import { childPath, DOUBLE_CLICK_MS, EXPLORER_DRAG_TYPE, inSpecialDir, overwriteConfirm, permanentDeleteConfirm, planUpload, renameAllowed, renameTarget, ruleTexts, sameNameEntry } from './ops';
+  import { childPath, DOUBLE_CLICK_MS, EXPLORER_DRAG_DIR_TYPE, EXPLORER_DRAG_TYPE, inSpecialDir, overwriteConfirm, permanentDeleteConfirm, planUpload, renameAllowed, renameTarget, ruleTexts, sameNameEntry } from './ops';
   import { runTransfer, transferFailure, type TransferItem, type TransferOp } from './transfer';
   import { displayEntry, entryLabel, trashItemOf, trashPlace, virtualDir, writeBlockReason } from './trashFolder';
   import { allWholeTrash, copyBlockedReason, cutBlockedReason, deleteBlockedReason, transferItemOf } from './selection';
@@ -981,7 +981,8 @@
   let touchDrag: { anchor: string; base: string[]; x: number; y: number } | null = null;
   /** マウスの囲み（画面の座標）。base はそれまでの選び。moved は、動かし始めたか */
   let band = $state<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
-  let bandFrom: { x: number; y: number; base: string[]; pointerId: number } | null = null;
+  /** 囲みの始点。x・y は押した画面の座標、ax・ay は一覧の中の座標（スクロールしても、囲みの始点は同じ項目の上に残る） */
+  let bandFrom: { x: number; y: number; ax: number; ay: number; base: string[]; pointerId: number } | null = null;
   /** 囲みを終えた直後のクリック（空きスペースを押した扱いで、選びを外さない） */
   let bandJustEnded = false;
   let bodyEl: HTMLDivElement | undefined = $state();
@@ -1035,7 +1036,7 @@
       const dy = pos.y < r.top + edge ? -12 : pos.y > r.bottom - edge ? 12 : 0;
       if (dy === 0) return;
       bodyEl.scrollTop += dy;
-      if (band) selectBand();
+      if (band) bandSync();
       else selectRangeTo(pos.x, pos.y);
     }, 30);
   }
@@ -1060,7 +1061,7 @@
     // スクロールバーの上は、囲みにしない
     const r = bodyEl.getBoundingClientRect();
     if (ev.clientX >= r.left + bodyEl.clientWidth || ev.clientY >= r.top + bodyEl.clientHeight) return;
-    bandFrom = { x: ev.clientX, y: ev.clientY, base: ev.ctrlKey || ev.metaKey || ev.shiftKey ? explorerSelection.paths() : [], pointerId: ev.pointerId };
+    bandFrom = { x: ev.clientX, y: ev.clientY, ax: ev.clientX - r.left + bodyEl.scrollLeft, ay: ev.clientY - r.top + bodyEl.scrollTop, base: ev.ctrlKey || ev.metaKey || ev.shiftKey ? explorerSelection.paths() : [], pointerId: ev.pointerId };
   }
 
   function bandMove(ev: PointerEvent): void {
@@ -1073,8 +1074,33 @@
     } else {
       band = { ...band, x2: ev.clientX, y2: ev.clientY };
     }
+    bandSync();
+  }
+
+  /** 囲みの始点を、いまのスクロールの位置に合わせて置き直し、選びを計算し直す（画面がスクロールするとき、四角も一緒に動く） */
+  function bandSync(): void {
+    if (!band || !bandFrom || !bodyEl) return;
+    const r = bodyEl.getBoundingClientRect();
+    band = { ...band, x1: r.left + bandFrom.ax - bodyEl.scrollLeft, y1: r.top + bandFrom.ay - bodyEl.scrollTop };
     selectBand();
   }
+
+  /** 四角の表示。一覧の外にははみ出さない（選びの計算は、はみ出したままの四角で行う） */
+  const bandBox = $derived.by(() => {
+    if (!band) return null;
+    let left = Math.min(band.x1, band.x2);
+    let top = Math.min(band.y1, band.y2);
+    let right = Math.max(band.x1, band.x2);
+    let bottom = Math.max(band.y1, band.y2);
+    const r = bodyEl?.getBoundingClientRect();
+    if (r && r.width > 0) {
+      left = Math.max(left, r.left);
+      top = Math.max(top, r.top);
+      right = Math.min(right, r.right);
+      bottom = Math.min(bottom, r.bottom);
+    }
+    return { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+  });
 
   function bandEnd(ev: PointerEvent): void {
     if (!bandFrom || ev.pointerId !== bandFrom.pointerId) return;
@@ -1179,7 +1205,7 @@
       ev.preventDefault();
       // PC: ダブルクリックの 2 回目の押しでは選び直さない（開くのは dblclick）
       if (explorerSelection.desktop && ev.detail >= 2) return;
-      // PC: 名前の文字を押すと、この項目を選んで、名前を書き換える（ダブルクリック（開く）と見分けるため、DOUBLE_CLICK_MS だけ待つ）。
+      // PC: 名前の文字を押すと、選びは変えずに、名前を書き換える（ダブルクリック（開く）と見分けるため、DOUBLE_CLICK_MS だけ待つ）。
       // 文字以外の押しは、選ぶ・外す（Ctrl・Shift を押しながらなら、名前の上でも選ぶ・外す）
       if (
         explorerSelection.desktop &&
@@ -1188,7 +1214,6 @@
         ev.target.closest('.file-explorer-name-text') &&
         !renameBlock(e)
       ) {
-        if (!(explorerSelection.count === 1 && explorerSelection.has(e.path))) explorerSelection.replace([e.path]);
         renameTimer = setTimeout(() => startRename(e), DOUBLE_CLICK_MS);
         return;
       }
@@ -1357,6 +1382,8 @@
     dragItems = items;
     ev.dataTransfer!.effectAllowed = 'copyMove';
     ev.dataTransfer!.setData(EXPLORER_DRAG_TYPE, items.map((i) => i.path).join('|'));
+    // フォルダが含まれるときだけ印を付ける（ドロップ先が、落とす前にフォルダかを見分けられる）
+    if (items.some((i) => i.kind === 'dir')) ev.dataTransfer!.setData(EXPLORER_DRAG_DIR_TYPE, '1');
   }
 
   function endItemDrag(): void {
@@ -1839,6 +1866,7 @@
     class:file-explorer-body-external-drop={externalDragOver}
     role="presentation"
     onclick={onbodyclick}
+    onscroll={bandSync}
     onpointerdown={(ev) => {
       bodyPressStart(ev);
       bandStart(ev);
@@ -2025,8 +2053,8 @@
   </div>
 </div>
 
-{#if band}
-  <div class="file-explorer-band" style:left="{Math.min(band.x1, band.x2)}px" style:top="{Math.min(band.y1, band.y2)}px" style:width="{Math.abs(band.x2 - band.x1)}px" style:height="{Math.abs(band.y2 - band.y1)}px"></div>
+{#if bandBox}
+  <div class="file-explorer-band" style:left="{bandBox.left}px" style:top="{bandBox.top}px" style:width="{bandBox.width}px" style:height="{bandBox.height}px"></div>
 {/if}
 
 <!-- 長押し・右クリックのメニュー（押したところに出す）。項目の上のマウスの右クリックは項目のメニュー、空きスペースはフォルダのメニュー -->

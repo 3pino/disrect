@@ -7,10 +7,12 @@
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
   import Menu from '@3pino/ui-kit-web/Menu.svelte';
   import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
+  import { EXPLORER_DRAG_DIR_TYPE, EXPLORER_DRAG_TYPE } from '@3pino/explorer-kit';
 
   // タブの欄。タブは「置き場所 + フォルダ」（中身の状態は App が持つ）。ここは見せて、押された・動かされたことを知らせるだけ。
   //  - 押す: 切り替え。真ん中のボタン: 閉じる。右クリック: メニュー（複製・左右へ移す・閉じる・ほかを閉じる）。
   //  - 並べ替え: タブをドラッグして、ほかのタブの上へ落とす。
+  //  - フォルダをドラッグして、この欄（タブの上・＋・空き）へ落とすと、そのフォルダを新しいタブで開く（ondropfolders）。
   let {
     tabs,
     activeId,
@@ -20,6 +22,7 @@
     onduplicate,
     onmove,
     oncloseothers,
+    ondropfolders,
     listOpen = $bindable(false),
   }: {
     tabs: { id: number; label: string; title: string }[];
@@ -31,6 +34,8 @@
     /** from 番目のタブを to 番目へ */
     onmove: (from: number, to: number) => void;
     oncloseothers: (id: number) => void;
+    /** 落とされたもの（エクスプローラーのドラッグのパス）のうち、フォルダを新しいタブで開く */
+    ondropfolders: (paths: string[]) => void;
     /** 狭い画面のタブの一覧（開いているあいだは、「戻る」で閉じる） */
     listOpen?: boolean;
   } = $props();
@@ -39,6 +44,7 @@
   let menu = $state.raw<{ id: number; x: number; y: number } | null>(null);
   let dragging = $state<number | null>(null);
   let over = $state<number | null>(null);
+  let dropping = $state(false);
 
   const only = $derived(tabs.length === 1);
   const indexOf = (id: number): number => tabs.findIndex((t) => t.id === id);
@@ -80,23 +86,42 @@
     if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
   }
   const isTabDrag = (ev: DragEvent): boolean => !!ev.dataTransfer?.types.includes(TAB_DRAG);
-  // タブの並べ替えだけを受ける（ほかのドラッグ（ファイルなど）は受けない）
+  // フォルダを含むドラッグだけを受ける（ファイルだけのドラッグでは、色も変えない。落とされても、タブを作る機能が無いので）
+  const isFolderDrag = (ev: DragEvent): boolean => !!ev.dataTransfer?.types.includes(EXPLORER_DRAG_TYPE) && !!ev.dataTransfer.types.includes(EXPLORER_DRAG_DIR_TYPE);
+
   function dragOverTab(ev: DragEvent, i: number): void {
     if (isTabDrag(ev)) {
       ev.preventDefault();
       over = i;
+    } else if (isFolderDrag(ev)) {
+      ev.preventDefault();
+      dropping = true;
     }
   }
   function dropOnTab(ev: DragEvent, i: number): void {
-    if (!isTabDrag(ev)) return;
     ev.preventDefault();
+    ev.stopPropagation();
     const from = Number(ev.dataTransfer?.getData(TAB_DRAG));
-    if (Number.isInteger(from)) onmove(from, i);
+    if (isTabDrag(ev) && Number.isInteger(from)) onmove(from, i);
+    else dropFolders(ev);
     reset();
+  }
+  function dropOnBar(ev: DragEvent): void {
+    if (isFolderDrag(ev)) {
+      ev.preventDefault();
+      dropFolders(ev);
+    }
+    reset();
+  }
+  function dropFolders(ev: DragEvent): void {
+    const raw = ev.dataTransfer?.getData(EXPLORER_DRAG_TYPE) ?? '';
+    const paths = raw === '' ? [] : raw.split('|');
+    if (paths.length > 0) ondropfolders(paths);
   }
   function reset(): void {
     dragging = null;
     over = null;
+    dropping = false;
   }
 </script>
 
@@ -134,9 +159,13 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="tabs"
+  class:tabs-dropping={dropping}
   role="tablist"
   tabindex="-1"
   aria-label="タブ"
+  ondragover={(ev) => isFolderDrag(ev) && (ev.preventDefault(), (dropping = true))}
+  ondragleave={() => (dropping = false)}
+  ondrop={dropOnBar}
 >
   {#each tabs as t, i (t.id)}
     <div
@@ -192,6 +221,9 @@
     border-bottom: 1px solid var(--border);
     overflow-x: auto;
     flex: none;
+  }
+  .tabs-dropping {
+    background: var(--accent-soft);
   }
   .tab {
     display: flex;

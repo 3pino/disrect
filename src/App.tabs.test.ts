@@ -248,17 +248,29 @@ describe('タブ', () => {
     expect(activeLabel()).toBe('me');
   });
 
-  it('項目（ファイル・フォルダ）のドラッグは、タブの欄で受けない（色も変えない・タブも作らない）', async () => {
+  it('フォルダをタブの欄へドラッグして落とすと、新しいタブ（見ているタブは変えない）で開く。ファイル・知らない項目は開かない', async () => {
     await start();
-    const types = ['application/x-explorer-kit-items'];
-    const over = drag('dragover', types);
+    // フォルダを含むドラッグには、フォルダの印も付く（ファイルだけのドラッグには付かない）
+    const types = ['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir'];
+    // ファイルだけのドラッグは、受けない（色も変えない）
+    const over = drag('dragover', [types[0]]);
     target.querySelector('.tabs')!.dispatchEvent(over);
     await settle();
     expect(over.defaultPrevented).toBe(false);
     expect(target.querySelector('.tabs')!.classList.contains('tabs-dropping')).toBe(false);
-    target.querySelector('.tabs')!.dispatchEvent(drag('drop', types, { [types[0]]: 'home/me/docs' }));
+    const overDir = drag('dragover', types);
+    target.querySelector('.tabs')!.dispatchEvent(overDir);
     await settle();
-    expect(tabLabels()).toEqual(['me']);
+    expect(overDir.defaultPrevented).toBe(true);
+    expect(target.querySelector('.tabs')!.classList.contains('tabs-dropping')).toBe(true);
+    target.querySelector('.tabs')!.dispatchEvent(drag('drop', types, { [types[0]]: 'home/me/docs|home/me/a.txt|home/me/nowhere' }));
+    await settle();
+    expect(tabLabels()).toEqual(['me', 'docs']);
+    expect(activeLabel()).toBe('me');
+    // 「＋」の上でも同じ（欄の中）
+    target.querySelector('.tab-add')!.dispatchEvent(drag('drop', types, { [types[0]]: 'home/me/pics' }));
+    await settle();
+    expect(tabLabels()).toEqual(['me', 'pics', 'docs']);
   });
 
   it('ネットワークの場所もタブで開く。タブの中で置き場所を切り替えても、その置き場所のフォルダ・選びは保つ', async () => {

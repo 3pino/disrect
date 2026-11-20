@@ -245,3 +245,95 @@ describe('検索（この端末）', () => {
     expect(row('in.txt').querySelector('[aria-pressed="true"]')).not.toBeNull();
   });
 });
+
+/** 狭い画面（Android など）: 右へのスワイプで場所の欄を出し、左へのスワイプ・外側・戻るで閉じる */
+describe('場所の欄（狭い画面のドロワー）', () => {
+  const setNarrow = (narrow: boolean): void => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (q: string) => ({ matches: narrow, media: q, addEventListener() {}, removeEventListener() {} }),
+    });
+  };
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).matchMedia;
+  });
+
+  /** 指で（x1,y1）から（x2,y2）へ動かす */
+  const swipe = (from: [number, number], to: [number, number], at: Element = target): void => {
+    const touch = (type: string, [x, y]: [number, number]): void => {
+      const ev = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'touches', { value: type === 'touchend' ? [] : [{ clientX: x, clientY: y }] });
+      at.dispatchEvent(ev);
+    };
+    touch('touchstart', from);
+    for (let i = 1; i <= 4; i++) touch('touchmove', [from[0] + ((to[0] - from[0]) * i) / 4, from[1] + ((to[1] - from[1]) * i) / 4]);
+    touch('touchend', to);
+  };
+  const nav = (): HTMLElement => target.querySelector<HTMLElement>('nav.places')!;
+  const isOpen = (): boolean => nav().classList.contains('places-open');
+
+  it('右へスワイプすると場所の欄が出る（バージョンの行も入っている）。左へスワイプすると閉じる', async () => {
+    setNarrow(true);
+    app = mount(App, { target });
+    await settle();
+    expect(isOpen()).toBe(false);
+    swipe([40, 300], [220, 310]);
+    flushSync();
+    expect(isOpen()).toBe(true);
+    expect(nav().querySelector('.about-row')).not.toBeNull();
+    expect(target.querySelector('.nav-scrim-open')).not.toBeNull();
+    swipe([220, 300], [40, 305], nav());
+    flushSync();
+    expect(isOpen()).toBe(false);
+  });
+
+  it('縦のスワイプ・短い動きでは出ない。広い画面（場所の欄がいつも見える）でも出さない', async () => {
+    setNarrow(true);
+    app = mount(App, { target });
+    await settle();
+    swipe([100, 100], [140, 400]);
+    swipe([100, 300], [130, 300]);
+    flushSync();
+    expect(isOpen()).toBe(false);
+    setNarrow(false);
+    swipe([40, 300], [220, 310]);
+    flushSync();
+    expect(isOpen()).toBe(false);
+  });
+
+  it('横にスクロールしている一覧の上のスワイプは、その一覧のスクロール（場所の欄を出さない）', async () => {
+    setNarrow(true);
+    app = mount(App, { target });
+    await settle();
+    const body = target.querySelector<HTMLElement>('.file-explorer-body')!;
+    body.style.overflowX = 'auto';
+    Object.defineProperty(body, 'scrollLeft', { value: 80, configurable: true });
+    swipe([40, 300], [220, 310], body);
+    flushSync();
+    expect(isOpen()).toBe(false);
+  });
+
+  it('外側（暗くした部分）を押す・戻る・場所を選ぶ、のどれでも閉じる', async () => {
+    setNarrow(true);
+    app = mount(App, { target });
+    await settle();
+    const open = async (): Promise<void> => {
+      swipe([40, 300], [220, 310]);
+      await settle();
+      expect(isOpen()).toBe(true);
+    };
+    await open();
+    target.querySelector<HTMLElement>('.nav-scrim')!.click();
+    await settle();
+    expect(isOpen()).toBe(false);
+    await open();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true }));
+    await settle();
+    expect(isOpen()).toBe(false);
+    await open();
+    nav().querySelector<HTMLButtonElement>('.menu-item')!.click();
+    await settle();
+    expect(isOpen()).toBe(false);
+  });
+});

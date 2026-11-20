@@ -31,7 +31,7 @@ function open(opts: { search?: Searcher; host?: Partial<ExplorerHost> } = {}) {
   if (opts.search) api.search = opts.search;
   const host = fakeHost(opts.host);
   const explorer: Explorer = createExplorer({
-    api, urls: fakeUrls, rules: PLAIN_RULES, host, labels: { root: 'いちばん上', upload: '取り込む' },
+    api, urls: fakeUrls, rules: PLAIN_RULES, host, labels: { root: 'いちばん上', upload: 'アップロード' },
     viewStore: { read: () => ({}), write: () => {} }, searchDelayMs: 0,
   });
   explorer.selection.desktop = true;

@@ -10,7 +10,7 @@ function make(over: Partial<ExplorerOptions> = {}) {
     urls: fakeUrls,
     rules: PLAIN_RULES,
     host: fakeHost(),
-    labels: { root: 'いちばん上', upload: '取り込む' },
+    labels: { root: 'いちばん上', upload: 'アップロード' },
     viewStore: { read: () => ({}), write: () => {} },
     ...over,
   });

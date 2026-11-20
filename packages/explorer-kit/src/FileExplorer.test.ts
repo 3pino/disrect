@@ -27,7 +27,7 @@ function open(entries = [dir('docs'), file('a.txt'), file('docs/inner.txt'), dir
   const api = fakeApi(entries);
   let saved: unknown = {};
   const explorer: Explorer = createExplorer({
-    api, urls: fakeUrls, rules: PLAIN_RULES, host: fakeHost(host), caps, labels: { root: 'いちばん上', upload: '取り込む' },
+    api, urls: fakeUrls, rules: PLAIN_RULES, host: fakeHost(host), caps, labels: { root: 'いちばん上', upload: 'アップロード' },
     viewStore: { read: () => saved, write: (m) => (saved = m) },
   });
   explorer.selection.desktop = true;

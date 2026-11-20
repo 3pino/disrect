@@ -42,7 +42,7 @@ optimizeDeps: { exclude: ['@3pino/explorer-kit', '@3pino/ui-kit-web'] },
 ```ts
 import { createExplorer } from '@3pino/explorer-kit';
 
-export const explorer = createExplorer({ api, urls, rules, host, viewStore, labels: { root: 'この端末', upload: '取り込む' } });
+export const explorer = createExplorer({ api, urls, rules, host, viewStore, labels: { root: 'この端末', upload: 'アップロード' } });
 ```
 
 ```svelte

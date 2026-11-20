@@ -1,4 +1,4 @@
-// フォルダごとの表示（explorerDirs）の純粋な部品のテスト。上限・並び・継承・旧い保存の読み替え。
+// フォルダごとの表示（explorerDirs）の純粋な部品のテスト。上限・並び・継承・古い保存の読み替え。
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_DIR_VIEW,
@@ -16,7 +16,7 @@ const GRID: DirView = { view: 'grid', sortKey: 'modified', sortOrder: 'desc' };
 
 
 describe('parseDirViewMap（保存された値を読む）', () => {
-  it('知らない値・型の違う値は捨て、残りは順番のまま。旧い「一覧」は詳細として読む', () => {
+  it('知らない値・型の違う値は捨て、残りは順番のまま。古い「一覧」は詳細として読む', () => {
     const map = parseDirViewMap({
       a: { view: 'hologram', sortKey: 'name', sortOrder: 'asc' },
       b: 3,
