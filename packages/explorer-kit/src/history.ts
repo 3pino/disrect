@@ -1,7 +1,7 @@
 import type { ExplorerApi, TrashEntry } from './types';
 
 // 元に戻す・やり直す（Ctrl+Z・Ctrl+Y）の履歴。画面に依らない。アプリ全体で 1 つ（タブ・置き場所をまたぐ）。
-// 対象: 名前の変更・移動・コピー・ゴミ箱へ移す・新しいファイル（フォルダ）。上書きを伴うもの・完全な削除・取り込み（アップロード）は、元に戻せないので積まない。
+// 対象: 名前の変更・移動・ペースト（コピーしたものの貼り付け）・ゴミ箱へ移す・新しいファイル（フォルダ）。上書きを伴うもの・完全な削除・取り込み（アップロード）は、元に戻せないので積まない。
 // 1 つの項目は、操作した置き場所（api）を持つので、別の置き場所を見ていても、同じ置き場所へ戻す。
 
 export type HistoryEntry = {
@@ -114,7 +114,7 @@ export function moveEntry(api: Pick<Api, 'move'>, moves: readonly { from: string
 export function copyEntry(api: Pick<Api, 'copy' | 'trash' | 'restore'>, copies: readonly { from: string; to: string }[], onChange: (path: string) => void = () => {}): HistoryEntry {
   const trashed = new Map<string, TrashEntry>();
   return {
-    label: copies.length === 1 ? `コピー: ${nameOf(copies[0].from)}` : `コピー: ${copies.length} 件`,
+    label: copies.length === 1 ? `ペースト: ${nameOf(copies[0].from)}` : `ペースト: ${copies.length} 件`,
     undo: () =>
       each(
         copies,

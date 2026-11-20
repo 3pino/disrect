@@ -33,7 +33,7 @@
   import { SEARCH_MAX_HITS } from './types';
   import Menu from '@3pino/ui-kit-web/Menu.svelte';
   import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
-  import { breadcrumbs, entryAction, kindLabel, sortEntries, type SortKey } from './listing';
+  import { breadcrumbs, entryAction, kindLabel, pathToText, sortEntries, textToPath, type SortKey } from './listing';
   import type { ViewMode } from './stores/view.svelte';
   import { baseName, parentOf } from './path';
   import { childPath, DOUBLE_CLICK_MS, EXPLORER_DRAG_DIR_TYPE, EXPLORER_DRAG_TYPE, inSpecialDir, setExplorerDragItems, overwriteConfirm, permanentDeleteConfirm, planUpload, renameAllowed, renameTarget, ruleTexts, sameNameEntry } from './ops';
@@ -53,7 +53,9 @@
     explorer: Explorer;
     /** ≡ のメニューの先頭に足す項目（本体の操作。引数は、押したあとにメニューを閉じる関数） */
     menu?: Snippet<[() => void]>;
-    /** パンくずの行の左に足す部品（本体の「戻る」「上へ」など） */
+    /** 項目を右クリックしたメニューの終わりに足す項目（1 件だけ選んでいるとき。本体の操作。引数は、選んだ項目と、押したあとにメニューを閉じる関数） */
+    entryMenu?: Snippet<[Entry, () => void]>;
+    /** 上端の左（道筋の欄の前）に足す部品（本体の「戻る」「進む」「上へ」など） */
     lead?: Snippet;
     /** 一覧の操作のホットキー（`search`・`open`・`rename`・`clearSelection`）。省いたものは、既定（EXPLORER_HOTKEYS） */
     keymap?: Keymap;
@@ -260,6 +262,60 @@
     else openSearch();
   }
   /** Esc: 選んでいる項目があれば、選びを外す（入力中・名前の書き換え中・ダイアログやメニューが開いているときは、そちらの Esc） */
+  // ---- 道筋の欄（押すと、書き換えられる。Ctrl+L でも） ----
+  let pathEditing = $state(false);
+  let pathText = $state('');
+  let pathInput: HTMLInputElement | undefined = $state();
+  let pathBusy = false;
+  function startPathEdit(): void {
+    pathText = pathToText(fileExplorer.dir);
+    pathEditing = true;
+    void tick().then(() => {
+      pathInput?.focus();
+      pathInput?.select();
+    });
+  }
+  /** 打った道筋へ移る。開けない道筋（無い・フォルダでない）なら、理由を出して、書き換えを続ける */
+  async function commitPath(): Promise<void> {
+    if (pathBusy) return;
+    const dir = textToPath(pathText);
+    if (dir === fileExplorer.dir) {
+      pathEditing = false;
+      return;
+    }
+    pathBusy = true;
+    try {
+      await api.list(dir);
+      fileExplorer.open(dir);
+      pathEditing = false;
+    } catch (err) {
+      host.toast(`開けません: ${host.errorText(err)}`, 'error');
+    } finally {
+      pathBusy = false;
+    }
+  }
+  function pathKey(ev: KeyboardEvent): void {
+    if (ev.key === 'Enter' && !ev.isComposing) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      void commitPath();
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      pathEditing = false;
+    }
+  }
+  /** 欄の、パンくずのボタンでないところを押したら、書き換えを始める */
+  function pathFieldClick(ev: MouseEvent): void {
+    if (pathEditing || (ev.target instanceof Element && ev.target.closest('.file-explorer-crumb'))) return;
+    startPathEdit();
+  }
+  // フォルダが変わったら、書き換えは終える
+  $effect(() => {
+    void fileExplorer.dir;
+    untrack(() => (pathEditing = false));
+  });
+
   function escapeKey(ev: KeyboardEvent): void {
     if (ev.defaultPrevented || !matchesHotkey(ev, keysOf('clearSelection'))) return;
     if (explorerSelection.count === 0 || renamingPath !== null) return;
@@ -343,6 +399,7 @@
     else if (is('paste') && canPaste && !pasting) run(() => void pasteAny());
     else if (is('trash') && some && deleteBlocked === null && !actionBusy) run(removeSelected);
     else if (is('delete') && some && deleteBlocked === null && !actionBusy) run(removeSelectedForever);
+    else if (is('editPath')) run(startPathEdit);
     else if (is('newFile') && canCreate) run(openMkdir);
     else if (is('viewDetails')) run(() => setView('details'));
     else if (is('viewGrid')) run(() => setView('grid'));
@@ -1516,7 +1573,7 @@
   function onbodyclick(ev: MouseEvent): void {
     if (bandJustEnded) return;
     if (!explorerSelection.showing || ctx) return;
-    if (ev.target instanceof Element && ev.target.closest('.file-explorer-item, .file-explorer-menu, .menu-backdrop, .file-explorer-bar, .file-explorer-crumbs, .file-explorer-columns')) return;
+    if (ev.target instanceof Element && ev.target.closest('.file-explorer-item, .file-explorer-menu, .menu-backdrop, .file-explorer-bar, .file-explorer-footer, .file-explorer-columns')) return;
     explorerSelection.clear();
   }
 
@@ -1674,9 +1731,31 @@
     // 切り取りで移動したものを外す。接続先が変わった場合は、新しいバッファには触らない。
     if (op === 'move') explorerBuffer.remove([...result.done, ...result.skipped].map((i) => i.path));
     recordTransfer(result);
+    // 同じフォルダへのコピー（` copy` を付けた名前になる）は、そのまま名前の書き換えに入る
+    const only = result.applied.length === 1 && op === 'copy' ? result.applied[0] : null;
+    if (only && parentOf(only.from) === parentOf(only.to) && parentOf(only.to) === fileExplorer.dir) {
+      pendingRename = only.to;
+      setTimeout(() => {
+        if (pendingRename === only.to) pendingRename = null;
+      }, 5000);
+    }
     const msg = transferFailure(result);
     if (msg) host.toast(msg, 'error');
   }
+
+  /** コピーしてできた項目を、一覧に現れたら、名前の書き換えに入る（一覧の読み直しを待つ） */
+  let pendingRename = $state<string | null>(null);
+  $effect(() => {
+    const path = pendingRename;
+    if (path === null) return;
+    const made = shownEntries.find((e) => e.path === path);
+    if (!made) return;
+    untrack(() => {
+      pendingRename = null;
+      explorerSelection.replace([path]);
+      startRename(made);
+    });
+  });
 
   /** 移動・コピーを、元に戻せる履歴に積む（上書きしたものは、元に戻せないので積まない。コピーは、ゴミ箱へ入れて戻すので、ゴミ箱を戻せる置き場所だけ） */
   function recordTransfer(result: TransferResult): void {
@@ -1937,46 +2016,42 @@
   ondragenter={explorerDragEnter}
   ondragleave={explorerDragLeave}
 >
-  <!-- 上端は常に同じ（選択のバー + ≡）。選んでいないときは件数（フォルダ内の項目数）を出し、操作は選ぶまで押せない -->
+  <!-- 上端: 戻る・上へ（本体が足す）と、道筋の欄（押すと書き換えられる）。右に、検索と ≡ -->
   <PanelBar class="file-explorer-bar">
-    <div class="file-explorer-selection" role="toolbar" aria-label="選んだ項目の操作">
-      <span class="file-explorer-selection-count" aria-live="polite">{countLabel}</span>
-      <div class="file-explorer-selection-actions">
-        {#if listing?.kind === 'ok' && explorerSelection.showing}
-          <IconButton label="すべて選ぶ" title="すべて選ぶ" onclick={() => explorerSelection.selectAll([...listing.entries.values()].map((e) => e.path))}><SquareCheck size={18} /></IconButton>
-        {/if}
-        <IconButton label="コピー" title={copyBlocked ?? selectionReason('コピー')} disabled={noneSelected || copyBlocked !== null} onclick={copySelected}><Copy size={18} /></IconButton>
-        <IconButton label="切り取り" title={cutBlocked ?? selectionReason('切り取り')} disabled={noneSelected || cutBlocked !== null} onclick={cutSelected}><Scissors size={18} /></IconButton>
-        <!-- 貼り付けは選ばなくても押せる（アプリ内でコピーしたもの、または OS のクリップボードの中身） -->
-        <span class="file-explorer-paste" role="presentation" onpointerenter={showPastePreview} onpointerleave={hidePastePreview} onfocusin={showPastePreview} onfocusout={hidePastePreview}>
-          <IconButton label="貼り付け" title={canPaste ? undefined : 'コピー・切り取りすると貼り付けられます'} disabled={!canPaste || pasting} onclick={() => { hidePastePreview(); void pasteAny(); }}><ClipboardPaste size={18} /></IconButton>
-          {#if pastePreview}
-            <div class="file-explorer-paste-preview" role="tooltip">
-              {#if pastePreview.kind === 'items'}
-                <p class="file-explorer-paste-head">{pastePreview.op === 'move' ? '移動' : 'コピー'}: {pastePreview.total} 件</p>
-                <ul>
-                  {#each pastePreview.names as n (n)}<li>{n}</li>{/each}
-                  {#if pastePreview.total > pastePreview.names.length}<li class="muted">ほか {pastePreview.total - pastePreview.names.length} 件</li>{/if}
-                </ul>
-              {:else if pastePreview.kind === 'image'}
-                <p class="file-explorer-paste-head">画像</p>
-                <img src={pastePreview.url} alt="貼り付ける画像" />
-              {:else if pastePreview.kind === 'text'}
-                <p class="file-explorer-paste-head">文字（.txt のファイルにします）</p>
-                <pre>{pastePreview.text}{pastePreview.more ? '…' : ''}</pre>
-              {:else}
-                <p class="muted">貼り付けられるものがありません</p>
-              {/if}
-            </div>
-          {/if}
-        </span>
-        {#if allWhole}
-          <IconButton label="元へ戻す" title={selectionReason('元へ戻す')} disabled={noneSelected || actionBusy} onclick={() => void restoreSelected()}><RotateCcw size={18} /></IconButton>
-          <IconButton class="file-explorer-danger" label="完全削除" title={deleteBlocked ?? selectionReason('完全削除')} disabled={noneSelected || deleteBlocked !== null || actionBusy} onclick={removeSelected}><Trash size={18} /></IconButton>
-        {:else}
-          <IconButton class="file-explorer-danger" label="削除" title={deleteBlocked ?? selectionReason('削除')} disabled={noneSelected || deleteBlocked !== null || actionBusy} onclick={removeSelected}><Trash size={18} /></IconButton>
-        {/if}
-      </div>
+    {@render props.lead?.()}
+    <!-- 道筋の欄。パンくずのボタンは、押すとその場所へ（ドロップ先でもある）。ボタンでないところを押すか Ctrl+L で、道筋の文字を書き換えられる -->
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="file-explorer-path" class:file-explorer-path-editing={pathEditing} onclick={pathFieldClick}>
+      {#if pathEditing}
+        <input
+          bind:this={pathInput}
+          class="file-explorer-path-input"
+          type="text"
+          aria-label="道筋"
+          autocomplete="off"
+          spellcheck="false"
+          bind:value={pathText}
+          onkeydown={pathKey}
+          onblur={() => (pathEditing = false)}
+        />
+      {:else}
+        <nav class="file-explorer-crumbs" aria-label="場所">
+          <!-- パンくずもドロップ先（内部 DnD でそのフォルダへ移動・コピー） -->
+          <button type="button" class="file-explorer-crumb" data-drop-dir="" class:file-explorer-crumb-drag-over={dragTarget === '__crumb__'}
+            onclick={() => fileExplorer.open('')}
+            ondragover={(ev) => crumbDragOver(ev, '')}
+            ondragleave={() => crumbDragLeave('')}
+            ondrop={(ev) => void crumbDrop(ev, '')}>{labels.root}</button>
+          {#each crumbs as c (c.path)}
+            <ChevronRight size={12} />
+            <button type="button" class="file-explorer-crumb" data-drop-dir={c.path} class:file-explorer-crumb-drag-over={dragTarget === '__crumb__' + c.path}
+              onclick={() => fileExplorer.open(c.path)}
+              ondragover={(ev) => crumbDragOver(ev, c.path)}
+              ondragleave={() => crumbDragLeave(c.path)}
+              ondrop={(ev) => void crumbDrop(ev, c.path)}>{c.name}</button>
+          {/each}
+        </nav>
+      {/if}
     </div>
     {#snippet actions()}
     <IconButton label="検索" title="検索（Ctrl+F）" active={search.open} aria-pressed={search.open} onclick={() => (search.open ? closeSearch() : openSearch())}><SearchIcon size={18} /></IconButton>
@@ -2005,24 +2080,6 @@
     <input bind:this={fileInput} type="file" multiple hidden onchange={onPicked} />
     {/snippet}
   </PanelBar>
-  <!-- パンくず: 上端の下の行。場所を示すだけ（押すと、その場所へ） -->
-  <nav class="file-explorer-crumbs" aria-label="場所">
-    {@render props.lead?.()}
-    <!-- パンくずもドロップ先（内部 DnD でそのフォルダへ移動・コピー） -->
-    <button type="button" class="file-explorer-crumb" data-drop-dir="" class:file-explorer-crumb-drag-over={dragTarget === '__crumb__'}
-      onclick={() => fileExplorer.open('')}
-      ondragover={(ev) => crumbDragOver(ev, '')}
-      ondragleave={() => crumbDragLeave('')}
-      ondrop={(ev) => void crumbDrop(ev, '')}>{labels.root}</button>
-    {#each crumbs as c (c.path)}
-      <ChevronRight size={12} />
-      <button type="button" class="file-explorer-crumb" data-drop-dir={c.path} class:file-explorer-crumb-drag-over={dragTarget === '__crumb__' + c.path}
-        onclick={() => fileExplorer.open(c.path)}
-        ondragover={(ev) => crumbDragOver(ev, c.path)}
-        ondragleave={() => crumbDragLeave(c.path)}
-        ondrop={(ev) => void crumbDrop(ev, c.path)}>{c.name}</button>
-    {/each}
-  </nav>
 
   {#if search.open}
     <div class="file-explorer-search" role="search">
@@ -2257,6 +2314,48 @@
       </ul>
     {/if}
   </div>
+  <!-- 下端: 件数と、選んだ項目の操作。選んでいないときは件数（フォルダ内の項目数）を出し、操作は選ぶまで押せない -->
+  <footer class="file-explorer-footer">
+    <div class="file-explorer-selection" role="toolbar" aria-label="選んだ項目の操作">
+      <span class="file-explorer-selection-count" aria-live="polite">{countLabel}</span>
+      <div class="file-explorer-selection-actions">
+        {#if listing?.kind === 'ok' && explorerSelection.showing}
+          <IconButton label="すべて選ぶ" title="すべて選ぶ" onclick={() => explorerSelection.selectAll([...listing.entries.values()].map((e) => e.path))}><SquareCheck size={18} /></IconButton>
+        {/if}
+        <IconButton label="コピー" title={copyBlocked ?? selectionReason('コピー')} disabled={noneSelected || copyBlocked !== null} onclick={copySelected}><Copy size={18} /></IconButton>
+        <IconButton label="切り取り" title={cutBlocked ?? selectionReason('切り取り')} disabled={noneSelected || cutBlocked !== null} onclick={cutSelected}><Scissors size={18} /></IconButton>
+        <!-- 貼り付けは選ばなくても押せる（アプリ内でコピーしたもの、または OS のクリップボードの中身） -->
+        <span class="file-explorer-paste" role="presentation" onpointerenter={showPastePreview} onpointerleave={hidePastePreview} onfocusin={showPastePreview} onfocusout={hidePastePreview}>
+          <IconButton label="貼り付け" title={canPaste ? undefined : 'コピー・切り取りすると貼り付けられます'} disabled={!canPaste || pasting} onclick={() => { hidePastePreview(); void pasteAny(); }}><ClipboardPaste size={18} /></IconButton>
+          {#if pastePreview}
+            <div class="file-explorer-paste-preview" role="tooltip">
+              {#if pastePreview.kind === 'items'}
+                <p class="file-explorer-paste-head">{pastePreview.op === 'move' ? '移動' : 'コピー'}: {pastePreview.total} 件</p>
+                <ul>
+                  {#each pastePreview.names as n (n)}<li>{n}</li>{/each}
+                  {#if pastePreview.total > pastePreview.names.length}<li class="muted">ほか {pastePreview.total - pastePreview.names.length} 件</li>{/if}
+                </ul>
+              {:else if pastePreview.kind === 'image'}
+                <p class="file-explorer-paste-head">画像</p>
+                <img src={pastePreview.url} alt="貼り付ける画像" />
+              {:else if pastePreview.kind === 'text'}
+                <p class="file-explorer-paste-head">文字（.txt のファイルにします）</p>
+                <pre>{pastePreview.text}{pastePreview.more ? '…' : ''}</pre>
+              {:else}
+                <p class="muted">貼り付けられるものがありません</p>
+              {/if}
+            </div>
+          {/if}
+        </span>
+        {#if allWhole}
+          <IconButton label="元へ戻す" title={selectionReason('元へ戻す')} disabled={noneSelected || actionBusy} onclick={() => void restoreSelected()}><RotateCcw size={18} /></IconButton>
+          <IconButton class="file-explorer-danger" label="完全削除" title={deleteBlocked ?? selectionReason('完全削除')} disabled={noneSelected || deleteBlocked !== null || actionBusy} onclick={removeSelected}><Trash size={18} /></IconButton>
+        {:else}
+          <IconButton class="file-explorer-danger" label="削除" title={deleteBlocked ?? selectionReason('削除')} disabled={noneSelected || deleteBlocked !== null || actionBusy} onclick={removeSelected}><Trash size={18} /></IconButton>
+        {/if}
+      </div>
+    </div>
+  </footer>
 </div>
 
 {#if bandBox}
@@ -2287,6 +2386,7 @@
         {/if}
         {#if only}
           <MenuItem icon={Info} onclick={() => runCtx(() => (propsEntry = only))}>プロパティ</MenuItem>
+          {@render props.entryMenu?.(only, () => (ctx = null))}
         {/if}
       </Menu>
     {:else}
@@ -2395,19 +2495,58 @@
     white-space: nowrap;
     font-size: var(--fs-sm, 0.85em);
   }
+  /* 道筋の欄: 入力欄のような見た目（押すと書き換えられる）。パンくずは、はみ出したら横にスクロールする */
+  .file-explorer-path {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    cursor: text;
+  }
+  .file-explorer-path:hover {
+    border-color: var(--border-strong, var(--text-muted));
+  }
+  .file-explorer-path-editing {
+    border-color: var(--accent);
+  }
+  .file-explorer-path-input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-1) var(--space-2);
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+  }
   .file-explorer-crumbs {
-    flex: none;
+    flex: 1;
     min-width: 0;
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    padding: var(--space-1) var(--space-4);
     overflow-x: auto;
     white-space: nowrap;
-    background: var(--surface-2);
-    border-bottom: 1px solid var(--border);
+    scrollbar-width: none;
     color: var(--text-muted);
-    font-size: var(--fs-xs);
+    font-size: var(--fs-sm);
+  }
+  .file-explorer-crumbs::-webkit-scrollbar {
+    display: none;
+  }
+  /* 下端: 件数と、選んだ項目の操作 */
+  .file-explorer-footer {
+    flex: none;
+    display: flex;
+    padding: var(--space-2) var(--space-4);
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
   }
   .file-explorer-crumb {
     padding: var(--space-1) var(--space-2);
@@ -2540,7 +2679,7 @@
   .file-explorer-item-cut {
     opacity: 0.5;
   }
-  /* 上端のバーの左（件数と操作）。残りの幅を使い、狭いときは折り返す */
+  /* 下端のバー（件数と操作）。残りの幅を使い、狭いときは折り返す */
   .file-explorer-selection {
     flex: 1;
     min-width: 0;
@@ -2561,7 +2700,6 @@
     align-items: center;
     gap: var(--space-1);
     margin-left: auto;
-    margin-right: var(--space-6);
   }
   /* 選んだ項目は、行全体（「…」を含む）を明るい水色にする。「…」は詳細では右端に固定して下が透けないよう、色は不透明 */
   /* 貼り付けのボタンに乗せたときの、貼る内容の一覧 */
@@ -2571,7 +2709,7 @@
   }
   .file-explorer-paste-preview {
     position: absolute;
-    top: calc(100% + var(--space-2));
+    bottom: calc(100% + var(--space-2));
     right: 0;
     z-index: 20;
     width: max-content;
@@ -2649,6 +2787,8 @@
     top: 0;
     left: 0;
     min-width: 12em;
+    /* 項目の文字を折り返さない（本体が足す項目の名前が長くても） */
+    width: max-content;
   }
   /* z-index は指定しない（design-system の .menu は --z-menu。ここで下げると外側の幕（-1）に覆われて項目が押せない） */
   .file-explorer-popup > :global(.file-explorer-popup-menu) {
@@ -2677,9 +2817,9 @@
   .file-explorer-view-details {
     min-width: 540px;
   }
-  /* 下に項目 2 つ分の空き（押すと選択を解除できる場所） */
+  /* 下に項目 1 つ分の空き（押すと選択を解除できる場所） */
   .file-explorer-view-details {
-    padding-bottom: calc(2 * (2 * var(--space-4) + 1.5em));
+    padding-bottom: calc(2 * var(--space-4) + 1.5em);
   }
   .file-explorer-view-details .file-explorer-name,
   .file-explorer-columns .file-explorer-col-name {
@@ -2815,8 +2955,8 @@
   }
   /* キーボードで移ったとき（フォーカスのある項目）。マウスで押しただけでは出ない */
   .file-explorer-row:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
   }
   /* アイコン（詳細）。選択モードの印と同じ箱（18px）に入れ、置き換えても位置がずれないようにする */
   .file-explorer-icon {

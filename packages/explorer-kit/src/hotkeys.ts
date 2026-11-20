@@ -6,7 +6,7 @@ export type KeyEventLike = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | '
 
 /** 名前のあるキー（手で書いた文字の、大文字小文字をそろえる）。イベントのキーの名前と同じ綴り */
 const NAMED = new Map(
-  ['Enter', 'Tab', 'Escape', 'Space', 'Backspace', 'Delete', 'Insert', 'Home', 'End', 'PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ...Array.from({ length: 24 }, (_, i) => `F${i + 1}`)].map((n) => [n.toLowerCase(), n] as const),
+  ['Mouse4', 'Mouse5', 'Enter', 'Tab', 'Escape', 'Space', 'Backspace', 'Delete', 'Insert', 'Home', 'End', 'PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ...Array.from({ length: 24 }, (_, i) => `F${i + 1}`)].map((n) => [n.toLowerCase(), n] as const),
 ).set('esc', 'Escape');
 
 const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'OS']);
@@ -23,6 +23,23 @@ export function hotkeyFromEvent(e: KeyEventLike): string | null {
   else base = e.key.length === 1 ? e.key.toUpperCase() : e.key;
   const mods = [e.ctrlKey || e.metaKey ? 'Ctrl' : '', e.altKey ? 'Alt' : '', e.shiftKey ? 'Shift' : ''].filter(Boolean);
   return [...mods, base].join('+');
+}
+
+/** マウスのボタンのイベント（戻る・進むのボタン） */
+export type MouseEventLike = Pick<MouseEvent, 'button' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>;
+
+/** マウスの「戻る」（4 番目）「進む」（5 番目）のボタンから、ホットキーの文字（`Mouse4`・`Mouse5`）を作る。ほかのボタンは null */
+export function hotkeyFromMouse(e: MouseEventLike): string | null {
+  const base = e.button === 3 ? 'Mouse4' : e.button === 4 ? 'Mouse5' : null;
+  if (base === null) return null;
+  const mods = [e.ctrlKey || e.metaKey ? 'Ctrl' : '', e.altKey ? 'Alt' : '', e.shiftKey ? 'Shift' : ''].filter(Boolean);
+  return [...mods, base].join('+');
+}
+
+/** マウスのボタンが、ホットキーのどれかに当たるか */
+export function matchesMouse(e: MouseEventLike, keys: readonly string[]): boolean {
+  const pressed = hotkeyFromMouse(e);
+  return pressed !== null && keys.some((k) => normalizeHotkey(k) === pressed);
 }
 
 /** 書かれたホットキーの文字を、イベントから作る文字と同じ形にそろえる（大文字小文字・並び順・Cmd・Control）。読めなければ null */
@@ -54,7 +71,7 @@ export function matchesHotkey(e: KeyEventLike, keys: readonly string[]): boolean
   return pressed !== null && keys.some((k) => normalizeHotkey(k) === pressed);
 }
 
-const SHOWN: Record<string, string> = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Escape: 'Esc', ' ': 'Space' };
+const SHOWN: Record<string, string> = { Mouse4: 'マウス戻る', Mouse5: 'マウス進む', ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Escape: 'Esc', ' ': 'Space' };
 
 /** 画面に出す形（`Alt+ArrowLeft` → `Alt+←`） */
 export function formatHotkey(text: string): string {
@@ -74,6 +91,7 @@ export function isPlainHotkey(text: string): boolean {
 
 export type ExplorerHotkeyId =
   | 'search'
+  | 'editPath'
   | 'open'
   | 'rename'
   | 'clearSelection'
@@ -97,6 +115,7 @@ export type Keymap = Partial<Record<ExplorerHotkeyId, readonly string[]>>;
 /** 既定のホットキー。部品の利用者は、`keymap` で置き換えられる（空の一覧は、キーを割り当てない） */
 export const EXPLORER_HOTKEYS: Record<ExplorerHotkeyId, readonly string[]> = {
   search: ['Ctrl+F'],
+  editPath: ['Ctrl+L'],
   open: ['Enter'],
   rename: ['F2'],
   clearSelection: ['Escape'],

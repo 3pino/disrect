@@ -79,3 +79,24 @@ describe('sortEntries（作成日時）', () => {
     expect(sortEntries(list(), 'created', 'desc').map((x) => x.name)).toEqual(['zdir', 'b.txt', 'c.txt', 'a.txt']);
   });
 });
+
+describe('道筋の欄の文字（pathToText・textToPath）', () => {
+  it('表示は、先頭に / を付ける。ドライブ（C:）・ネットワーク（\\\\nas\\share）は、そのまま', () => {
+    expect(listing.pathToText('')).toBe('/');
+    expect(listing.pathToText('home/me')).toBe('/home/me');
+    expect(listing.pathToText('C:/Users/me')).toBe('C:/Users/me');
+    expect(listing.pathToText('\\\\nas\\share/a')).toBe('\\\\nas\\share/a');
+  });
+  it('打った文字は、/ も \\ も区切りにして、. と .. を解いた、画面のパスにする', () => {
+    expect(listing.textToPath('/home/me/')).toBe('home/me');
+    expect(listing.textToPath('  home//me/./docs ')).toBe('home/me/docs');
+    expect(listing.textToPath('/home/me/../you')).toBe('home/you');
+    expect(listing.textToPath('/')).toBe('');
+    expect(listing.textToPath('')).toBe('');
+    expect(listing.textToPath('C:\\Users\\me')).toBe('C:/Users/me');
+    expect(listing.textToPath('\\\\nas\\share\\a\\b')).toBe('\\\\nas\\share/a/b');
+    expect(listing.textToPath('\\\\wsl$\\Ubuntu')).toBe('\\\\wsl$\\Ubuntu');
+    // 往復
+    for (const d of ['', 'home/me', 'C:/Users', '\\\\nas\\share/a']) expect(listing.textToPath(listing.pathToText(d))).toBe(d);
+  });
+});

@@ -53,6 +53,9 @@
   const TAB_DRAG = 'application/x-fixplor-tab';
   let menu = $state.raw<{ id: number; x: number; y: number } | null>(null);
   let dragging = $state<number | null>(null);
+  /** 動かしているタブの元の位置を見せなくする（ドラッグの絵を取ったあとで。ずれた隣のタブと重なって見えるため） */
+  let dragHidden = $state(false);
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
   let over = $state<number | null>(null);
   /** 動かしているタブの幅（+ すき間）。ほかのタブをずらす量 */
   let dragShift = $state(0);
@@ -157,6 +160,12 @@
     const el = ev.currentTarget as HTMLElement;
     const gap = scroller ? parseFloat(getComputedStyle(scroller).columnGap) || 0 : 0;
     dragShift = el.getBoundingClientRect().width + gap;
+    // ブラウザがドラッグの絵を取るのは、この処理のあと。先に消すと、絵も消えるので、少し待つ
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      hideTimer = null;
+      if (dragging !== null) dragHidden = true;
+    }, 0);
     ev.dataTransfer?.setData(TAB_DRAG, String(i));
     if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
   }
@@ -286,6 +295,9 @@
     dropFolders(ev);
   }
   function reset(): void {
+    dragHidden = false;
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = null;
     dragging = null;
     over = null;
     ghostAt = null;
@@ -307,7 +319,7 @@
           class="tab"
           class:tab-active={t.id === activeId}
           class:tab-over={over === i && dragging !== null && dragging !== i}
-          class:tab-dragging={dragging === i}
+          class:tab-dragging={dragging === i && dragHidden}
           data-tab-id={t.id}
           style:transform={shiftOf(i) === 0 ? undefined : `translateX(${shiftOf(i)}px)`}
           role="presentation"
@@ -394,6 +406,11 @@
     gap: var(--space-1);
     min-width: 0;
     overflow-x: auto;
+    /* 縦には動かさない（アクティブなタブの下の 1px のはみ出しで、縦にスクロールできてしまうので、その分を中に取る） */
+    overflow-y: hidden;
+    padding-bottom: 1px;
+    margin-bottom: -1px;
+    align-items: flex-end;
     /* バーは出さない（続きがあることは、端の影で見せる） */
     scrollbar-width: none;
   }
@@ -449,8 +466,9 @@
   .tab-over {
     outline: 2px solid var(--accent);
   }
+  /* 動かしているタブの元の位置: 空きは、隣のタブがずれて埋める（残すと、ずれたタブと重なって見える） */
   .tab-dragging {
-    opacity: 0.5;
+    opacity: 0;
   }
   /* フォルダを落とすと、ここに新しいタブができる、という見せ方 */
   .tab-ghost {
@@ -515,7 +533,9 @@
     position: fixed;
     z-index: var(--z-menu, 50);
   }
+  /* .menu は位置を持たない。position が無いと z-index が効かず、外側を押したら閉じる幕（fixed）が、メニューを覆ってしまう */
   .tab-menu-anchor :global(.tab-menu) {
+    position: absolute;
     top: 0;
     left: 0;
   }

@@ -82,7 +82,7 @@ describe('操作ごとの履歴', () => {
   it('コピーは、元に戻すとコピーをゴミ箱へ入れ、やり直しは、入れたコピーを戻す', async () => {
     const api = fakeApi();
     const e = copyEntry(api, [{ from: 'a.txt', to: 'b/a.txt' }]);
-    expect(e.label).toBe('コピー: a.txt');
+    expect(e.label).toBe('ペースト: a.txt');
     await e.undo();
     await e.redo();
     expect(api.log).toEqual(['trash b/a.txt', 'restore t1']);

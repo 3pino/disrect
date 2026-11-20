@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Keyboard from '@lucide/svelte/icons/keyboard';
@@ -19,7 +19,10 @@
   // 確認は、押したときだけ（裏の確認は updateWatch が行う）。
   let {
     updater,
+    addBack,
   }: {
+    /** 「戻る」の操作（Alt+←・マウスの戻る・Android の戻る）を受ける層を足す（外す関数を返す）。ホットキーの画面のあいだ、設定のいちばん上へ戻る */
+    addBack?: (run: () => void) => () => void;
     updater: {
       supported: boolean;
       version: string | null;
@@ -38,6 +41,12 @@
   const mb = (n: number): string => (n / 1024 / 1024).toFixed(1);
 
   onMount(() => void updater.loadVersion());
+  // ホットキーの画面では、「戻る」の操作は、設定のいちばん上へ戻る
+  $effect(() => {
+    if (sub === null || !addBack) return;
+    // 層を足す処理は、状態を読み書きするので、この効果の依存にしない
+    return untrack(() => addBack(() => (sub = null)));
+  });
 </script>
 
 <div class="settings-view" role="region" aria-label="設定">

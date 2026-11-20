@@ -4,8 +4,9 @@
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import Eye from '@lucide/svelte/icons/eye';
   import Check from '@lucide/svelte/icons/check';
-  import Plus from '@lucide/svelte/icons/plus';
-  import Pencil from '@lucide/svelte/icons/pencil';
+  import ArrowRight from '@lucide/svelte/icons/arrow-right';
+  import BookmarkIcon from '@lucide/svelte/icons/bookmark';
+  import BookmarkX from '@lucide/svelte/icons/bookmark-x';
   import FileExplorer from '@3pino/explorer-kit/FileExplorer.svelte';
   import TabBar from './components/TabBar.svelte';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
@@ -15,6 +16,8 @@
   import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
   import { hotkeys } from './lib/hotkeys.svelte';
   import PlaceDialog from './components/PlaceDialog.svelte';
+  import PlacesNav, { type NavEntry } from './components/PlacesNav.svelte';
+  import { bookmarks } from './lib/bookmarks.svelte';
   import CertDialog from './components/CertDialog.svelte';
   import SettingsView from './components/SettingsView.svelte';
   import Settings from '@lucide/svelte/icons/settings';
@@ -343,7 +346,10 @@
     const was = needAllFiles;
     needAllFiles = !granted;
     if (granted && was) {
-      if (localFs) places = await localFs.places();
+      if (localFs) {
+        places = await localFs.places();
+        seedBookmarks();
+      }
       for (const t of tabs) for (const b of t.bundles.values()) b.explorer.nav.reload();
     }
   }
@@ -361,6 +367,7 @@
       try {
         localFs = await createLocalFs({ showHidden: () => settings.showHidden });
         places = await localFs.places();
+        seedBookmarks();
         // 差した SD カード（あれば、それぞれを別の置き場所として）
         const vols = await localFs.volumes();
         sdList = [];
@@ -412,20 +419,110 @@
     if (b) setCurrent(b);
   }
 
-  /** Android: 差した SD カードを開く（このタブで） */
-  function openSd(id: string): void {
-    if (activeTab().settings) return addTab({ place: SD + id, dir: '' });
-    const b = bundleIn(activeTab(), SD + id);
-    if (b) setCurrent(b);
-  }
-
-  /** この端末の場所を開く（ネットワークの場所を見ていたら、この端末へ戻る） */
-  function go(path: string): void {
-    if (activeTab().settings) return addTab({ place: LOCAL, dir: path });
-    const b = bundleIn(activeTab(), LOCAL);
+  /**
+   * 場所（置き場所 + フォルダ）を開く。here: このタブで（フォルダを省くと、その置き場所で最後に見ていたところ）/ tab: 新しいタブで / window: 新しいウィンドウで
+   * （ウィンドウの操作が無い環境では、新しいタブ）。設定のタブを見ているときは、設定を残して、新しいタブで開く
+   */
+  function openAt(place: string, dir?: string, how: 'here' | 'tab' | 'window' = 'here'): void {
+    if (how === 'window' && windowControls) {
+      void openTabInNewWindow({ place, dir: dir ?? startDir(place) }).catch((e) => host.toast(`別のウィンドウで開けませんでした: ${failureText(e)}`, 'error'));
+      return;
+    }
+    if (how !== 'here' || activeTab().settings) return addTab({ place, dir: dir ?? startDir(place) });
+    const b = bundleIn(activeTab(), place);
     if (!b) return;
     setCurrent(b);
-    b.explorer.nav.open(path);
+    if (dir !== undefined) b.explorer.nav.open(dir);
+  }
+
+  /** 置き場所の名前（左の欄・ブックマークの名前に使う） */
+  function placeName(place: string): string {
+    if (place === LOCAL) return localFs?.windows ? 'PC' : 'コンピューター';
+    if (place.startsWith(SD)) return sdList.find((s) => SD + s.id === place)?.name ?? place;
+    return saved.get(place)?.name ?? place;
+  }
+
+  /** 置き場所が、いま使えるか（外した置き場所・抜いた SD カードのブックマークは、出さない） */
+  const placeExists = (place: string): boolean => place === LOCAL || (place.startsWith(SD) ? sdList.some((s) => SD + s.id === place) : saved.get(place) !== undefined);
+
+  // ---- 左の欄: ブックマーク（追加・削除できる）と、ドライブ（この端末のドライブ・SD カード・WSL・ネットワークの場所） ----
+
+  /** ブックマークの名前: フォルダの名前。いちばん上は置き場所の名前、ドライブはその名前 */
+  function bookmarkName(place: string, dir: string): string {
+    if (dir === '') return placeName(place);
+    const drive = place === LOCAL ? places.find((p) => (p.kind === 'volume' || p.kind === 'root') && p.path === dir) : undefined;
+    return drive ? placeLabel(drive) : baseName(dir) || dir;
+  }
+
+  const hereOf = (): { place: string; dir: string } | null => (!current || !explorer || activeSettings ? null : { place: current.id, dir: explorer.nav.dir });
+  const canAddBookmark = $derived.by(() => {
+    const h = hereOf();
+    return h !== null && !bookmarks.find(h.place, h.dir);
+  });
+  /** いま見ているフォルダを、ブックマークに足す */
+  function addBookmarkHere(): void {
+    const h = hereOf();
+    if (h) bookmarks.add(h.place, h.dir, bookmarkName(h.place, h.dir));
+  }
+  /** いま見ている置き場所の、フォルダ（パス）を足す（ドラッグして落としたとき・右クリックのメニュー） */
+  function addBookmarks(paths: string[]): void {
+    const place = current?.id;
+    if (!place) return;
+    for (const dir of paths) bookmarks.add(place, dir, bookmarkName(place, dir));
+  }
+
+  const bookmarkEntries = $derived<NavEntry[]>(
+    bookmarks.list
+      .filter((b) => placeExists(b.place))
+      .map((b) => ({
+        key: b.id,
+        label: b.name,
+        title: b.place === LOCAL ? undefined : `${placeName(b.place)}: ${b.dir || '/'}`,
+        current: !activeSettings && current?.id === b.place && explorer?.nav.dir === b.dir,
+        open: () => openAt(b.place, b.dir),
+        openTab: () => openAt(b.place, b.dir, 'tab'),
+        openWindow: () => openAt(b.place, b.dir, 'window'),
+        remove: () => bookmarks.remove(b.id),
+      })),
+  );
+
+  const driveEntries = $derived<NavEntry[]>([
+    ...places
+      .filter((p) => p.kind === 'volume' || p.kind === 'root')
+      .map((p) => ({
+        key: `drive:${p.path}`,
+        label: placeLabel(p),
+        // ドライブの中を見ているあいだも、そのドライブを示す（ルートは、いちばん上にいるときだけ）
+        current: !activeSettings && current?.id === LOCAL && explorer !== null && (p.path === '' ? explorer.nav.dir === '' : explorer.nav.dir === p.path || explorer.nav.dir.startsWith(`${p.path}/`)),
+        open: () => openAt(LOCAL, p.path),
+        openTab: () => openAt(LOCAL, p.path, 'tab'),
+        openWindow: () => openAt(LOCAL, p.path, 'window'),
+      })),
+    ...sdList.map((v) => ({
+      key: `sd:${v.id}`,
+      label: v.name,
+      current: !activeSettings && current?.id === SD + v.id,
+      open: () => openAt(SD + v.id),
+      openTab: () => openAt(SD + v.id, '', 'tab'),
+      openWindow: () => openAt(SD + v.id, '', 'window'),
+    })),
+    ...saved.list.map((p) => ({
+      key: `net:${p.id}`,
+      label: p.name,
+      title: p.url,
+      current: !activeSettings && current?.id === p.id,
+      broken: broken(p.id),
+      open: () => openAt(p.id),
+      openTab: () => openAt(p.id, '', 'tab'),
+      openWindow: () => openAt(p.id, '', 'window'),
+      edit: () => void openDialog(p),
+    })),
+  ]);
+
+  /** 初めて開いたときだけ、この端末のよく使うフォルダ（ホーム・ダウンロードなど）をブックマークに入れる */
+  function seedBookmarks(): void {
+    const initial = places.filter((p) => p.kind !== 'volume' && p.kind !== 'root').map((p) => ({ place: LOCAL, dir: p.path, name: placeLabel(p) }));
+    if (initial.length > 0) bookmarks.seed(initial);
   }
 
   /** 置き場所の覚えを変えたとき、作ってあった置き場所を捨てる（URL・名前が変わったので、作り直す） */
@@ -556,6 +653,7 @@
     });
     if (!ok) return;
     saved.remove(p.id);
+    bookmarks.removePlace(p.id);
     forget(p.id);
     // 保管した資格情報も消す（キーチェーンが使えなくても、外すこと自体は止めない）
     await creds.clear(p.id).catch(() => {});
@@ -644,6 +742,8 @@
         return true;
       case 'nav.back':
         return host.back();
+      case 'nav.forward':
+        return !activeSettings && !!explorer?.nav.forward();
       case 'nav.up':
         if (activeSettings || !explorer) return false;
         explorer.nav.up();
@@ -700,8 +800,15 @@
     }
   }
 
+  /** マウスの「戻る」「進む」のボタン（設定で変えられる。既定は、戻る・進む） */
   function onMouseUp(ev: MouseEvent): void {
-    if (ev.button === 3 && host.back()) ev.preventDefault();
+    if (hotkeys.recording) return;
+    for (const c of APP_COMMANDS) {
+      if (hotkeys.matchesMouse(ev, c.id) && runCommand(c.id)) {
+        ev.preventDefault();
+        return;
+      }
+    }
   }
 
   // ---- Android の狭い画面: 右へのスワイプで場所の欄を出し、左へのスワイプ（か、外側を押す・戻る）で閉じる ----
@@ -778,28 +885,20 @@
       <!-- 狭い画面: 場所の欄が開いているあいだ、残りを暗くする幕。押すと閉じる -->
       <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
       <div class="nav-scrim" class:nav-scrim-open={navOpen} onclick={() => (navOpen = false)}></div>
+      <!-- 設定の画面では、場所の欄は出さない（設定は、タブの 1 つ。場所を選ぶ必要がない） -->
+      {#if !activeSettings}
       <!-- 場所や「バージョン情報」を押したら、狭い画面では場所の欄を閉じる（押しは、各ボタンの処理のあとでここへ届く） -->
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
       <nav class="places scroll" class:places-open={navOpen} aria-label="場所" style:width="{placesWidth}px" onclick={() => (navOpen = false)}>
-        {#each places as p (p.kind + p.path)}
-          <button class="menu-item" type="button" aria-current={!activeSettings && current.local && p.path === explorer.nav.dir ? 'page' : undefined} onclick={() => go(p.path)}>{placeLabel(p)}</button>
-        {/each}
-        {#each sdList as v (v.id)}
-          <button class="menu-item" type="button" aria-current={!activeSettings && current.id === SD + v.id ? 'page' : undefined} onclick={() => openSd(v.id)}>{v.name}</button>
-        {/each}
-        <div class="places-head">
-          <span class="places-title">ネットワーク</span>
-          <IconButton label="ネットワークの場所を追加" title="ネットワークの場所を追加" onclick={() => void openDialog()}><Plus size={16} /></IconButton>
-        </div>
-        {#each saved.list as p (p.id)}
-          {@const why = broken(p.id)}
-          <div class="place-row">
-            <button class="menu-item place-open" type="button" aria-current={!activeSettings && current.id === p.id ? 'page' : undefined} title={why ? `つながりません: ${why}` : p.url} onclick={() => openDav(p)}>
-              {p.name}{#if why}<span class="place-broken" role="img" aria-label="つながりません">!</span>{/if}
-            </button>
-            <IconButton label={`「${p.name}」を直す`} title="直す・外す" onclick={() => void openDialog(p)}><Pencil size={14} /></IconButton>
-          </div>
-        {/each}
+        <PlacesNav
+          bookmarks={bookmarkEntries}
+          drives={driveEntries}
+          canWindow={windowControls}
+          canAddBookmark={canAddBookmark}
+          onaddbookmark={addBookmarkHere}
+          onaddnetwork={() => void openDialog()}
+          ondropdirs={(paths) => addBookmarks(paths)}
+        />
         <!-- 版と、アプリの更新（新しい版があるときは点）。押すと「設定」のタブ -->
         <button class="about-row" type="button" onclick={openSettings}>
           <Settings size={14} />
@@ -822,9 +921,10 @@
         onpointerdown={startResize}
         onkeydown={resizeKey}
       ></div>
+      {/if}
       <main class="main">
         {#if activeSettings}
-          <SettingsView {updater} />
+          <SettingsView {updater} addBack={(run) => host.addBack(run)} />
         {:else}
         {#if needAllFiles}
           <p class="status-line status-line-error auth-banner" role="alert">
@@ -853,7 +953,18 @@
           <FileExplorer {explorer} keymap={hotkeys.keymap}>
             {#snippet lead()}
               <IconButton label="戻る" title="戻る" disabled={!host.canBack} onclick={() => host.back()}><ArrowLeft size={16} /></IconButton>
+              <IconButton label="進む" title="進む" disabled={explorer.nav.future.length === 0} onclick={() => explorer?.nav.forward()}><ArrowRight size={16} /></IconButton>
               <IconButton label="上のフォルダへ" title="上のフォルダへ" disabled={explorer.nav.dir === ''} onclick={() => explorer?.nav.up()}><ArrowUp size={16} /></IconButton>
+            {/snippet}
+            {#snippet entryMenu(e, close)}
+              {#if e.kind === 'dir' && !e.trash}
+                {@const mark = bookmarks.find(current?.id ?? '', e.path)}
+                {#if mark}
+                  <MenuItem icon={BookmarkX} onclick={() => { close(); bookmarks.remove(mark.id); }}>ブックマークから削除</MenuItem>
+                {:else}
+                  <MenuItem icon={BookmarkIcon} onclick={() => { close(); addBookmarks([e.path]); }}>ブックマークに追加</MenuItem>
+                {/if}
+              {/if}
             {/snippet}
             {#snippet menu(close)}
               <MenuItem icon={Eye} onclick={() => { close(); toggleHidden(); }}>隠しファイルを表示{#if settings.showHidden}<Check size={14} />{/if}</MenuItem>
@@ -941,45 +1052,6 @@
     height: 8px;
     border-radius: 50%;
     background: var(--accent);
-  }
-  .places .menu-item {
-    width: 100%;
-    gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--fs-base);
-  }
-  .places .menu-item[aria-current='page'] {
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-  .places-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: var(--space-4);
-    padding-inline: var(--space-2);
-  }
-  .places-title {
-    color: var(--text-muted);
-    font-size: var(--fs-sm, 0.85em);
-  }
-  .place-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-  }
-  .places .place-row .place-open {
-    flex: 1;
-    min-width: 0;
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .place-broken {
-    margin-left: var(--space-2);
-    color: var(--danger);
-    font-weight: bold;
   }
   .auth-banner {
     display: flex;

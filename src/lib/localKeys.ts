@@ -13,6 +13,7 @@ export const LOCAL_KEYS: readonly LocalKey[] = [
   { key: 'fixplor.tabs', owner: 'App.svelte', purpose: '開いているタブ（置き場所と開いているフォルダ）と、見ているタブ。起動で戻す', kind: 'state' },
   { key: 'fixplor.placesWidth', owner: 'App.svelte', purpose: '左の場所の欄の幅（px）', kind: 'state' },
   { key: 'fixplor.places', owner: 'lib/places.svelte.ts', purpose: '追加したネットワークの場所（名前と URL）', kind: 'state' },
+  { key: 'fixplor.bookmarks', owner: 'lib/bookmarks.svelte.ts', purpose: 'ブックマーク（置き場所とフォルダ）。左の欄の上の節', kind: 'state' },
   { key: 'fixplor.updateCheckedAt', owner: 'lib/updateWatch.ts', purpose: 'アプリの更新を最後に確認した時刻', kind: 'cache' },
   { key: 'fixplor.updateNotifiedVersion', owner: 'lib/updateWatch.ts', purpose: '新しい版を知らせた版（同じ版は 1 回だけ知らせる）', kind: 'cache' },
 ];

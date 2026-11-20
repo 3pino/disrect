@@ -5,17 +5,19 @@
   import X from '@lucide/svelte/icons/x';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
-  import Section from '@3pino/ui-kit-web/Section.svelte';
+  import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import Divider from '@3pino/ui-kit-web/Divider.svelte';
   import SettingRow from '@3pino/ui-kit-web/SettingRow.svelte';
   import StatusLine from '@3pino/ui-kit-web/StatusLine.svelte';
   import { isAndroid } from '@3pino/app-kit-web/core/platform';
-  import { formatHotkey, hotkeyFromEvent } from '@3pino/explorer-kit';
+  import { formatHotkey, hotkeyFromEvent, hotkeyFromMouse } from '@3pino/explorer-kit';
   import { COMMANDS, GROUPS, type Command, type CommandId } from '../lib/hotkeys';
   import { hotkeys } from '../lib/hotkeys.svelte';
 
   // 設定の「ホットキー」: 操作ごとに、キーを複数決められる（追加・外す・既定に戻す）。保存は各デバイス（lib/hotkeys.svelte.ts）。
   // 記録のあいだは、押したキーを、ほかの操作に渡さない（window の捕捉の段で止める）。Esc も、ほかのキーと同じように記録できる。
-  // 記録をやめるのは、もう一度「＋」を押す・ほかを押してフォーカスが外れる、とき。
+  // 記録をやめるのは、もう一度「＋」を押す・ほかを押してフォーカスが外れる、とき。マウスの「戻る」「進む」のボタンも記録できる。
+  // 節（まとまり）は、見出しを押して、開く・折りたたむ（初めは、折りたたんである）。
 
   /** キーを記録している操作 */
   let recording = $state<CommandId | null>(null);
@@ -33,12 +35,30 @@
     recording = null;
   }
 
+  function onRecordMouse(e: MouseEvent): void {
+    const id = recording;
+    if (!id) return;
+    const text = hotkeyFromMouse(e);
+    if (!text) return;
+    e.preventDefault();
+    e.stopPropagation();
+    hotkeys.add(id, text);
+    recording = null;
+  }
+
   $effect(() => {
     hotkeys.recording = recording !== null;
     if (recording === null) return;
     window.addEventListener('keydown', onRecordKey, true);
-    return () => window.removeEventListener('keydown', onRecordKey, true);
+    window.addEventListener('mouseup', onRecordMouse, true);
+    return () => {
+      window.removeEventListener('keydown', onRecordKey, true);
+      window.removeEventListener('mouseup', onRecordMouse, true);
+    };
   });
+
+  /** 開いている節 */
+  let opened = $state<Record<string, boolean>>({});
   onDestroy(() => (hotkeys.recording = false));
 
   // Android には、ウィンドウの操作が無い
@@ -59,7 +79,17 @@
 </script>
 
 {#each sections as section (section.title)}
-  <Section title={section.title}>
+  {@const isOpen = opened[section.title] === true}
+  <section class="setting-section">
+    <Divider class="setting-section-divider" />
+    <h2 class="setting-section-title hotkey-group-title">
+      <button type="button" class="hotkey-group-toggle" aria-expanded={isOpen} onclick={() => (opened[section.title] = !isOpen)}>
+        <ChevronRight size={16} class={isOpen ? 'hotkey-group-chevron hotkey-group-chevron-open' : 'hotkey-group-chevron'} />
+        {section.title}
+        <span class="muted hotkey-group-count">{section.commands.length}</span>
+      </button>
+    </h2>
+    {#if isOpen}
     {#each section.commands as c (c.id)}
       {@const clash = clashes(c.id)}
       <div class="hotkey-command" data-command={c.id}>
@@ -101,10 +131,39 @@
         {/if}
       </div>
     {/each}
-  </Section>
+    {/if}
+  </section>
 {/each}
 
 <style>
+  .hotkey-group-title {
+    margin: 0;
+  }
+  /* 見出しの全体が、開く・閉じるのボタン */
+  .hotkey-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .hotkey-group-toggle :global(.hotkey-group-chevron) {
+    flex: none;
+    transition: transform 0.15s ease;
+  }
+  .hotkey-group-toggle :global(.hotkey-group-chevron-open) {
+    transform: rotate(90deg);
+  }
+  .hotkey-group-count {
+    font-size: var(--fs-sm);
+    font-weight: normal;
+  }
   .hotkey-command > :global(.hotkey-conflict) {
     margin-top: var(--space-2);
     font-size: var(--fs-sm);

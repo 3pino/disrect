@@ -42,6 +42,7 @@ GitHub Actions: `CI`（型・試験・ビルド。Rust は Linux と Windows。A
 | `src/lib/fs/creds.ts`・`sources.ts` | 資格情報の口（パスワードは Rust へ渡すだけ）・表示の URL から項目のパスをたどる |
 | `src/components/Lightbox.svelte` | 拡大表示（土台の `@3pino/viewer-kit-web`）への、本体のつなぎ |
 | `src/lib/places.svelte.ts` | 追加したネットワークの場所（名前と URL）の覚え |
+| `src/lib/bookmarks.svelte.ts`・`src/components/PlacesNav.svelte` | ブックマーク（置き場所とフォルダの覚え）と、左の欄（ブックマーク・ドライブ。右クリックのメニュー） |
 | `src/lib/fs/local.ts` | この端末を、共有の部品の置き場所（`ExplorerApi`）として見せる |
 | `src/lib/fs/mapping.ts` | 画面のパス（相対・区切り `/`）と OS の絶対パスの対応（POSIX・Windows） |
 | `src/lib/host.svelte.ts` | 共有の部品へ貸す本体の機能（通知・確認・戻る・ファイルを開く・クリップボード）。通知・確認・戻るの状態と部品は、共有の土台 `@3pino/app-kit-web`（`/shell`）のもの |
@@ -53,7 +54,7 @@ GitHub Actions: `CI`（型・試験・ビルド。Rust は Linux と Windows。A
 | `src/lib/fs/search.ts`・`src-tauri/src/fs/search.rs` | 検索（ネットワークの場所は手元で上限つき、この端末は Rust で流して返す） |
 | `src/lib/updateBackend.ts`・`updateWatch.ts`・`stores/updater.svelte.ts` | アプリの更新（土台 `@3pino/app-kit-web` の Updater）。Android は `src-tauri/gen/android` と、アプリの中のプラグイン（Kotlin）で APK を取って渡す |
 | `plugins/fixplor/` | Disnans のプラグイン（`plugins/fixplor/README.md`） |
-| `src/App.svelte` | 外枠（タブの欄（タイトルバーを兼ねる）・左の場所の一覧（幅は、つまみで変えられる。Android の狭い画面は引き出し））。上のバー・場所の欄は無い（戻る・上へは道筋の行、再読み込みは F5、隠しファイルは ≡ のメニュー）。見た目は仮 |
+| `src/App.svelte` | 外枠（タブの欄（タイトルバーを兼ねる）・左の場所の一覧（幅は、つまみで変えられる。Android の狭い画面は引き出し））。戻る・進む・上へ・道筋は一覧の上端（header）、再読み込みは F5、隠しファイルは ≡ のメニュー。見た目は仮 |
 
 ### リリース
 

@@ -64,6 +64,21 @@ export type Planned = {
 };
 
 /**
+ * 同じフォルダへのコピーの名前（`a.txt` → `a copy.txt`。あれば `a copy 2.txt`）。拡張子のあるファイルは、拡張子の前に付ける。
+ * exists は、同じ名前が先にあるか
+ */
+export function copyName(name: string, kind: 'file' | 'dir', exists: (name: string) => boolean): string {
+  const dot = name.lastIndexOf('.');
+  const split = kind === 'file' && dot > 0;
+  const stem = split ? name.slice(0, dot) : name;
+  const ext = split ? name.slice(dot) : '';
+  for (let n = 1; ; n++) {
+    const candidate = `${stem} copy${n === 1 ? '' : ` ${n}`}${ext}`;
+    if (!exists(candidate)) return candidate;
+  }
+}
+
+/**
  * 貼り付け・移動の前に、項目ごとの決まりを決める。
  * destEntries は移動先の一覧（読み終えていなければ null。その場合は止める: 同名を黙って上書きしないため）
  */
@@ -75,12 +90,19 @@ export function planTransfer(
   destEntries: ReadonlyMap<string, Entry> | null,
 ): Planned[] {
   return items.map((item): Planned => {
-    const name = item.name ?? baseName(item.path);
-    const to = childPath(destDir, name);
+    let name = item.name ?? baseName(item.path);
+    let to = childPath(destDir, name);
     const blocked = (message: string): Planned => ({ item, name, to, kind: 'blocked', message });
     const c = checkTransfer(rules, op, item, destDir);
     if (!c.ok) return blocked(c.message);
-    if (to === item.path) return { item, name, to, kind: 'skip', message: '同じ場所です' };
+    if (to === item.path) {
+      if (op !== 'copy') return { item, name, to, kind: 'skip', message: '同じ場所です' };
+      // 同じフォルダへのコピーは、名前の末尾に ` copy` を付けた別の項目にする（あれば ` copy 2`…）
+      if (!destEntries) return blocked('フォルダの中身を読み終えてから、もう一度試してください');
+      const entries = destEntries;
+      name = copyName(name, item.kind, (n) => sameNameEntry(rules, entries, destDir, n) !== undefined);
+      to = childPath(destDir, name);
+    }
     const bad = rules.nameError(destDir, name);
     if (bad) return blocked(bad);
     if (!destEntries) return blocked('フォルダの中身を読み終えてから、もう一度試してください');

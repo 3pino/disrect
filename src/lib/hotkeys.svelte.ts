@@ -1,4 +1,4 @@
-import { matchesHotkey } from '@3pino/explorer-kit';
+import { matchesHotkey, matchesMouse } from '@3pino/explorer-kit';
 import { read, write } from './settings.svelte';
 import { addKey, effectiveKeys, explorerKeymap, findConflicts, overrideOf, parseOverrides, removeKey, type CommandId, type Overrides } from './hotkeys';
 
@@ -24,6 +24,10 @@ class Hotkeys {
   /** イベントが、その操作のホットキーに当たるか */
   matches(ev: KeyboardEvent, id: CommandId): boolean {
     return matchesHotkey(ev, this.keys(id));
+  }
+  /** マウスの戻る・進むのボタンが、その操作のホットキーに当たるか */
+  matchesMouse(ev: MouseEvent, id: CommandId): boolean {
+    return matchesMouse(ev, this.keys(id));
   }
   /** 共有の部品に渡す、一覧の操作のホットキー */
   get keymap() {

@@ -58,6 +58,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 
 import App from './App.svelte';
 import { places } from './lib/places.svelte';
+import { bookmarks } from './lib/bookmarks.svelte';
 import { settings } from './lib/settings.svelte';
 
 const settle = async (): Promise<void> => {
@@ -72,6 +73,7 @@ let target: HTMLElement;
 
 beforeEach(() => {
   localStorage.clear();
+  bookmarks.reload();
   for (const p of [...places.list]) places.remove(p.id);
   settings.showHidden = false;
   settings.dirs = {};
@@ -212,7 +214,7 @@ describe('ネットワークの場所（WebDAV）', () => {
     button('自宅').click();
     await settle();
     expect(target.querySelector('.place-broken')).not.toBeNull();
-    expect(target.querySelector('.places .place-open')!.getAttribute('title')).toContain('connection refused');
+    expect([...target.querySelectorAll('.places .place-open')].find((b) => b.textContent?.includes('自宅'))!.getAttribute('title')).toContain('connection refused');
     expect(target.querySelector('.file-explorer-error')!.textContent).toContain('接続できません');
     fake.state.offline = false;
     button('再読み込み').click();

@@ -42,6 +42,28 @@ export function breadcrumbs(dir: string): { name: string; path: string }[] {
   return out;
 }
 
+/** 道筋の欄に出す文字。ドライブ（`C:`）・ネットワーク（`\\nas\share`）のほかは、先頭に `/` を付ける */
+export function pathToText(dir: string): string {
+  return /^[A-Za-z]:|^\\\\/.test(dir) ? dir : `/${dir}`;
+}
+
+/**
+ * 道筋の欄に打った文字を、画面のパスにする（`/home/me/../you/` → `home/you`）。
+ * 区切りは `/` も `\` も受ける。`.` は無視し、`..` は 1 つ上へ。先頭の `\\server\share` は、いちばん上の 1 段のまま
+ */
+export function textToPath(text: string): string {
+  const t = text.trim();
+  const unc = t.startsWith('\\\\');
+  const parts: string[] = [];
+  for (const seg of (unc ? t.slice(2) : t).split(/[\\/]+/)) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  if (!unc) return parts.join('/');
+  return [`\\\\${parts.slice(0, 2).join('\\')}`, ...parts.slice(2)].join('/');
+}
+
 /**
  * 項目を押したときの動き: フォルダは中へ（enter）、拡大表示で見られるものはその種類（image・pdf など。lib/viewers.ts）、
  * ほかはファイルとして開く・保存する（file）

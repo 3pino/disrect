@@ -42,6 +42,7 @@ vi.mock('@tauri-apps/api/core', () => ({ Channel: class { onmessage: (b: unknown
 
 import App from './App.svelte';
 import { settings } from './lib/settings.svelte';
+import { bookmarks } from './lib/bookmarks.svelte';
 
 const settle = async (): Promise<void> => {
   for (let i = 0; i < 8; i++) {
@@ -55,6 +56,7 @@ let target: HTMLElement;
 
 beforeEach(() => {
   localStorage.clear();
+  bookmarks.reload();
   settings.showHidden = false;
   settings.dirs = {};
   localStorage.clear();
@@ -348,8 +350,12 @@ describe('場所の欄（Android の狭い画面のドロワー）', () => {
     await settle();
     expect(isOpen()).toBe(false);
     await open();
-    nav().querySelector<HTMLButtonElement>('.about-row')!.click(); // 場所・「設定」の行を押す
+    nav().querySelector<HTMLElement>('.places-title')!.click(); // 場所の欄の中を押す（この試験の端末には、場所の項目が無い）
     await settle();
     expect(isOpen()).toBe(false);
+    await open();
+    nav().querySelector<HTMLButtonElement>('.about-row')!.click(); // 「設定」の行を押す（設定の画面では、場所の欄は出さない）
+    await settle();
+    expect(target.querySelector('nav.places')).toBeNull();
   });
 });

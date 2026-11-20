@@ -56,7 +56,16 @@ describe('planTransfer', () => {
   it('同じ場所への移動・コピーは何もしない（skip）', () => {
     const plan = planTransfer('move', [f('docs/a.txt')], 'docs', entries(entry('docs/a.txt')));
     expect(plan[0].kind).toBe('skip');
-    expect(planTransfer('copy', [f('a.txt')], '', entries(entry('a.txt')))[0].kind).toBe('skip');
+  });
+  it('同じフォルダへのコピーは、名前の末尾に copy を付けた別の項目にする（あれば copy 2…）', () => {
+    expect(planTransfer('copy', [f('docs/a.txt')], 'docs', entries(entry('docs/a.txt')))[0]).toMatchObject({ kind: 'create', name: 'a copy.txt', to: 'docs/a copy.txt' });
+    expect(planTransfer('copy', [f('a.txt')], '', entries(entry('a.txt'), entry('a copy.txt'), entry('a copy 2.txt')))[0]).toMatchObject({ kind: 'create', to: 'a copy 3.txt' });
+    expect(planTransfer('copy', [d('docs')], '', entries(entry('docs', 'dir')))[0]).toMatchObject({ kind: 'create', name: 'docs copy' });
+    expect(planTransfer('copy', [f('.env')], '', entries(entry('.env')))[0]).toMatchObject({ name: '.env copy' });
+    expect(planTransfer('copy', [f('a.txt')], '', null)[0].kind).toBe('blocked');
+  });
+  it('copyName: 使われている名前を飛ばして、次の番号にする', () => {
+    expect(kit.copyName('a.txt', 'file', (n) => n === 'a copy.txt')).toBe('a copy 2.txt');
   });
   it('同名のフォルダがあれば止める', () => {
     const plan = planTransfer('copy', [f('a.txt')], 'y', entries(entry('y/a.txt', 'dir')));

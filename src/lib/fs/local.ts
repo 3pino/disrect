@@ -171,7 +171,8 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     /** サブフォルダも探す（Rust が、浅いほうから。上限で止めたら partial に理由）。Windows のいちばん上は、ドライブを 1 つずつ */
     async search(query, on) {
       const abs = toOsPath(query.dir);
-      const roots = abs === null ? (await run<FsPlace[]>('fs_places')).filter((p) => p.kind === 'volume').map((p) => p.path) : [abs];
+      // 全ドライブを探す。WSL（\\wsl$\…）は、ディストリを起動してしまううえ遅いので、入れない（開いて探すときは、その中を探す）
+      const roots = abs === null ? (await run<FsPlace[]>('fs_places')).filter((p) => p.kind === 'volume' && !p.path.startsWith('\\\\')).map((p) => p.path) : [abs];
       let partial: SearchOutcome['partial'] = null;
       for (const root of roots) {
         const out = await searchRoot(root, query.text, on);

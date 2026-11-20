@@ -45,6 +45,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 
 import App from './App.svelte';
 import { places } from './lib/places.svelte';
+import { bookmarks } from './lib/bookmarks.svelte';
 import { settings } from './lib/settings.svelte';
 
 const settle = async (): Promise<void> => {
@@ -59,11 +60,13 @@ let target: HTMLElement;
 
 beforeEach(() => {
   localStorage.clear();
+  bookmarks.reload();
   for (const p of [...places.list]) places.remove(p.id);
   settings.showHidden = false;
   settings.dirs = {};
   localStorage.clear();
   hotkeys.reload();
+  bookmarks.reload();
   fake.calls.length = 0;
   made.buffers.length = 0;
   fake.tree.clear();
@@ -98,6 +101,14 @@ const key = async (k: string, init: KeyboardEventInit = { ctrlKey: true }): Prom
   window.dispatchEvent(ev);
   await settle();
   return ev;
+};
+/** 設定の「ホットキー」の画面を開き、節（既定は「タブ」）を開く */
+const openHotkeys = async (...groups: string[]): Promise<void> => {
+  await click(target.querySelector('.settings-link-hotkeys')!);
+  for (const g of groups.length > 0 ? groups : ['タブ']) {
+    const t = [...target.querySelectorAll<HTMLElement>('.hotkey-group-toggle')].find((b) => b.textContent?.includes(g));
+    if (t?.getAttribute('aria-expanded') !== 'true') await click(t!);
+  }
 };
 /** 道筋（パンくず）のいちばん上から、フォルダを順に開いて行く（場所の欄は無い） */
 const goTo = async (path: string): Promise<void> => {
@@ -354,7 +365,7 @@ describe('タブ', () => {
     }
   });
 
-  it('設定のタブ: 左下の行で開く（1 つだけ）。タブとして保存・復元される。場所の欄の操作は、新しいタブで開く', async () => {
+  it('設定のタブ: 左下の行で開く（1 つだけ）。タブとして保存・復元される。設定の画面では、場所の欄は出さない', async () => {
     await start();
     await click(target.querySelector('.about-row')!);
     expect(tabLabels()).toEqual(['me', '設定']);
@@ -364,15 +375,14 @@ describe('タブ', () => {
     expect(target.textContent).toContain('ホットキー');
     expect(target.textContent).toContain('バージョン');
     expect(savedTabs().tabs.map((t) => t.place)).toEqual(['local', 'fixplor:settings']);
+    // 設定の画面では、場所の欄は出さない
+    expect(target.querySelector('nav.places')).toBeNull();
     // もう一度押しても、増やさない（見ているタブへ移るだけ）
     await click(tabEls()[0].querySelector('.tab-main')!);
+    expect(target.querySelector('nav.places')).not.toBeNull();
     await click(target.querySelector('.about-row')!);
     expect(tabLabels()).toEqual(['me', '設定']);
     expect(activeLabel()).toBe('設定');
-    // 場所の欄の「コンピューター」: 設定を残して、新しいタブで開く
-    await click(target.querySelector('.places .menu-item')!);
-    expect(tabLabels()).toEqual(['me', '設定', 'me']);
-    expect(activeLabel()).toBe('me');
     // 起動し直すと、設定のタブも戻る
     void unmount(app!);
     app = undefined;
@@ -380,7 +390,7 @@ describe('タブ', () => {
     target = document.createElement('div');
     document.body.append(target);
     await start();
-    expect(tabLabels()).toEqual(['me', '設定', 'me']);
+    expect(tabLabels()).toEqual(['me', '設定']);
   });
 
   it('ネットワークの場所もタブで開く。タブの中で置き場所を切り替えても、その置き場所のフォルダ・選びは保つ', async () => {
@@ -479,7 +489,7 @@ describe('タブ', () => {
   it('ホットキーは、設定で変えられる。変えると、前のキーは効かなくなり、新しいキーが効く。保存され、既定に戻せる', async () => {
     await start();
     await click(target.querySelector('.about-row')!); // 設定のタブ
-    await click(target.querySelector('.settings-link-hotkeys')!); // 「ホットキー」の画面
+    await openHotkeys(); // 「ホットキー」の画面
     const row = (id: string): HTMLElement => target.querySelector<HTMLElement>(`[data-command="${id}"]`)!;
     // 新しいタブに、Ctrl+Y を足す（記録）
     (row('tab.new').querySelector('button[aria-label="新しいタブのキーを追加"]') as HTMLElement).click();
@@ -496,7 +506,7 @@ describe('タブ', () => {
     await key('y');
     expect(tabLabels()).toHaveLength(before + 1);
     await click(tabEls()[1].querySelector('.tab-main')!); // 設定のタブへ戻る（設定のいちばん上から）
-    await click(target.querySelector('.settings-link-hotkeys')!);
+    await openHotkeys();
     // Ctrl+T を外す → 効かない
     (row('tab.new').querySelector('button[aria-label="新しいタブの Ctrl+T を外す"]') as HTMLElement).click();
     await settle();
@@ -513,7 +523,7 @@ describe('タブ', () => {
   it('記録は、もう一度「＋」を押すと取り消す。Esc も、記録できる。ほかの操作と同じキーを足すと、警告を出す', async () => {
     await start();
     await click(target.querySelector('.about-row')!);
-    await click(target.querySelector('.settings-link-hotkeys')!);
+    await openHotkeys('タブ', '選択・編集');
     const row = (id: string): HTMLElement => target.querySelector<HTMLElement>(`[data-command="${id}"]`)!;
     (row('tab.prev').querySelector('button[aria-label="前のタブのキーを追加"]') as HTMLElement).click();
     await settle();
@@ -528,12 +538,12 @@ describe('タブ', () => {
     expect(row('tab.prev').textContent).toContain('同じキーが、ほかの操作にもあります');
     expect(row('tab.prev').textContent).toContain('新しいタブ');
     expect(row('tab.new').textContent).toContain('同じキーが、ほかの操作にもあります');
-    // Esc も記録できる（「選びを外す」の既定と同じなので、警告が出る）
+    // Esc も記録できる（「選択解除」の既定と同じなので、警告が出る）
     (row('tab.next').querySelector('button[aria-label="次のタブのキーを追加"]') as HTMLElement).click();
     await settle();
     await key('Escape', {});
     expect(row('tab.next').textContent).toContain('Esc');
-    expect(row('tab.next').textContent).toContain('選びを外す');
+    expect(row('tab.next').textContent).toContain('選択解除');
   });
 
   it('一覧の操作（名前の変更・検索など）のホットキーも、設定のとおりになる', async () => {
@@ -628,3 +638,171 @@ describe('タブ', () => {
     expect(written.at(-1)).toBe('/home/me/a.txt');
   });
 });
+
+describe('左の欄: ブックマークとドライブ・戻る／進む', () => {
+  const marks = (): (string | undefined)[] => [...target.querySelectorAll('section[aria-label="ブックマーク"] .place-open')].map((b) => b.textContent?.trim());
+  const drives = (): (string | undefined)[] => [...target.querySelectorAll('section[aria-label="ドライブ"] .place-open')].map((b) => b.textContent?.trim());
+  const rightClick = async (el: Element): Promise<void> => {
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 30 }));
+    await settle();
+  };
+  const menuItems = (sel: string): string[] => [...document.querySelectorAll(`${sel} .menu-item`)].map((b) => b.textContent?.trim() ?? '');
+  const menuClick = async (sel: string, text: string): Promise<void> => {
+    await click([...document.querySelectorAll(`${sel} .menu-item`)].find((b) => b.textContent?.includes(text))!);
+  };
+
+  it('上から「ブックマーク」「ドライブ」の順。初めは、この端末のよく使うフォルダがブックマークに入っている。ネットワークの場所はドライブの節', async () => {
+    places.add('自宅', 'https://nas.example/dav/');
+    await start();
+    expect([...target.querySelectorAll('.places-title')].map((t) => t.textContent)).toEqual(['ブックマーク', 'ドライブ']);
+    expect(marks()).toEqual(['ホーム']);
+    expect(drives()).toEqual(['自宅']);
+    expect(JSON.parse(localStorage.getItem('fixplor.bookmarks')!).map((b: { name: string }) => b.name)).toEqual(['ホーム']);
+  });
+
+  it('＋で、いま開いているフォルダを足す（足したものは、もう足せない）。右クリック（長押し）のメニューから、新しいタブで開く・ブックマークから削除', async () => {
+    await start();
+    await goTo('/home/me/docs');
+    const add = target.querySelector<HTMLButtonElement>('button[aria-label="いま開いているフォルダをブックマークに追加"]')!;
+    expect(add.disabled).toBe(false);
+    await click(add);
+    expect(marks()).toEqual(['ホーム', 'docs']);
+    expect(add.disabled).toBe(true);
+    // 押すと、そのフォルダへ
+    await click(target.querySelector('section[aria-label="ブックマーク"] .place-open')!);
+    expect(names()).toContain('docs');
+    await click([...target.querySelectorAll('section[aria-label="ブックマーク"] .place-open')][1]);
+    expect(names()).toEqual(['in.txt']);
+    // 右クリック: ウィンドウの操作が無い環境（ブラウザ）では、新しいウィンドウの項目は出ない
+    await rightClick([...target.querySelectorAll('section[aria-label="ブックマーク"] .place-open')][1]);
+    expect(menuItems('.places-menu-anchor')).toEqual(['新しいタブで開く', 'ブックマークから削除']);
+    await menuClick('.places-menu-anchor', '新しいタブで開く');
+    expect(tabLabels()).toEqual(['docs', 'docs']);
+    await rightClick([...target.querySelectorAll('section[aria-label="ブックマーク"] .place-open')][1]);
+    await menuClick('.places-menu-anchor', 'ブックマークから削除');
+    expect(marks()).toEqual(['ホーム']);
+    expect(document.querySelector('.places-menu-anchor')).toBeNull();
+    // 全部消しても、入れ直さない
+    await rightClick(target.querySelector('section[aria-label="ブックマーク"] .place-open')!);
+    await menuClick('.places-menu-anchor', 'ブックマークから削除');
+    expect(marks()).toEqual([]);
+    expect(target.querySelector('.places-empty')).not.toBeNull();
+  });
+
+  it('メニューは、外側を押す幕より手前に出る（position を持つ）。新しいウィンドウは、ウィンドウの操作がある環境だけ', async () => {
+    win.controls.mockReturnValue(true);
+    try {
+      await start();
+      await rightClick(target.querySelector('section[aria-label="ブックマーク"] .place-open')!);
+      expect(menuItems('.places-menu-anchor')).toEqual(['新しいタブで開く', '新しいウィンドウで開く', 'ブックマークから削除']);
+      await menuClick('.places-menu-anchor', '新しいウィンドウで開く');
+      expect(win.open).toHaveBeenCalledTimes(1);
+      expect(win.open.mock.calls[0][0]).toEqual({ place: 'local', dir: 'home/me' });
+    } finally {
+      win.controls.mockReturnValue(false);
+    }
+  });
+
+  it('一覧のフォルダを右クリックして、ブックマークに追加・削除できる', async () => {
+    await start();
+    await goTo('/home/me');
+    const row = (): Element => [...target.querySelectorAll('.file-explorer-item')].find((li) => (li as HTMLElement).dataset.path === 'home/me/docs')!;
+    await rightClick(row());
+    expect(menuItems('.file-explorer-context')).toContain('ブックマークに追加');
+    await menuClick('.file-explorer-context', 'ブックマークに追加');
+    expect(marks()).toEqual(['ホーム', 'docs']);
+    await rightClick(row());
+    expect(menuItems('.file-explorer-context')).toContain('ブックマークから削除');
+    await menuClick('.file-explorer-context', 'ブックマークから削除');
+    expect(marks()).toEqual(['ホーム']);
+    // ファイルには出さない
+    await rightClick([...target.querySelectorAll('.file-explorer-item')].find((li) => (li as HTMLElement).dataset.path === 'home/me/a.txt')!);
+    expect(menuItems('.file-explorer-context').join()).not.toContain('ブックマーク');
+  });
+
+  it('ネットワークの場所を外すと、その場所のブックマークも消える。置き場所のブックマークは、その場所で開く', async () => {
+    const p = places.add('自宅', 'https://nas.example/dav/');
+    if (!p.ok) throw new Error('x');
+    await start();
+    await click(button('自宅'));
+    await goTo('/movies');
+    await click(target.querySelector<HTMLButtonElement>('button[aria-label="いま開いているフォルダをブックマークに追加"]')!);
+    expect(marks()).toEqual(['ホーム', 'movies']);
+    // 別の置き場所（この端末）にいても、押すと、その場所のフォルダを開く
+    await click(target.querySelector('section[aria-label="ブックマーク"] .place-open')!);
+    expect(activeLabel()).toBe('me');
+    await click([...target.querySelectorAll('section[aria-label="ブックマーク"] .place-open')][1]);
+    expect(activeLabel()).toBe('movies');
+    // 右クリックには、「直す・外す」がある（ネットワークの場所）
+    await rightClick([...target.querySelectorAll('section[aria-label="ドライブ"] .place-open')][0]);
+    expect(menuItems('.places-menu-anchor')).toEqual(['新しいタブで開く', '直す・外す']);
+    bookmarks.removePlace(p.place.id);
+    await settle();
+    expect(marks()).toEqual(['ホーム']);
+  });
+
+  it('戻る（Alt+←）・進む（Alt+→）。マウスの戻る・進むのボタンも同じ。上の階層へは Alt+↑ でも', async () => {
+    await start();
+    await goTo('/home/me/docs');
+    expect(names()).toEqual(['in.txt']);
+    await key('ArrowLeft', { altKey: true });
+    expect(names()).toContain('docs');
+    await key('ArrowRight', { altKey: true });
+    expect(names()).toEqual(['in.txt']);
+    const mouse = async (button: number): Promise<MouseEvent> => {
+      const ev = new MouseEvent('mouseup', { button, bubbles: true, cancelable: true });
+      window.dispatchEvent(ev);
+      await settle();
+      return ev;
+    };
+    expect((await mouse(3)).defaultPrevented).toBe(true);
+    expect(names()).toContain('docs');
+    expect((await mouse(4)).defaultPrevented).toBe(true);
+    expect(names()).toEqual(['in.txt']);
+    // 進む先が無いとき、ボタンは何もしない
+    expect((await mouse(4)).defaultPrevented).toBe(false);
+    await key('ArrowUp', { altKey: true });
+    expect(names()).toContain('docs');
+    // 上端の「進む」のボタン
+    await click(button('戻る'));
+    await click(button('進む'));
+    expect(names()).toContain('docs');
+  });
+
+  it('設定のホットキーの画面で「戻る」の操作をすると、設定のいちばん上へ戻る。節は、初めは折りたたまれていて、見出しで開く', async () => {
+    await start();
+    await click(target.querySelector('.about-row')!);
+    await click(target.querySelector('.settings-link-hotkeys')!);
+    expect(target.querySelectorAll('[data-command]')).toHaveLength(0);
+    const toggles = [...target.querySelectorAll<HTMLElement>('.hotkey-group-toggle')];
+    expect(toggles.map((t) => t.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false', 'false', 'false']);
+    await click(toggles[1]);
+    expect(target.querySelectorAll('[data-command]').length).toBeGreaterThan(5);
+    await click(toggles[1]);
+    expect(target.querySelectorAll('[data-command]')).toHaveLength(0);
+    await key('ArrowLeft', { altKey: true });
+    expect(target.querySelector('.settings-link-hotkeys')).not.toBeNull();
+    expect(target.textContent).toContain('バージョン');
+  });
+
+  it('設定のキーの記録は、マウスの戻る・進むのボタンも記録できる（記録のあいだは、戻る・進むは働かない）', async () => {
+    await start();
+    await click(target.querySelector('.about-row')!);
+    await openHotkeys('タブ');
+    const row = (id: string): HTMLElement => target.querySelector<HTMLElement>(`[data-command="${id}"]`)!;
+    await click(row('tab.new').querySelector('button[aria-label="新しいタブのキーを追加"]')!);
+    const ev = new MouseEvent('mouseup', { button: 4, bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    await settle();
+    expect(ev.defaultPrevented).toBe(true);
+    expect(row('tab.new').textContent).toContain('マウス進む');
+    expect(JSON.parse(localStorage.getItem('fixplor.hotkeys')!)).toEqual({ 'tab.new': ['Ctrl+T', 'Mouse5'] });
+    // 設定のタブではない見ているタブで、そのボタンが効く
+    await click(tabEls()[0].querySelector('.tab-main')!);
+    const before = tabLabels().length;
+    window.dispatchEvent(new MouseEvent('mouseup', { button: 4, bubbles: true, cancelable: true }));
+    await settle();
+    expect(tabLabels()).toHaveLength(before + 1);
+  });
+});
+

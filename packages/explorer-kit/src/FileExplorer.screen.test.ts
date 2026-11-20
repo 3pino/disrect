@@ -171,20 +171,22 @@ describe('置き場所の書き込み', () => {
     expect(h.write).not.toHaveBeenCalled();
   });
 
-  it('上端は共通の見出し（PanelBar = .top-bar）の 1 行。操作は同じ行にある', async () => {
+  it('上端は共通の見出し（PanelBar = .top-bar）の 1 行: 道筋の欄と、右の操作（検索・メニュー）。件数と選んだ項目の操作は下端', async () => {
     const el = await render();
     expect(el.querySelectorAll('header')).toHaveLength(1);
     const bar = el.querySelector('.panel-bar');
     expect(bar?.classList.contains('top-bar')).toBe(true);
     expect(bar?.querySelector('button[aria-label="メニュー"]')).not.toBeNull();
-    expect(bar?.querySelector('.file-explorer-selection')).not.toBeNull();
-    expect(bar?.querySelector('.file-explorer-crumbs')).toBeNull();
-    // パンくずは、上端の直後の行（バーの下）
-    expect(bar?.nextElementSibling?.classList.contains('file-explorer-crumbs')).toBe(true);
+    expect(bar?.querySelector('.file-explorer-crumbs')).not.toBeNull();
+    expect(bar?.querySelector('.file-explorer-selection')).toBeNull();
+    const footer = el.querySelector('footer.file-explorer-footer');
+    expect(footer?.querySelector('.file-explorer-selection')).not.toBeNull();
+    // 下端は、一覧の後（いちばん後ろ）
+    expect(el.querySelector('.file-explorer')?.lastElementChild).toBe(footer);
   });
 });
 
-describe('上端のバーの件数・操作（選んでいなくても同じバーを出す）', () => {
+describe('下端のバーの件数・操作（選んでいなくても同じバーを出す）', () => {
   it('選んでいないときは、件数（フォルダの項目数）を出し、コピー・切り取り・削除は押せない', async () => {
     const el = await render();
     expect(el.querySelector('.file-explorer-selection-count')?.textContent).toBe('3 件');
@@ -2814,5 +2816,96 @@ describe('作成日時・フォルダのサイズの写し・貼り付けの予�
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('道筋の欄・同じフォルダへの貼り付け', () => {
+  beforeEach(() => {
+    dsk.desktop = true;
+    explorerSelection.desktop = true;
+    document.body.replaceChildren();
+  });
+  afterEach(() => {
+    explorerSelection.desktop = false;
+    ui.toasts.length = 0;
+  });
+
+  const field = (el: HTMLElement) => el.querySelector<HTMLElement>('.file-explorer-path')!;
+  const input = (el: HTMLElement) => el.querySelector<HTMLInputElement>('.file-explorer-path-input');
+
+  it('道筋の欄の、パンくずでないところを押すと、道筋の文字を書き換えられる。Enter で移り、Esc でやめる', async () => {
+    const el = await render();
+    expect(input(el)).toBeNull();
+    field(el).click();
+    flushSync();
+    await vi.waitFor(() => expect(input(el)).not.toBeNull());
+    expect(input(el)!.value).toBe('/');
+    // Esc: やめる（選びを外す操作にも、渡さない）
+    explorerSelection.replace(['a.txt']);
+    input(el)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    flushSync();
+    expect(input(el)).toBeNull();
+    expect(explorerSelection.paths()).toEqual(['a.txt']);
+    // 書いて、Enter: その道筋へ移る
+    field(el).click();
+    flushSync();
+    await vi.waitFor(() => expect(input(el)).not.toBeNull());
+    input(el)!.value = '/docs/';
+    input(el)!.dispatchEvent(new Event('input', { bubbles: true }));
+    input(el)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(fileExplorer.dir).toBe('docs'));
+    expect(input(el)).toBeNull();
+  });
+
+  it('開けない道筋（読めない）なら、理由を出して、書き換えを続ける', async () => {
+    const el = await render();
+    field(el).click();
+    flushSync();
+    await vi.waitFor(() => expect(input(el)).not.toBeNull());
+    h.list.mockImplementation(async (path?: string) => {
+      if (path === 'nowhere') throw new Error('見つかりません');
+      return h.current ?? listing;
+    });
+    input(el)!.value = 'nowhere';
+    input(el)!.dispatchEvent(new Event('input', { bubbles: true }));
+    input(el)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(ui.toasts.some((t) => t.text.includes('開けません'))).toBe(true));
+    expect(fileExplorer.dir).toBe('');
+    expect(input(el)).not.toBeNull();
+  });
+
+  it('パンくずのボタンを押しても、書き換えには入らない。Ctrl+L では入る', async () => {
+    const el = await render();
+    el.querySelector<HTMLElement>('.file-explorer-crumb')!.click();
+    flushSync();
+    expect(input(el)).toBeNull();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', code: 'KeyL', ctrlKey: true, bubbles: true, cancelable: true }));
+    flushSync();
+    await vi.waitFor(() => expect(input(el)).not.toBeNull());
+  });
+
+  it('同じフォルダへ貼り付ける（コピー）と、名前の末尾に copy を付け、そのまま名前の書き換えに入る', async () => {
+    const el = await render();
+    h.copy.mockImplementation(async (_from: string, to: string) => {
+      h.current = [...listing, entry(to)];
+      return {} as Entry;
+    });
+    explorerBuffer.set('copy', [{ path: 'a.txt', kind: 'file' }]);
+    flushSync();
+    pasteClick(el);
+    await vi.waitFor(() => expect(h.copy).toHaveBeenCalledWith('a.txt', 'a copy.txt', false));
+    await vi.waitFor(() => expect(el.querySelector<HTMLInputElement>('.file-explorer-rename')?.value).toBe('a copy.txt'));
+    expect(explorerSelection.paths()).toEqual(['a copy.txt']);
+    h.current = null;
+  });
+
+  it('切り取りを同じフォルダへ貼り付けても、何もしない', async () => {
+    const el = await render();
+    explorerBuffer.set('move', [{ path: 'a.txt', kind: 'file' }]);
+    flushSync();
+    pasteClick(el);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.move).not.toHaveBeenCalled();
+    expect(el.querySelector('.file-explorer-rename')).toBeNull();
   });
 });

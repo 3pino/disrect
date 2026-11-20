@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatHotkey, hotkeyFromEvent, isPlainHotkey, matchesHotkey, normalizeHotkey } from './hotkeys';
+import { formatHotkey, hotkeyFromEvent, hotkeyFromMouse, isPlainHotkey, matchesHotkey, matchesMouse, normalizeHotkey } from './hotkeys';
 
 const ev = (key: string, init: Partial<Parameters<typeof hotkeyFromEvent>[0]> = {}) => ({ key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...init });
 
@@ -58,5 +58,25 @@ describe('matchesIgnoringShift', () => {
     expect(matchesIgnoringShift(ev('ArrowUp', { shiftKey: true }), ['ArrowUp'])).toBe(true);
     expect(matchesIgnoringShift(ev('ArrowUp'), ['ArrowUp'])).toBe(true);
     expect(matchesIgnoringShift(ev('ArrowUp', { ctrlKey: true }), ['ArrowUp'])).toBe(false);
+  });
+});
+
+describe('マウスの戻る・進むのボタン', () => {
+  const m = (button: number, init: Partial<Parameters<typeof hotkeyFromMouse>[0]> = {}) => ({ button, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...init });
+  it('4 番目（button 3）は Mouse4、5 番目（button 4）は Mouse5。ほかのボタンは対象外。修飾キーも付く', () => {
+    expect(hotkeyFromMouse(m(3))).toBe('Mouse4');
+    expect(hotkeyFromMouse(m(4))).toBe('Mouse5');
+    expect(hotkeyFromMouse(m(0))).toBeNull();
+    expect(hotkeyFromMouse(m(1))).toBeNull();
+    expect(hotkeyFromMouse(m(3, { ctrlKey: true, shiftKey: true }))).toBe('Ctrl+Shift+Mouse4');
+  });
+  it('書いたホットキーの文字は、そろえて比べる。キーボードの操作とは当たらない', () => {
+    expect(normalizeHotkey('mouse4')).toBe('Mouse4');
+    expect(normalizeHotkey('ctrl+MOUSE5')).toBe('Ctrl+Mouse5');
+    expect(matchesMouse(m(3), ['Alt+ArrowLeft', 'mouse4'])).toBe(true);
+    expect(matchesMouse(m(4), ['Mouse4'])).toBe(false);
+    expect(matchesHotkey(ev('Mouse4'), ['Mouse4'])).toBe(true);
+    expect(formatHotkey('Mouse4')).toBe('マウス戻る');
+    expect(formatHotkey('Ctrl+Mouse5')).toBe('Ctrl+マウス進む');
   });
 });

@@ -62,6 +62,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 import App from './App.svelte';
 import { updater } from './lib/stores/updater.svelte';
+import { bookmarks } from './lib/bookmarks.svelte';
 import { CHECKED_AT_KEY, NOTIFIED_KEY } from './lib/updateWatch';
 
 const settle = async (): Promise<void> => {
@@ -84,6 +85,7 @@ const modalText = (): string => document.querySelector('[aria-label="設定"][ro
 
 beforeEach(() => {
   localStorage.clear();
+  bookmarks.reload();
   h.state.log.length = 0;
   h.state.update = null;
   h.state.checkError = null;

@@ -22,6 +22,7 @@ export type AppCommandId =
   | 'app.settings'
   | 'app.quit'
   | 'nav.back'
+  | 'nav.forward'
   | 'nav.up'
   | 'view.reload'
   | 'view.toggleHidden'
@@ -60,16 +61,18 @@ export const COMMANDS: readonly Command[] = [
   ...[1, 2, 3, 4, 5, 6, 7, 8].map(gotoTab),
   { id: 'tab.last', name: '最後のタブへ', group: 'タブ', defaults: ['Ctrl+9'] },
   { id: 'file.openNewTab', name: 'フォルダを新しいタブで開く', group: 'タブ', defaults: ['Ctrl+Enter'] },
-  { id: 'nav.back', name: '戻る', group: '移動', defaults: ['Alt+ArrowLeft'] },
-  { id: 'nav.up', name: '上の階層へ', group: '移動', defaults: ['Ctrl+ArrowUp'] },
+  { id: 'nav.back', name: '戻る', group: '移動', defaults: ['Alt+ArrowLeft', 'Mouse4'] },
+  { id: 'nav.forward', name: '進む', group: '移動', defaults: ['Alt+ArrowRight', 'Mouse5'] },
+  { id: 'nav.up', name: '上の階層へ', group: '移動', defaults: ['Ctrl+ArrowUp', 'Alt+ArrowUp'] },
+  { id: 'editPath', name: '道筋（パス）を書き換える', group: '移動', defaults: EXPLORER_HOTKEYS.editPath },
   { id: 'open', name: '開く', group: '移動', defaults: EXPLORER_HOTKEYS.open },
   { id: 'search', name: '検索', group: '移動', defaults: EXPLORER_HOTKEYS.search },
-  { id: 'moveUp', name: '上の項目へ', group: '移動', defaults: EXPLORER_HOTKEYS.moveUp },
-  { id: 'moveDown', name: '下の項目へ', group: '移動', defaults: EXPLORER_HOTKEYS.moveDown },
-  { id: 'moveLeft', name: '左の項目へ（アイコン表示）', group: '移動', defaults: EXPLORER_HOTKEYS.moveLeft },
-  { id: 'moveRight', name: '右の項目へ（アイコン表示）', group: '移動', defaults: EXPLORER_HOTKEYS.moveRight },
+  { id: 'moveUp', name: '上の項目へフォーカス', group: '移動', defaults: EXPLORER_HOTKEYS.moveUp },
+  { id: 'moveDown', name: '下の項目へフォーカス', group: '移動', defaults: EXPLORER_HOTKEYS.moveDown },
+  { id: 'moveLeft', name: '左の項目へフォーカス（アイコン表示）', group: '移動', defaults: EXPLORER_HOTKEYS.moveLeft },
+  { id: 'moveRight', name: '右の項目へフォーカス（アイコン表示）', group: '移動', defaults: EXPLORER_HOTKEYS.moveRight },
   { id: 'selectAll', name: 'すべて選ぶ', group: '選択・編集', defaults: EXPLORER_HOTKEYS.selectAll },
-  { id: 'clearSelection', name: '選びを外す', group: '選択・編集', defaults: EXPLORER_HOTKEYS.clearSelection },
+  { id: 'clearSelection', name: '選択解除', group: '選択・編集', defaults: EXPLORER_HOTKEYS.clearSelection },
   { id: 'copy', name: 'コピー', group: '選択・編集', defaults: EXPLORER_HOTKEYS.copy },
   { id: 'cut', name: '切り取り', group: '選択・編集', defaults: EXPLORER_HOTKEYS.cut },
   { id: 'paste', name: '貼り付け', group: '選択・編集', defaults: EXPLORER_HOTKEYS.paste },

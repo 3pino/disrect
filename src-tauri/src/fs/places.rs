@@ -134,7 +134,7 @@ fn root_path() -> &'static str {
 
 #[cfg(windows)]
 fn volumes() -> Vec<Place> {
-    ('A'..='Z')
+    let mut out: Vec<Place> = ('A'..='Z')
         .map(|c| format!("{c}:\\"))
         .filter(|p| std::path::Path::new(p).is_dir())
         .map(|p| Place {
@@ -142,7 +142,60 @@ fn volumes() -> Vec<Place> {
             name: p[..2].to_string(),
             path: p,
         })
+        .collect();
+    out.extend(wsl_places());
+    out
+}
+
+/// 入れてある WSL のディストリビューション（`\\wsl$\<名前>\`。ネットワークの場所と同じ形で開ける）。
+/// `wsl.exe -l -q` で名前を読む（ディストリは起動しない）。WSL が無い・遅いときは、何も出さない
+#[cfg(windows)]
+fn wsl_places() -> Vec<Place> {
+    use std::os::windows::process::CommandExt;
+    use std::time::Duration;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let out = std::process::Command::new("wsl.exe")
+            .args(["-l", "-q"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        let _ = tx.send(out);
+    });
+    let Ok(Ok(out)) = rx.recv_timeout(Duration::from_secs(2)) else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    wsl_distros(&out.stdout)
+        .into_iter()
+        .map(|name| Place {
+            kind: "volume",
+            path: format!("\\\\wsl$\\{name}\\"),
+            name: format!("WSL: {name}"),
+        })
         .collect()
+}
+
+/// `wsl.exe -l -q` の出力（UTF-16LE。先頭に BOM が付くことがある。1 行に 1 つの名前）から、ディストリビューションの名前を取り出す。
+/// Docker Desktop の内部用（`docker-desktop`・`docker-desktop-data`）は、利用者のものではないので除く
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn wsl_distros(bytes: &[u8]) -> Vec<String> {
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    let text = String::from_utf16_lossy(&units);
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let name = line.trim_matches(|c: char| c == '\u{feff}' || c == '\0' || c.is_whitespace());
+        if name.is_empty() || name.starts_with("docker-desktop") || out.iter().any(|n| n == name) {
+            continue;
+        }
+        out.push(name.to_string());
+    }
+    out
 }
 
 #[cfg(all(not(windows), not(target_os = "android")))]
@@ -215,6 +268,17 @@ fn unescape_mount(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wsl_distro_names_come_from_the_utf16_listing() {
+        let utf16 = |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect() };
+        // BOM つき・CRLF・内部用の docker-desktop は除く・重なりは 1 つ
+        let out = utf16("\u{feff}Ubuntu-22.04\r\ndocker-desktop\r\nDebian\r\nUbuntu-22.04\r\n\r\n");
+        assert_eq!(wsl_distros(&out), vec!["Ubuntu-22.04", "Debian"]);
+        assert!(wsl_distros(b"").is_empty());
+        // 奇数バイトの端は捨てる（壊れていても落ちない）
+        assert_eq!(wsl_distros(&[b'A', 0, b'B']), vec!["A"]);
+    }
 
     #[test]
     fn android_lists_the_internal_storage_folders_and_sd_cards() {
