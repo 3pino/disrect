@@ -1,6 +1,6 @@
 import { getItem, setItem } from '@3pino/app-kit-web/core/storage';
 
-// この端末の設定（localStorage）。隠しファイルを出すか・フォルダごとの表示方法と並び順。
+// 各デバイスに保存する設定（localStorage）。隠しファイルを出すか・フォルダごとの表示方法と並び順。
 // 使うキーは localKeys.ts に登録する（試験が止める）。
 
 const KEYS = { showHidden: 'fixplor.showHidden', dirs: 'fixplor.dirs' } as const;

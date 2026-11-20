@@ -1,7 +1,6 @@
 package dev.fixplor.storage
 
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -75,29 +74,14 @@ class StoragePlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
         return
       }
-      for (intent in settingsIntents()) {
-        try {
-          activity.startActivity(intent)
-          invoke.resolve()
-          return
-        } catch (e: ActivityNotFoundException) {
-          // 次の画面を試す
-        }
-      }
-      invoke.reject("この端末では設定画面を開けません")
+      // Android 11 以上: このアプリの「すべてのファイルへのアクセス」の画面
+      // Android 10 以下（拒否したあと）: アプリの情報
+      val pkg = Uri.parse("package:${activity.packageName}")
+      val action = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION else Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+      activity.startActivity(Intent(action, pkg))
+      invoke.resolve()
     } catch (e: Exception) {
       invoke.reject("設定画面を開けませんでした: ${e.message}")
-    }
-  }
-
-  /** 許可を与える設定画面。このアプリだけの画面 → 一覧の画面 → アプリの情報、の順に試す（端末によって開けるものが違う） */
-  private fun settingsIntents(): List<Intent> {
-    val pkg = Uri.parse("package:${activity.packageName}")
-    val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg)
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-      listOf(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, pkg), Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION), details)
-    } else {
-      listOf(details)
     }
   }
 

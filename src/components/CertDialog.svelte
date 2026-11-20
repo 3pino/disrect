@@ -57,7 +57,7 @@
     {:else if phase.kind === 'error'}
       <p class="cert-error" role="alert">確かめられませんでした: {phase.text}</p>
     {:else if phase.kind === 'trusted'}
-      <p class="cert-note" role="status">このサーバーの証明書は、この PC が信頼しています。固定は要りません（読み直してください）。</p>
+      <p class="cert-note" role="status">このサーバーの証明書は、この PC が信頼しています。固定は要りません（再読み込みしてください）。</p>
     {:else}
       {#if previous}
         <p class="cert-warn" role="alert">前に信頼した証明書と違います。サーバーの証明書を入れ替えたのでなければ、別のものに成り代わられているかもしれません。</p>

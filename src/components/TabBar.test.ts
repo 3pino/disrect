@@ -25,7 +25,7 @@ function render(props: Partial<{ onselect: (id: number) => void; onclose: (id: n
   const onclose = props.onclose ?? vi.fn();
   const component = mount(TabBar, {
     target,
-    props: { tabs, activeId: 2, onselect, onclose, onadd: vi.fn(), onduplicate: vi.fn(), onmove: vi.fn(), oncloseothers: vi.fn(), ondropfolders: vi.fn() },
+    props: { tabs, activeId: 2, onselect, onclose, onadd: vi.fn(), onduplicate: vi.fn(), onmove: vi.fn(), oncloseothers: vi.fn() },
   });
   flushSync();
   return { target, component, onselect, onclose };

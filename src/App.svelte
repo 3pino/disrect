@@ -2,7 +2,6 @@
   import { onMount, untrack } from 'svelte';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
-  import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import Eye from '@lucide/svelte/icons/eye';
   import Check from '@lucide/svelte/icons/check';
   import Plus from '@lucide/svelte/icons/plus';
@@ -11,7 +10,7 @@
   import TabBar from './components/TabBar.svelte';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
   import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
-  import { baseName, createExplorer, ExplorerBuffer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
+  import { createExplorer, ExplorerBuffer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
   import Toasts from '@3pino/app-kit-web/shell/Toasts.svelte';
   import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
   import { isBackKey } from '@3pino/app-kit-web/core/backNav';
@@ -86,7 +85,7 @@
   let certDialog = $state.raw<{ place: DavPlace; previous: string | null } | null>(null);
   /** 認証が通らなかった置き場所（401）。入れ直してもらうまで、案内を出す */
   let authFailed = $state.raw<Record<string, true>>({});
-  // 左の場所の欄の幅（つまみをドラッグして変える。この端末に保存する）
+  // 左の場所の欄の幅（つまみをドラッグして変える。各デバイスに保存する）
   const PLACES_MIN = 120;
   const PLACES_MAX = 480;
   const PLACES_DEFAULT = 200;
@@ -258,19 +257,6 @@
     if (t && b) addTab({ place: b.id, dir: b.explorer.nav.dir, afterId: id });
   }
 
-  /** エクスプローラーからドラッグされた項目のうち、フォルダを、新しいタブで開く（このフォルダの一覧で見つかるものだけ） */
-  function openFoldersInTabs(paths: string[]): void {
-    const ex = explorer;
-    const here = current?.id;
-    if (!ex || !here) return;
-    const st = ex.index.state(ex.nav.dir);
-    if (st?.kind !== 'ok') return;
-    for (const path of paths) {
-      const e = st.entries.get(baseName(path));
-      if (e?.kind === 'dir' && e.path === path) addTab({ place: here, dir: path, focus: false });
-    }
-  }
-
   const tabItems = $derived(
     tabs.map((t) => {
       const b = t.bundles.get(t.currentId);
@@ -294,13 +280,6 @@
   /** Android: 全ファイルへのアクセスの許可が無い（許可されるまで、一覧の上に案内を出し続ける） */
   let needAllFiles = $state(false);
 
-  // 許可されるまでは、設定画面から戻ったことが（端末によっては focus でも visibilitychange でも）届かないことがあるので、少しずつ確かめ続ける
-  $effect(() => {
-    if (!needAllFiles) return;
-    const timer = setInterval(() => void checkAllFiles(), 1500);
-    return () => clearInterval(timer);
-  });
-
   /** Android: 全ファイルへのアクセスの許可を確かめる（起動時と、設定画面などから戻ったとき）。許可されたら、見ている一覧を読み直す */
   async function checkAllFiles(): Promise<void> {
     const granted = await allFilesGranted();
@@ -317,9 +296,7 @@
     void checkAllFiles();
     // 設定画面（許可のダイアログ）から戻ったとき、許可されたかを確かめ直す
     const onFocus = () => void checkAllFiles();
-    const onVisible = () => document.visibilityState === 'visible' && onFocus();
     window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisible);
     // アプリの更新を、裏で確かめる（対応している環境だけ。新しい版はトーストで 1 度だけ知らせる）
     void updater.loadVersion();
     const stopWatch = startUpdateWatch({ updater, notify: (text, action) => host.toast(text, 'info', action), openAbout: () => (aboutOpen = true) });
@@ -356,7 +333,6 @@
     })();
     return () => {
       window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisible);
       backNav?.stop();
       backNav = null;
       stopWatch();
@@ -505,7 +481,7 @@
     if (!p) return;
     const ok = await host.confirm({
       title: `「${p.name}」を一覧から外しますか`,
-      body: 'この端末の覚え（と、保管した認証情報）を消すだけです。サーバーのファイルは消えません',
+      body: 'このデバイスに保存した設定（と、保管した認証情報）を消すだけです。サーバーのファイルは消えません',
       okLabel: '外す',
       danger: true,
     });
@@ -532,6 +508,12 @@
   /** 「戻る」（マウスの戻るボタン・Alt+←）。入力中の欄では、文字の操作を奪わない */
   function onKey(ev: KeyboardEvent): void {
     if (isBackKey(ev) && host.back()) ev.preventDefault();
+    // F5: 一覧の再読み込み（アプリ全体のページは読み直さない）
+    if (ev.key === 'F5' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
+      ev.preventDefault();
+      explorer?.nav.reload();
+      return;
+    }
     // タブの操作（Ctrl・Cmd）: T 新しいタブ・W 閉じる・Tab / Shift+Tab / PageDown / PageUp で切り替え・1〜9 で番号（9 は最後）
     if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || tabs.length === 0) return;
     const at = tabs.findIndex((t) => t.id === activeId);
@@ -564,7 +546,6 @@
       onduplicate={duplicateTab}
       onmove={moveTab}
       oncloseothers={closeOthers}
-      ondropfolders={openFoldersInTabs}
       bind:listOpen={tabListOpen}
     />
 
@@ -641,7 +622,6 @@
               <IconButton label="上のフォルダへ" title="上のフォルダへ" disabled={explorer.nav.dir === ''} onclick={() => explorer?.nav.up()}><ArrowUp size={16} /></IconButton>
             {/snippet}
             {#snippet menu(close)}
-              <MenuItem icon={RotateCw} onclick={() => { close(); explorer?.nav.reload(); }}>読み直す</MenuItem>
               <MenuItem icon={Eye} onclick={() => { close(); toggleHidden(); }}>隠しファイルを表示{#if settings.showHidden}<Check size={14} />{/if}</MenuItem>
             {/snippet}
           </FileExplorer>

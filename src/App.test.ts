@@ -106,6 +106,20 @@ describe('fixplor の画面（この端末のファイル）', () => {
     expect(localStorage.getItem('fixplor.showHidden')).toBe('1');
   });
 
+  it('F5 で、一覧を再読み込みする（メニューには、再読み込みの項目を置かない）', async () => {
+    app = mount(App, { target });
+    await settle();
+    expect(called('fs_list')).toHaveLength(1);
+    const ev = new KeyboardEvent('keydown', { key: 'F5', bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    await settle();
+    expect(ev.defaultPrevented).toBe(true);
+    expect(called('fs_list')).toHaveLength(2);
+    button('メニュー').click();
+    await settle();
+    expect([...target.querySelectorAll('[role="menuitem"], .menu-item')].some((b) => /再読み込み|読み直す/.test(b.textContent ?? ''))).toBe(false);
+  });
+
   it('上のフォルダへ・戻る', async () => {
     app = mount(App, { target });
     await settle();

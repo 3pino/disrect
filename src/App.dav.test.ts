@@ -266,7 +266,7 @@ describe('ネットワークの場所（WebDAV）', () => {
 describe('認証（Basic・OS のキーチェーン）', () => {
   const credSets = (): Record<string, unknown>[] => called('dav_cred_set') as Record<string, unknown>[];
 
-  it('ユーザー名とパスワードを付けて追加すると、パスワードは Rust（キーチェーン）へだけ渡る。この端末の覚えには、名前と URL だけ', async () => {
+  it('ユーザー名とパスワードを付けて追加すると、パスワードは Rust（キーチェーン）へだけ渡る。デバイスに保存するのは、名前と URL だけ', async () => {
     app = mount(App, { target });
     await settle();
     button('ネットワークの場所を追加').click();

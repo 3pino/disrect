@@ -1,6 +1,6 @@
 import { read, write } from './settings.svelte';
 
-// 追加したネットワークの置き場所（WebDAV）。名前と URL だけを、この端末に覚える（資格情報は、まだ持たない）。
+// 追加したネットワークの置き場所（WebDAV）。名前と URL だけを、各デバイスに保存する（資格情報は、まだ持たない）。
 // 置き場所を消しても、サーバーのファイルは消えない（覚えを外すだけ）。
 
 export type DavPlace = { id: string; name: string; url: string };

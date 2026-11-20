@@ -3,7 +3,7 @@ import { canBackgroundCheck, isCheckDue, UPDATE_CHECK_FOCUS_GAP_MS, UPDATE_CHECK
 
 // アプリのアップデートを裏で確認し、新しい版があればトーストで知らせる（対応している環境だけ）。
 // 起動時・6 時間おき・フォーカスが戻ったとき（前回から 1 時間たっていれば）に確認する。同じ版は 1 回だけ知らせる。
-// 時刻と知らせた版は、この端末の覚え（localKeys.ts に登録）に置く。
+// 時刻と知らせた版は、各デバイスの保存先（localKeys.ts に登録）に置く。
 
 export const CHECKED_AT_KEY = 'fixplor.updateCheckedAt';
 export const NOTIFIED_KEY = 'fixplor.updateNotifiedVersion';

@@ -8,8 +8,9 @@ export { childPath };
 
 /** ドラッグで運ぶ項目の印（DataTransfer の種類）。ほかのアプリのドロップ先が、この部品のドラッグかを見分けるのに使う */
 export const EXPLORER_DRAG_TYPE = 'application/x-explorer-kit-items';
-/** ドラッグで運ぶ項目にフォルダが含まれるときだけ、さらに付ける印（ドロップ先が、ドロップの前に（中身は読めない）フォルダかを見分ける） */
-export const EXPLORER_DRAG_DIR_TYPE = 'application/x-explorer-kit-has-dir';
+
+/** ダブルクリックとみなす間隔（ms）。名前の文字を押してから、書き換えに入るまでの待ちにも使う */
+export const DOUBLE_CLICK_MS = 300;
 
 /** 特別なフォルダそのものか、その中か（特別なフォルダの決まりが掛かる）。特別なフォルダが無い置き場所では、いつも false */
 export function inSpecialDir(rules: Rules, path: string): boolean {

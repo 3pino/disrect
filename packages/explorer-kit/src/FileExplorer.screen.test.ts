@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
 import { LONG_PRESS_MS } from '@3pino/ui-kit-web/sortable';
 import FileExplorer from './FileExplorer.svelte';
-import { EXPLORER_DRAG_TYPE } from './ops';
+import { DOUBLE_CLICK_MS, EXPLORER_DRAG_TYPE } from './ops';
 import type { Entry } from './types';
 import { SCREEN_RULES, downloadFile, dsk, osDrop, entry, explorer, explorerBuffer, explorerSelection, explorerView, fileExplorer, h, listing, resetUi, dirIndex, switchPlace, place, scopeAs, ui } from './test-support/screen.svelte';
 
@@ -2296,14 +2296,14 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     flushSync();
   };
 
-  it('項目を右クリックすると、その項目を選んで、項目のメニュー（開く・コピー・切り取り・名前の変更・削除・プロパティ）を出す', async () => {
+  it('項目を右クリックすると、その項目を選んで、項目のメニュー（コピー・切り取り・名前の変更・削除・プロパティ。「開く」は無い）を出す', async () => {
     const el = await render();
     rightClick(el, 'a.txt');
     expect(explorerSelection.paths()).toEqual(['a.txt']);
-    expect(ctxItems()).toEqual(['開く', 'コピー', '切り取り', '名前の変更', '削除', 'プロパティ']);
+    expect(ctxItems()).toEqual(['コピー', '切り取り', '名前の変更', '削除', 'プロパティ']);
   });
 
-  it('選んでいる項目を右クリックすると、選びはそのまま（まとめて操作できる）。複数のときは、開く・名前の変更・プロパティを出さない', async () => {
+  it('選んでいる項目を右クリックすると、選びはそのまま（まとめて操作できる）。複数のときは、名前の変更・プロパティを出さない', async () => {
     const el = await render();
     explorerSelection.replace(['a.txt', 'pic.png']);
     flushSync();
@@ -2336,20 +2336,38 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     expect(document.querySelector('.file-properties')).not.toBeNull();
   });
 
-  it('ひとつだけ選んでいる項目の名前の文字を押すと、少し待って、名前の書き換えになる（ダブルクリックなら開く）', async () => {
+  it('名前の文字を押すと（選んでいなくても）、その項目を選んで、少し待って、名前の書き換えになる', async () => {
     const el = await render();
     const textOf = (n: string) => rowOf(el, n).querySelector<HTMLElement>('.file-explorer-name-text')!;
-    const click = (t: HTMLElement, detail = 1) => {
-      t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }));
-      flushSync();
-    };
-    // 1 回目は選ぶだけ
-    click(textOf('a.txt'));
+    textOf('a.txt').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    flushSync();
     expect(explorerSelection.paths()).toEqual(['a.txt']);
+    // 待つあいだは、まだ書き換えない（ダブルクリックなら開くため）
     expect(el.querySelector('.file-explorer-rename')).toBeNull();
-    // 2 回目（ダブルクリックでない押し）は、書き換え
-    click(textOf('a.txt'));
     await vi.waitFor(() => expect(el.querySelector<HTMLTextAreaElement>('.file-explorer-rename')?.value).toBe('a.txt'));
+  });
+
+  it('名前の文字以外（行のほかの部分）を押すと、これまでどおり、選ぶだけ（書き換えない）', async () => {
+    const el = await render();
+    const col = rowOf(el, 'a.txt').querySelector<HTMLElement>('.file-explorer-col-type, .file-explorer-col-size')!;
+    col.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    flushSync();
+    expect(explorerSelection.paths()).toEqual(['a.txt']);
+    await new Promise((r) => setTimeout(r, DOUBLE_CLICK_MS + 100));
+    flushSync();
+    expect(el.querySelector('.file-explorer-rename')).toBeNull();
+  });
+
+  it('Ctrl を押しながら名前の文字を押すと、書き換えではなく、選びに足す', async () => {
+    const el = await render();
+    explorerSelection.replace(['docs']);
+    flushSync();
+    rowOf(el, 'a.txt').querySelector<HTMLElement>('.file-explorer-name-text')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, ctrlKey: true }));
+    flushSync();
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'docs']);
+    await new Promise((r) => setTimeout(r, DOUBLE_CLICK_MS + 100));
+    flushSync();
+    expect(el.querySelector('.file-explorer-rename')).toBeNull();
   });
 
   it('名前の文字を続けて 2 回押す（ダブルクリック）では、書き換えに入らない', async () => {
@@ -2359,10 +2377,9 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
       t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }));
       flushSync();
     };
-    click(1);
     click(1); // 書き換えの待ちが始まる
     click(2); // ダブルクリックの 2 回目: 待ちを取り消す
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, DOUBLE_CLICK_MS + 200));
     flushSync();
     expect(el.querySelector('.file-explorer-rename')).toBeNull();
   });
@@ -2400,6 +2417,28 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
   });
 
+  it('選んでいない項目の上からも囲める（選んでいる項目の上は、ドラッグで移すので囲まない）', async () => {
+    const el = await render();
+    const body = layout(el);
+    const second = rowOf(el, 'a.txt').querySelector<HTMLElement>('.file-explorer-name-text')!;
+    // 選んでいない項目は、HTML5 のドラッグにしない（囲みと取り合わない）
+    expect(rowOf(el, 'a.txt').closest('li')!.getAttribute('draggable')).toBe('false');
+    second.dispatchEvent(ptr('pointerdown', 100, 60));
+    body.dispatchEvent(ptr('pointermove', 100, 110));
+    flushSync();
+    expect(document.querySelector('.file-explorer-band')).not.toBeNull();
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
+    body.dispatchEvent(ptr('pointerup', 100, 110));
+    flushSync();
+    // 選んでいる項目の上からは、囲みを始めない（ドラッグで移せる）
+    expect(rowOf(el, 'a.txt').closest('li')!.getAttribute('draggable')).toBe('true');
+    second.dispatchEvent(ptr('pointerdown', 100, 60));
+    body.dispatchEvent(ptr('pointermove', 100, 10));
+    flushSync();
+    expect(document.querySelector('.file-explorer-band')).toBeNull();
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
+  });
+
   it('Ctrl を押して囲むと、いまの選びに足す。ただのクリック（動かさない）は、囲みにならず、選びを外す', async () => {
     const el = await render();
     const body = layout(el);
@@ -2426,18 +2465,5 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     await vi.waitFor(() => expect(rowOf(el, 'docs').querySelector('.file-explorer-col-size')?.textContent).toBe('≥ 2.0 KB'));
     expect(h.folderSize).toHaveBeenCalledWith('docs');
     expect(rowOf(el, 'a.txt').querySelector('.file-explorer-col-size')?.textContent).not.toBe('');
-  });
-
-  it('フォルダを運ぶドラッグには、フォルダの印も付く（ファイルだけのときは付かない）', async () => {
-    const el = await render();
-    const start = (name: string) => {
-      const set: string[] = [];
-      const ev = new Event('dragstart', { bubbles: true, cancelable: true });
-      Object.defineProperty(ev, 'dataTransfer', { value: { setData: (t: string) => set.push(t), effectAllowed: '' } });
-      rowOf(el, name).dispatchEvent(ev);
-      return set;
-    };
-    expect(start('docs')).toEqual(['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir']);
-    expect(start('a.txt')).toEqual(['application/x-explorer-kit-items']);
   });
 });

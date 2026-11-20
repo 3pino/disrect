@@ -1,6 +1,6 @@
 import type { ViewStore } from '@3pino/explorer-kit';
 
-/** プラグインのデータ（`saveData`。この端末だけ） */
+/** プラグインのデータ（`saveData`。各デバイスに保存） */
 type Saved = { explorerDirs?: unknown };
 
 export type Persist = {
