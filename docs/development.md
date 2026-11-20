@@ -50,7 +50,7 @@ GitHub Actions: `CI`（型・試験・ビルド。Rust は Linux と Windows。A
 | `src/lib/platformGlobal.ts`・`src-tauri/src/platform.rs` | Rust が `window.__FIXPLOR_PLATFORM__` に入れる OS の事実の名前を、土台（`core/platform`）へ教える |
 | `src/lib/fs/pins.ts`・`src-tauri/src/webdav/pin.rs` | 証明書の指紋の固定（Rust の検証器と、確認・信頼の画面 `CertDialog.svelte`）。保管は設定フォルダの `dav-pins.json` |
 | `src/lib/tabs.ts`・`src/components/TabBar.svelte`・`WindowControls.svelte`・`src/lib/windowControls.ts` | タブ（保存・復元の決まりと、タブの欄。デスクトップはタイトルバーを兼ねる。別のウィンドウで開く） |
-| `src/components/SettingsView.svelte`・`src/lib/hotkeys.ts` | 設定のタブ（ホットキーの一覧・バージョンと更新） |
+| `src/components/SettingsView.svelte`・`HotkeySettings.svelte`・`src/lib/hotkeys.ts` | 設定のタブ（ホットキーの一覧・バージョンと更新）。ホットキーの画面・決まりは、土台 `@3pino/app-kit-web`（`settings/HotkeySettings.svelte`・`core/hotkeyBook`） |
 | `src/lib/fs/search.ts`・`src-tauri/src/fs/search.rs` | 検索（ネットワークの場所は手元で上限つき、この端末は Rust で流して返す） |
 | `src/lib/updateBackend.ts`・`updateWatch.ts`・`stores/updater.svelte.ts` | アプリの更新（土台 `@3pino/app-kit-web` の Updater）。Android は `src-tauri/gen/android` と、アプリの中のプラグイン（Kotlin）で APK を取って渡す |
 | `plugins/fixplor/` | Disnans のプラグイン（`plugins/fixplor/README.md`） |

@@ -1,4 +1,5 @@
-import { EXPLORER_HOTKEYS, normalizeHotkey, type ExplorerHotkeyId, type Keymap } from '@3pino/explorer-kit';
+import { addKey, effectiveKeys as bookEffective, findConflicts as bookConflicts, overrideOf as bookOverrideOf, parseOverrides as bookParse, removeKey, type Overrides as BookOverrides } from '@3pino/app-kit-web/core/hotkeyBook';
+import { EXPLORER_HOTKEYS, type ExplorerHotkeyId, type Keymap } from '@3pino/explorer-kit';
 
 // このアプリのホットキー（操作ごとの既定と、利用者が変えた分の扱い）。画面に依らない。
 // 一覧の操作（検索・開く・名前の変更・選びを外す）は、共有の部品が受ける（Keymap で渡す）。それ以外は、App.svelte が受ける。
@@ -94,66 +95,23 @@ export const COMMANDS: readonly Command[] = [
 /** アプリ側（App.svelte）が受ける操作。それ以外は、共有の部品（一覧）が受ける */
 export const APP_COMMANDS: readonly Command[] = COMMANDS.filter((c) => !(c.id in EXPLORER_HOTKEYS));
 
-export type Overrides = Partial<Record<CommandId, string[]>>;
-
-const IDS = new Set<string>(COMMANDS.map((c) => c.id));
+// 上書き・重なりの決まりは、土台（`@3pino/app-kit-web/core/hotkeyBook`）。ここは、このアプリの操作の一覧（COMMANDS）を渡すだけ。
+export { addKey, removeKey };
+export type Overrides = BookOverrides<CommandId>;
 
 /** 保存した文字から読む。壊れた値・知らない操作・読めないキーは捨てる（読めるものだけを残す） */
-export function parseOverrides(raw: string | null): Overrides {
-  if (raw === null) return {};
-  let v: unknown;
-  try {
-    v = JSON.parse(raw);
-  } catch {
-    return {};
-  }
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return {};
-  const out: Overrides = {};
-  for (const [id, list] of Object.entries(v)) {
-    if (!IDS.has(id) || !Array.isArray(list)) continue;
-    const keys: string[] = [];
-    for (const k of list) {
-      const n = typeof k === 'string' ? normalizeHotkey(k) : null;
-      if (n !== null && !keys.includes(n)) keys.push(n);
-    }
-    out[id as CommandId] = keys;
-  }
-  return out;
-}
+export const parseOverrides = (raw: string | null): Overrides => bookParse(raw, COMMANDS);
 
 export const defaultsOf = (id: CommandId): readonly string[] => COMMANDS.find((c) => c.id === id)!.defaults;
 
 /** いま効いているホットキー（変えていなければ既定。全部外した操作は、空） */
-export function effectiveKeys(id: CommandId, over: Overrides): readonly string[] {
-  return over[id] ?? defaultsOf(id);
-}
-
-/** 一覧の最後に足す（すでに在れば、そのまま）。読めないキーは、そのまま返す */
-export function addKey(list: readonly string[], key: string): string[] {
-  const n = normalizeHotkey(key);
-  return n === null || list.includes(n) ? [...list] : [...list, n];
-}
-
-export const removeKey = (list: readonly string[], key: string): string[] => list.filter((k) => k !== key);
+export const effectiveKeys = (id: CommandId, over: Overrides): readonly string[] => bookEffective(COMMANDS, id, over);
 
 /** 一覧が既定と同じなら、保存しない（null） */
-export function overrideOf(id: CommandId, list: readonly string[]): string[] | null {
-  const d = defaultsOf(id).map((k) => normalizeHotkey(k) ?? k);
-  return list.length === d.length && list.every((k, i) => k === d[i]) ? null : [...list];
-}
+export const overrideOf = (id: CommandId, list: readonly string[]): string[] | null => bookOverrideOf(defaultsOf(id), list);
 
 /** 同じキーを持つ操作（キー → 操作の ID の並び。2 つ以上のものだけ） */
-export function findConflicts(over: Overrides): Map<string, CommandId[]> {
-  const by = new Map<string, CommandId[]>();
-  for (const c of COMMANDS) {
-    for (const k of effectiveKeys(c.id, over)) {
-      const n = normalizeHotkey(k) ?? k;
-      by.set(n, [...(by.get(n) ?? []), c.id]);
-    }
-  }
-  for (const [k, ids] of [...by]) if (ids.length < 2) by.delete(k);
-  return by;
-}
+export const findConflicts = (over: Overrides): Map<string, CommandId[]> => bookConflicts(COMMANDS, over);
 
 /** 共有の部品に渡す、一覧の操作のホットキー */
 export function explorerKeymap(over: Overrides): Keymap {

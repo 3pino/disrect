@@ -1,4 +1,4 @@
-import { matchesHotkey, matchesMouse } from '@3pino/explorer-kit';
+import { matchesHotkey, matchesMouse } from '@3pino/app-kit-web/core/hotkeys';
 import { read, write } from './settings.svelte';
 import { addKey, effectiveKeys, explorerKeymap, findConflicts, overrideOf, parseOverrides, removeKey, type CommandId, type Overrides } from './hotkeys';
 
