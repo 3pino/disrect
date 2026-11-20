@@ -24,6 +24,8 @@ pub struct Entry {
     pub size: Option<u64>,
     /// 更新時刻（UNIX 時刻のミリ秒）
     pub modified: Option<i64>,
+    /// 作成時刻（UNIX 時刻のミリ秒）。OS・ファイルシステムが持たなければ null（Linux の古いカーネルなど）
+    pub created: Option<i64>,
     pub hidden: bool,
     pub readonly: bool,
     pub symlink: bool,
@@ -62,6 +64,7 @@ pub fn entry_of(path: &Path) -> FsResult<Entry> {
         kind: if dir { Kind::Dir } else { Kind::File },
         size: if dir { None } else { Some(meta.len()) },
         modified: modified_ms(&meta),
+        created: created_ms(&meta),
         readonly: meta.permissions().readonly(),
         symlink,
         link_kind: if dir { None } else { shortcut_kind(path) },
@@ -103,7 +106,15 @@ pub(crate) fn lnk_target_kind(head: &[u8]) -> Option<Kind> {
 }
 
 fn modified_ms(meta: &Metadata) -> Option<i64> {
-    let t = meta.modified().ok()?;
+    time_ms(meta.modified().ok()?)
+}
+
+/// 作成時刻。取れない環境では None（エラーにはしない）
+fn created_ms(meta: &Metadata) -> Option<i64> {
+    time_ms(meta.created().ok()?)
+}
+
+fn time_ms(t: std::time::SystemTime) -> Option<i64> {
     match t.duration_since(UNIX_EPOCH) {
         Ok(d) => i64::try_from(d.as_millis()).ok(),
         // 1970 年より前
@@ -133,6 +144,7 @@ fn unreadable_entry(path: &Path) -> Entry {
         kind: Kind::File,
         size: None,
         modified: None,
+        created: None,
         readonly: false,
         symlink: false,
         link_kind: None,

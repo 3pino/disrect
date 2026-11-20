@@ -111,6 +111,7 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
       kind: raw.kind,
       size: raw.size ?? 0,
       modified: raw.modified ?? 0,
+      ...(raw.created ? { created: raw.created } : {}),
       mime: null,
       // ショートカットは、リンク先がフォルダなら、フォルダのアイコンで見せる（押したときの動きは、ふつうのファイルのまま）
       ...(raw.linkKind === 'dir' ? { iconKind: 'dir' as const } : {}),

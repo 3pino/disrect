@@ -130,11 +130,16 @@ describe('名前の絞り込み', () => {
     expect(b.target.querySelector('.file-explorer-search-sub')).not.toBeNull();
   });
 
-  it('絞り込みは置き場所に頼まない（サブフォルダも、を入れていなければ search を呼ばない）', async () => {
+  it('絞り込みは置き場所に頼まない（サブフォルダも、を外していれば search を呼ばない）', async () => {
     const search = vi.fn<Searcher>(async () => ({ partial: null }));
     const t = open({ search });
     await tick();
     await t.openBar();
+    const box = t.target.querySelector<HTMLInputElement>('.file-explorer-search-sub input')!;
+    expect(box.checked).toBe(true); // 既定は、サブフォルダも探す
+    box.checked = false;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
     await t.type('cat');
     expect(search).not.toHaveBeenCalled();
     expect(t.names()).toEqual(['Cat.png']);

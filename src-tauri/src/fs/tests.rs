@@ -246,6 +246,8 @@ fn errors_serialize_as_code_and_message() {
     let e = serde_json::to_value(entry_of(&d.path().join("f")).unwrap()).unwrap();
     assert_eq!(e["kind"], "file");
     assert!(e.get("modified").is_some() && e.get("readonly").is_some() && e.get("symlink").is_some());
+    // 作成時刻は、持たない環境では null（キーはいつもある）
+    assert!(e.get("created").is_some());
 }
 
 #[test]

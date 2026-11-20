@@ -9,14 +9,14 @@ export function matchesName(name: string, text: string): boolean {
 
 /**
  * エクスプローラー 1 つ分の検索。
- *  - 名前の絞り込み（recursive が偽）: 開いているフォルダの一覧を、名前で絞る（置き場所には頼まない。ここは文字を持つだけ）。
- *  - サブフォルダも（recursive が真・api.search がある置き場所だけ）: 置き場所に頼んで、見つかった順に hits へ溜める。
+ *  - 名前の絞り込み（recursive が偽。「サブフォルダも」を外したとき・置き場所が探せないとき）: 開いているフォルダの一覧を、名前で絞る（置き場所には頼まない。ここは文字を持つだけ）。
+ *  - サブフォルダも（既定。recursive が真・api.search がある置き場所だけ）: 置き場所に頼んで、見つかった順に hits へ溜める。
  *    文字・フォルダが変わるたび、前の検索は中止して、少し待ってから（delayMs）新しく始める。件数は SEARCH_MAX_HITS まで。
  */
 export class ExplorerSearch {
   open = $state(false);
   text = $state('');
-  recursive = $state(false);
+  recursive = $state(true);
   hits = $state.raw<Entry[]>([]);
   running = $state(false);
   /** 最後まで調べたか・途中で止めたか（検索が終わったら入る） */

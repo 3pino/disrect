@@ -91,6 +91,10 @@
     </dd>
     <dt>更新日時</dt>
     <dd>{entry.modified > 0 ? formatFull(entry.modified) : '—'}</dd>
+    {#if entry.created}
+      <dt>作成日時</dt>
+      <dd>{formatFull(entry.created)}</dd>
+    {/if}
   </dl>
   {#if isFile && fileAction}
     <div class="modal-actions">
@@ -126,7 +130,7 @@
     color: inherit;
     font: inherit;
     text-align: left;
-    cursor: copy;
+    cursor: pointer;
     overflow-wrap: anywhere;
   }
   .file-properties-copy > :global(svg) {

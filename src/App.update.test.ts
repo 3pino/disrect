@@ -132,7 +132,7 @@ describe('アプリの更新', () => {
     button('更新').click();
     await settle();
     expect(modalText()).toContain('バージョン');
-    expect(modalText()).toContain('fixplor v0.1.0');
+    expect(modalText()).toContain('v0.1.0');
     expect(modalText()).toContain('新しいバージョンがあります: v0.2.0');
     expect(modalText()).toContain('あれ');
   });

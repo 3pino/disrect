@@ -70,3 +70,12 @@ describe('entryAction', () => {
     expect(entryAction(e('a.txt'))).toBe('file');
   });
 });
+
+describe('sortEntries（作成日時）', () => {
+  it('作成日時の順に並べる。持たない項目は、いちばん古い扱い（フォルダは先のまま）', () => {
+    const c = (name: string, created?: number, kind: 'file' | 'dir' = 'file'): Entry => ({ ...e(name, kind), ...(created ? { created } : {}) });
+    const list = () => [c('b.txt', 300), c('a.txt'), c('zdir', 50, 'dir'), c('c.txt', 100)];
+    expect(sortEntries(list(), 'created', 'asc').map((x) => x.name)).toEqual(['zdir', 'a.txt', 'c.txt', 'b.txt']);
+    expect(sortEntries(list(), 'created', 'desc').map((x) => x.name)).toEqual(['zdir', 'b.txt', 'c.txt', 'a.txt']);
+  });
+});

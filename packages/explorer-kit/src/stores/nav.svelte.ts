@@ -46,8 +46,12 @@ export class ExplorerNav {
     return this.index.state(this.dir);
   }
 
-  /** 読み直す（失敗の「再読み込み」） */
+  /** 再読み込みを頼まれた回数（フォルダのサイズの写しを捨てる合図に使う） */
+  reloads = $state(0);
+
+  /** 読み直す（失敗の「再読み込み」・F5） */
   reload(): void {
+    this.reloads++;
     this.index.invalidate(this.dir);
     this.index.ensure(this.dir);
   }

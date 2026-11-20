@@ -87,10 +87,17 @@
   onMount(() => {
     measureScroll();
     window.addEventListener('resize', measureScroll);
+    // どこで終わっても、ドラッグが終わったら点線のタブを消す（エクスプローラーの中から始めたドラッグ）
+    const onDragEnd = (): void => {
+      if (ghostAt !== null) reset();
+    };
+    window.addEventListener('dragend', onDragEnd, true);
     const ro = typeof ResizeObserver === 'function' && scroller ? new ResizeObserver(measureScroll) : null;
     if (ro && scroller) ro.observe(scroller);
     return () => {
       window.removeEventListener('resize', measureScroll);
+      window.removeEventListener('dragend', onDragEnd, true);
+      clearGhostTimer();
       ro?.disconnect();
     };
   });
@@ -188,6 +195,21 @@
   function showGhost(at: number): void {
     if (ghostAt === null) ghostLabel = draggedFolderLabel();
     ghostAt = at;
+    touchGhost();
+  }
+  // 点線のタブを出したまま、ドラッグが途切れたとき（ウィンドウの外へ出た・どこかで離したなど、dragleave が届かない場合）に備える。
+  // dragover は、動かさなくても 0.5 秒ほどごとに届くので、1 秒来なければ消す
+  let ghostTimer: ReturnType<typeof setTimeout> | null = null;
+  function touchGhost(): void {
+    if (ghostTimer) clearTimeout(ghostTimer);
+    ghostTimer = setTimeout(() => {
+      ghostTimer = null;
+      ghostAt = null;
+    }, 1000);
+  }
+  function clearGhostTimer(): void {
+    if (ghostTimer) clearTimeout(ghostTimer);
+    ghostTimer = null;
   }
   /** 欄の、タブの無いところの上 */
   function dragOverBar(ev: DragEvent): void {
@@ -195,6 +217,7 @@
       ev.preventDefault();
       if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
       if (ghostAt === null) showGhost(tabs.length);
+      else touchGhost();
     } else if (isTabDrag(ev)) {
       ev.preventDefault();
     }
@@ -205,12 +228,15 @@
     ev.preventDefault();
     ev.stopPropagation();
     if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+    touchGhost();
   }
   function dragLeaveBar(ev: DragEvent): void {
     // 欄の中の子どもへ動いただけのときは、そのまま（相手が分からない環境もあるので、位置も見る）
     if (ev.relatedTarget instanceof Node && bar?.contains(ev.relatedTarget)) return;
+    // ウィンドウの外へ出るときは、相手が無く、位置は (0, 0) で届く（バーは左上の端なので、位置だけでは「中」に見える）
+    const leftWindow = ev.relatedTarget === null && ev.clientX === 0 && ev.clientY === 0;
     const r = bar?.getBoundingClientRect();
-    if (r && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) return;
+    if (!leftWindow && r && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) return;
     ghostAt = null;
     over = null;
   }
@@ -263,6 +289,7 @@
     dragging = null;
     over = null;
     ghostAt = null;
+    clearGhostTimer();
   }
 </script>
 
@@ -344,6 +371,7 @@
     gap: var(--space-1);
     padding: var(--space-1) var(--space-3) 0;
     border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
     flex: none;
     user-select: none;
     -webkit-user-select: none;
@@ -357,6 +385,8 @@
     position: relative;
     display: flex;
     min-width: 0;
+    /* アクティブなタブの上の線（border-top）が、欄の端で切れないように */
+    padding-top: 1px;
   }
   .tabs {
     display: flex;

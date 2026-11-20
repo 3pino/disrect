@@ -30,14 +30,18 @@ describe('ホットキーの設定', () => {
   });
 
   it('同じキーを持つ操作を見つける（既定の中には、重なりが無い）', () => {
-    expect(findConflicts({}).size).toBe(0);
+    expect([...findConflicts({})]).toEqual([]);
     const c = findConflicts({ 'tab.prev': ['Ctrl+T'] });
     expect([...c.keys()]).toEqual(['Ctrl+T']);
     expect(c.get('Ctrl+T')).toEqual(['tab.new', 'tab.prev']);
   });
 
   it('一覧の操作のホットキーを、部品に渡す形にする', () => {
-    expect(explorerKeymap({ rename: ['F3'] })).toEqual({ search: ['Ctrl+F'], open: ['Enter'], rename: ['F3'], clearSelection: ['Escape'] });
+    const map = explorerKeymap({ rename: ['F3'] });
+    expect(map.rename).toEqual(['F3']);
+    expect(map.search).toEqual(['Ctrl+F']);
+    expect(map.undo).toEqual(['Ctrl+Z']);
+    expect(map.redo).toEqual(['Ctrl+Y', 'Ctrl+Shift+Z']);
     expect(COMMANDS.map((c) => c.id)).toContain('view.reload');
   });
 });

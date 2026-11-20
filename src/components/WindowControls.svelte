@@ -43,7 +43,7 @@
   button {
     display: grid;
     place-items: center;
-    width: 46px;
+    width: 32px;
     border: none;
     background: transparent;
     color: var(--text-muted);
@@ -53,7 +53,8 @@
     color: var(--text);
   }
   .window-close:hover {
-    background: var(--danger);
+    /* OS の「閉じる」に近い赤（テーマに依らず固定） */
+    background: oklch(0.6 0.2 25);
     color: white;
   }
 </style>

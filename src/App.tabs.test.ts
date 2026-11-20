@@ -5,8 +5,8 @@ import type { FsEntry } from './lib/fs/types';
 import { hotkeys } from './lib/hotkeys.svelte';
 
 // ウィンドウの操作（最後のタブを閉じる・別のウィンドウで開く）は、呼んだことだけを覚える偽物にする
-const win = vi.hoisted(() => ({ quit: vi.fn(async () => {}), open: vi.fn(async (_tab: { place: string; dir: string }, _at?: { x: number; y: number }) => {}) }));
-vi.mock('./lib/windowControls', async (orig) => ({ ...(await orig<typeof import('./lib/windowControls')>()), hasWindowControls: () => false, quitWindow: win.quit, openTabInNewWindow: win.open }));
+const win = vi.hoisted(() => ({ quit: vi.fn(async () => {}), exit: vi.fn(async () => {}), controls: vi.fn(() => false), open: vi.fn(async (_tab: { place: string; dir: string }, _at?: { x: number; y: number }) => {}) }));
+vi.mock('./lib/windowControls', async (orig) => ({ ...(await orig<typeof import('./lib/windowControls')>()), hasWindowControls: win.controls, quitWindow: win.quit, exitApp: win.exit, openTabInNewWindow: win.open }));
 
 // タブ: この端末（メモリの中の木）と、追加したネットワークの場所（WebDAV の偽物）を、複数のタブで開く。
 const fake = vi.hoisted(() => {
@@ -479,6 +479,7 @@ describe('タブ', () => {
   it('ホットキーは、設定で変えられる。変えると、前のキーは効かなくなり、新しいキーが効く。保存され、既定に戻せる', async () => {
     await start();
     await click(target.querySelector('.about-row')!); // 設定のタブ
+    await click(target.querySelector('.settings-link-hotkeys')!); // 「ホットキー」の画面
     const row = (id: string): HTMLElement => target.querySelector<HTMLElement>(`[data-command="${id}"]`)!;
     // 新しいタブに、Ctrl+Y を足す（記録）
     (row('tab.new').querySelector('button[aria-label="新しいタブのキーを追加"]') as HTMLElement).click();
@@ -494,7 +495,8 @@ describe('タブ', () => {
     expect(JSON.parse(localStorage.getItem('fixplor.hotkeys')!)).toEqual({ 'tab.new': ['Ctrl+T', 'Ctrl+Y'] });
     await key('y');
     expect(tabLabels()).toHaveLength(before + 1);
-    await click(tabEls()[1].querySelector('.tab-main')!); // 設定のタブへ戻る
+    await click(tabEls()[1].querySelector('.tab-main')!); // 設定のタブへ戻る（設定のいちばん上から）
+    await click(target.querySelector('.settings-link-hotkeys')!);
     // Ctrl+T を外す → 効かない
     (row('tab.new').querySelector('button[aria-label="新しいタブの Ctrl+T を外す"]') as HTMLElement).click();
     await settle();
@@ -508,21 +510,30 @@ describe('タブ', () => {
     expect(tabLabels()).toHaveLength(before + 2);
   });
 
-  it('記録は、修飾キーなしの Esc で取り消す。ほかの操作と同じキーを足すと、警告を出す', async () => {
+  it('記録は、もう一度「＋」を押すと取り消す。Esc も、記録できる。ほかの操作と同じキーを足すと、警告を出す', async () => {
     await start();
     await click(target.querySelector('.about-row')!);
+    await click(target.querySelector('.settings-link-hotkeys')!);
     const row = (id: string): HTMLElement => target.querySelector<HTMLElement>(`[data-command="${id}"]`)!;
     (row('tab.prev').querySelector('button[aria-label="前のタブのキーを追加"]') as HTMLElement).click();
     await settle();
-    await key('Escape', {});
+    (row('tab.prev').querySelector('button[aria-label="前のタブのキーを追加"]') as HTMLElement).click(); // もう一度で取り消し
+    await settle();
     expect(row('tab.prev').textContent).not.toContain('キーを押してください');
     expect(localStorage.getItem('fixplor.hotkeys')).toBeNull();
     expect(row('tab.prev').querySelector('[role="img"]')).toBeNull();
     (row('tab.prev').querySelector('button[aria-label="前のタブのキーを追加"]') as HTMLElement).click();
     await settle();
     await key('t'); // 「新しいタブ」と同じ
-    expect(row('tab.prev').querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('新しいタブ');
-    expect(row('tab.new').querySelector('[role="img"]')).not.toBeNull();
+    expect(row('tab.prev').textContent).toContain('同じキーが、ほかの操作にもあります');
+    expect(row('tab.prev').textContent).toContain('新しいタブ');
+    expect(row('tab.new').textContent).toContain('同じキーが、ほかの操作にもあります');
+    // Esc も記録できる（「選びを外す」の既定と同じなので、警告が出る）
+    (row('tab.next').querySelector('button[aria-label="次のタブのキーを追加"]') as HTMLElement).click();
+    await settle();
+    await key('Escape', {});
+    expect(row('tab.next').textContent).toContain('Esc');
+    expect(row('tab.next').textContent).toContain('選びを外す');
   });
 
   it('一覧の操作（名前の変更・検索など）のホットキーも、設定のとおりになる', async () => {
@@ -536,5 +547,84 @@ describe('タブ', () => {
     row.dispatchEvent(new KeyboardEvent('keydown', { key: 'F3', bubbles: true, cancelable: true }));
     await settle();
     expect(target.querySelector('.file-explorer-rename')).not.toBeNull();
+  });
+
+  it('設定を開く（Ctrl+, と F12）・完全終了（Ctrl+Q・Ctrl+Shift+W）。設定は 1 つだけ', async () => {
+    await start();
+    await key(',');
+    expect(tabLabels()).toEqual(['me', '設定']);
+    expect(activeLabel()).toBe('設定');
+    await click(tabEls()[0].querySelector('.tab-main')!);
+    await key('F12', {});
+    expect(tabLabels()).toEqual(['me', '設定']);
+    expect(activeLabel()).toBe('設定');
+    expect(win.exit).not.toHaveBeenCalled();
+    await key('q');
+    await key('W', { ctrlKey: true, shiftKey: true });
+    expect(win.exit).toHaveBeenCalledTimes(2);
+    expect(win.quit).not.toHaveBeenCalled();
+  });
+
+  it('上の階層へ（Ctrl+↑）・隠しファイルの表示を切り替える（. キー）・番号のタブへ（変えられる）', async () => {
+    await start();
+    await goTo('/home/me/docs');
+    expect(names()).toEqual(['in.txt']);
+    const ev = await key('ArrowUp');
+    expect(ev.defaultPrevented).toBe(true);
+    expect(names()).toContain('docs');
+    expect(settings.showHidden).toBe(false);
+    await key('.', {});
+    expect(settings.showHidden).toBe(true);
+    await key('.', {});
+    expect(settings.showHidden).toBe(false);
+    // 文字を打っている入力欄の中では、修飾キーのないホットキーは働かない
+    const input = document.createElement('input');
+    target.append(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: '.', bubbles: true, cancelable: true }));
+    await settle();
+    expect(settings.showHidden).toBe(false);
+    // 「3 番目のタブへ」を Ctrl+Y に付け替える
+    await key('t');
+    await key('t');
+    hotkeys.set('tab.goto3', ['Ctrl+Y']);
+    await click(tabEls()[0].querySelector('.tab-main')!);
+    await key('3');
+    expect(tabEls().indexOf(target.querySelector<HTMLElement>('.tab-active')!)).toBe(0);
+    await key('y');
+    expect(tabEls().indexOf(target.querySelector<HTMLElement>('.tab-active')!)).toBe(2);
+  });
+
+  it('選んだフォルダを、新しいタブ（Ctrl+Enter。見ているタブは変えない）・新しいウィンドウ（Ctrl+Shift+Enter）で開く', async () => {
+    await start();
+    await goTo('/home/me');
+    const docsRow = [...target.querySelectorAll<HTMLElement>('.file-explorer-item')].find((li) => li.dataset.path === 'home/me/docs')!;
+    docsRow.querySelector<HTMLElement>('.file-explorer-row')!.click();
+    await settle();
+    // 選んだものが無いとき・ファイルのときは、何もしない
+    await key('Enter', { ctrlKey: true });
+    expect(tabLabels()).toEqual(['me', 'docs']);
+    expect(activeLabel()).toBe('me');
+    // ウィンドウの操作が無い環境（ブラウザ）では、新しいウィンドウは開かない
+    await key('Enter', { ctrlKey: true, shiftKey: true });
+    expect(win.open).not.toHaveBeenCalled();
+    win.controls.mockReturnValue(true);
+    await key('Enter', { ctrlKey: true, shiftKey: true });
+    expect(win.open).toHaveBeenCalledTimes(1);
+    expect(win.open.mock.calls[0][0].dir).toBe('home/me/docs');
+    win.controls.mockReturnValue(false);
+  });
+
+  it('選んだ項目（無ければ、いまのフォルダ）のパスを、OS の形でコピーする（Ctrl+Shift+C）', async () => {
+    const written: string[] = [];
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t: string) => void written.push(t) }, configurable: true });
+    await start();
+    await goTo('/home/me');
+    await key('C', { ctrlKey: true, shiftKey: true });
+    expect(written.at(-1)).toBe('/home/me');
+    const row = [...target.querySelectorAll<HTMLElement>('.file-explorer-item')].find((li) => li.dataset.path === 'home/me/a.txt')!;
+    row.querySelector<HTMLElement>('.file-explorer-row')!.click();
+    await settle();
+    await key('C', { ctrlKey: true, shiftKey: true });
+    expect(written.at(-1)).toBe('/home/me/a.txt');
   });
 });

@@ -72,13 +72,52 @@ export function isPlainHotkey(text: string): boolean {
 
 // ---- 一覧（エクスプローラーの部品）の操作 ----
 
-export type ExplorerHotkeyId = 'search' | 'open' | 'rename' | 'clearSelection';
+export type ExplorerHotkeyId =
+  | 'search'
+  | 'open'
+  | 'rename'
+  | 'clearSelection'
+  | 'moveUp'
+  | 'moveDown'
+  | 'moveLeft'
+  | 'moveRight'
+  | 'selectAll'
+  | 'copy'
+  | 'cut'
+  | 'paste'
+  | 'trash'
+  | 'delete'
+  | 'newFile'
+  | 'viewDetails'
+  | 'viewGrid'
+  | 'undo'
+  | 'redo';
 export type Keymap = Partial<Record<ExplorerHotkeyId, readonly string[]>>;
 
-/** 既定のホットキー。部品の利用者は、`keymap` で置き換えられる */
+/** 既定のホットキー。部品の利用者は、`keymap` で置き換えられる（空の一覧は、キーを割り当てない） */
 export const EXPLORER_HOTKEYS: Record<ExplorerHotkeyId, readonly string[]> = {
   search: ['Ctrl+F'],
   open: ['Enter'],
   rename: ['F2'],
   clearSelection: ['Escape'],
+  moveUp: ['ArrowUp'],
+  moveDown: ['ArrowDown'],
+  moveLeft: ['ArrowLeft'],
+  moveRight: ['ArrowRight'],
+  selectAll: ['Ctrl+A'],
+  copy: ['Ctrl+C'],
+  cut: ['Ctrl+X'],
+  paste: ['Ctrl+V'],
+  trash: ['Delete'],
+  delete: ['Shift+Delete'],
+  newFile: [],
+  viewDetails: [],
+  viewGrid: [],
+  undo: ['Ctrl+Z'],
+  redo: ['Ctrl+Y', 'Ctrl+Shift+Z'],
 };
+
+/** Shift を押していても、押していないものとして当てる（矢印: Shift を押しながらは、選びに足す） */
+export function matchesIgnoringShift(e: KeyEventLike, keys: readonly string[]): boolean {
+  return matchesHotkey({ ...e, key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: false }, keys);
+}

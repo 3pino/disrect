@@ -2,8 +2,8 @@
 
 import type { Entry } from './types';
 
-/** 並べる key（名前・更新日時・サイズ）と向き */
-export type SortKey = 'name' | 'modified' | 'size';
+/** 並べる key（名前・更新日時・作成日時・サイズ）と向き。作成日時を持たない項目は、いちばん古い扱い */
+export type SortKey = 'name' | 'modified' | 'created' | 'size';
 export type SortOrder = 'asc' | 'desc';
 
 const byName = (a: Entry, b: Entry) => a.name.localeCompare(b.name, 'ja', { numeric: true, sensitivity: 'base' });
@@ -17,7 +17,7 @@ export function sortEntries(entries: Iterable<Entry>, key: SortKey = 'name', ord
   return [...entries].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1;
     if (key === 'name') return byName(a, b) * dir;
-    const c = key === 'modified' ? a.modified - b.modified : a.size - b.size;
+    const c = key === 'modified' ? a.modified - b.modified : key === 'created' ? (a.created ?? 0) - (b.created ?? 0) : a.size - b.size;
     // 同じ値の中は、向きに関係なく名前の順
     return c !== 0 ? c * dir : byName(a, b);
   });

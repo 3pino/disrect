@@ -28,6 +28,8 @@ export type Entry = {
   size: number;
   /** 更新時刻（UNIX 時刻のミリ秒）。分からなければ 0 */
   modified: number;
+  /** 作成時刻（UNIX 時刻のミリ秒）。置き場所・OS が持たなければ省く */
+  created?: number;
   /** 種類（分かるときだけ） */
   mime: string | null;
   /** ゴミ箱の仮想のフォルダの中の項目だけ */

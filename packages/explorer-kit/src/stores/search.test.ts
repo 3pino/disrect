@@ -49,6 +49,8 @@ describe('ExplorerSearch', () => {
   it('絞り込み（サブフォルダを探さない）は、置き場所に頼まない。文字が無ければ絞り込まない', async () => {
     const { api, calls } = searchable();
     const s = make(api);
+    expect(s.recursive).toBe(true); // 既定は、サブフォルダも探す
+    s.recursive = false;
     s.open = true;
     expect(s.filtering).toBe(false);
     s.text = 'a';

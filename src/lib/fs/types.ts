@@ -14,6 +14,8 @@ export type FsEntry = {
   size: number | null;
   /** 更新時刻（UNIX 時刻のミリ秒）。分からなければ null */
   modified: number | null;
+  /** 作成時刻（UNIX 時刻のミリ秒）。OS・ファイルシステムが持たなければ null */
+  created?: number | null;
   hidden: boolean;
   readonly: boolean;
   symlink: boolean;

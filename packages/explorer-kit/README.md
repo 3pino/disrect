@@ -56,7 +56,7 @@ export const explorer = createExplorer({ api, urls, rules, host, viewStore, labe
 
 `explorer` は、その部品の一生のあいだ同じものを渡します（別の置き場所を見せるときは `{#key}` で作り直す）。
 
-一覧のホットキー（検索 `Ctrl+F`・開く `Enter`・名前の変更 `F2`・選びを外す `Escape`）は、`keymap` で置き換えられます（省いたものは既定。`EXPLORER_HOTKEYS`）: `<FileExplorer {explorer} keymap={{ rename: ['F3'] }} />`。キーの文字の書き方は `hotkeys.ts`（`hotkeyFromEvent`・`matchesHotkey`）。
+一覧のホットキー（検索 `Ctrl+F`・開く `Enter`・名前の変更 `F2`・選びを外す `Escape`・上下左右の項目へ `ArrowUp` など・すべて選ぶ `Ctrl+A`・コピー `Ctrl+C`・切り取り `Ctrl+X`・貼り付け `Ctrl+V`・ゴミ箱 `Delete`・完全に削除 `Shift+Delete`・新しいファイル・詳細／アイコン表示・元に戻す `Ctrl+Z`・やり直し `Ctrl+Y`）は、`keymap` で置き換えられます（省いたものは既定。空の一覧は、キーを割り当てない。`EXPLORER_HOTKEYS`）: `<FileExplorer {explorer} keymap={{ rename: ['F3'] }} />`。キーの文字の書き方は `hotkeys.ts`（`hotkeyFromEvent`・`matchesHotkey`）。
 
 ## 確かめる
 
@@ -74,3 +74,5 @@ npm test -w @3pino/explorer-kit        # 決まり・状態・画面の試験（
 
 - 置き場所や本体に依ることは、`types.ts` の口に足す（部品の中で、OS や通信を直接さわらない）。
 - 部品の口（公開する型・関数）を変えたら、`package.json` の版を上げる（ワークスペースなので、タグは打たない）。
+
+元に戻す・やり直しの履歴（`explorerHistory`。`history.ts`）は、アプリで 1 つ持ちます（名前の変更・移動・コピー・新しいファイル・ゴミ箱へ移す。ゴミ箱から戻せる置き場所だけ）。

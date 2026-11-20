@@ -93,4 +93,60 @@ describe('TabBar', () => {
     expect(bar.target.querySelectorAll('[data-tauri-drag-region]').length).toBeGreaterThan(0);
     unmount(bar.component);
   });
+
+  /** jsdom には DataTransfer が無いので、使う口だけの偽物を持たせたドラッグのイベント */
+  const folderDrag = (type: string, extra: MouseEventInit = {}): Event => {
+    const ev = new MouseEvent(type, { bubbles: true, cancelable: true, ...extra });
+    Object.defineProperty(ev, 'dataTransfer', { value: { types: ['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir'], getData: () => '', setData: () => {}, dropEffect: '' } });
+    return ev;
+  };
+
+  it('フォルダのドラッグで出した点線のタブは、ウィンドウの外へ出たとき（相手なし・位置 (0, 0)）に消える', () => {
+    const { target, component } = render();
+    const bar = target.querySelector('.tabbar')!;
+    bar.dispatchEvent(folderDrag('dragover'));
+    flushSync();
+    expect(target.querySelector('.tab-ghost')).not.toBeNull();
+    // タブの欄の中の子へ動いただけなら、消えない
+    bar.dispatchEvent(folderDrag('dragleave', { relatedTarget: target.querySelector('.tab') }));
+    flushSync();
+    expect(target.querySelector('.tab-ghost')).not.toBeNull();
+    // ウィンドウの外へ出た（欄は画面の左上の端にあるので、位置 (0, 0) だけでは「中」に見える）
+    bar.dispatchEvent(folderDrag('dragleave', { relatedTarget: null, clientX: 0, clientY: 0 }));
+    flushSync();
+    expect(target.querySelector('.tab-ghost')).toBeNull();
+    unmount(component);
+  });
+
+  it('点線のタブは、ドラッグが途切れて 1 秒たてば消える（dragover が届き続けるあいだは、出したまま）', async () => {
+    vi.useFakeTimers();
+    try {
+      const { target, component } = render();
+      const bar = target.querySelector('.tabbar')!;
+      bar.dispatchEvent(folderDrag('dragover'));
+      flushSync();
+      await vi.advanceTimersByTimeAsync(700);
+      bar.dispatchEvent(folderDrag('dragover'));
+      await vi.advanceTimersByTimeAsync(700);
+      flushSync();
+      expect(target.querySelector('.tab-ghost')).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(400);
+      flushSync();
+      expect(target.querySelector('.tab-ghost')).toBeNull();
+      unmount(component);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('どこで離しても（dragend）、点線のタブは消える', () => {
+    const { target, component } = render();
+    target.querySelector('.tabbar')!.dispatchEvent(folderDrag('dragover'));
+    flushSync();
+    expect(target.querySelector('.tab-ghost')).not.toBeNull();
+    window.dispatchEvent(new Event('dragend'));
+    flushSync();
+    expect(target.querySelector('.tab-ghost')).toBeNull();
+    unmount(component);
+  });
 });

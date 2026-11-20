@@ -100,6 +100,8 @@ export function planTransfer(
  */
 export type TransferResult = {
   done: TransferItem[];
+  /** 行った操作（元に戻すため）。上書きしたものは、元に戻せないので overwrote を真にする */
+  applied: { op: TransferOp; from: string; to: string; overwrote: boolean }[];
   failed: { item: TransferItem; message: string }[];
   skipped: TransferItem[];
   declined: TransferItem[];
@@ -122,7 +124,7 @@ export type TransferInput = {
 
 /** 項目を順に移動・コピーする。上書きは 1 件ずつ確認する。失敗しても残りは続ける */
 export async function runTransfer(input: TransferInput): Promise<TransferResult> {
-  const result: TransferResult = { done: [], failed: [], skipped: [], declined: [] };
+  const result: TransferResult = { done: [], applied: [], failed: [], skipped: [], declined: [] };
   for (const p of planTransfer(input.rules, input.op, input.items, input.destDir, input.destEntries)) {
     if (p.kind === 'blocked') {
       result.failed.push({ item: p.item, message: p.message ?? '貼り付けられません' });
@@ -139,6 +141,7 @@ export async function runTransfer(input: TransferInput): Promise<TransferResult>
     try {
       await input.api[input.op](p.item.path, p.to, p.kind === 'overwrite');
       result.done.push(p.item);
+      result.applied.push({ op: input.op, from: p.item.path, to: p.to, overwrote: p.kind === 'overwrite' });
       input.invalidate(p.item.path);
       input.invalidate(p.to);
     } catch (e) {

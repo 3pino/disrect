@@ -35,6 +35,11 @@ export async function quitWindow(): Promise<void> {
   await (await current()).close();
 }
 
+/** すべてのウィンドウを閉じて、アプリを終える（完全終了） */
+export async function exitApp(): Promise<void> {
+  await invoke('exit_app');
+}
+
 let windowSeq = 0;
 
 /** 別のウィンドウを開き、その置き場所・フォルダのタブ 1 つで始める（x・y は画面の位置） */

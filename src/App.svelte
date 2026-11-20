@@ -19,7 +19,7 @@
   import SettingsView from './components/SettingsView.svelte';
   import Settings from '@lucide/svelte/icons/settings';
   import { isAndroid } from '@3pino/app-kit-web/core/platform';
-  import { detachedStart, hasWindowControls, openTabInNewWindow, quitWindow } from './lib/windowControls';
+  import { detachedStart, exitApp, hasWindowControls, openTabInNewWindow, quitWindow } from './lib/windowControls';
   import { showUpdateBadge, UPDATE_BADGE_LABEL } from '@3pino/app-kit-web/updater';
   import { updater } from './lib/stores/updater.svelte';
   import { startUpdateWatch } from './lib/updateWatch';
@@ -37,6 +37,7 @@
   import { startBackNav, type BackNav } from '@3pino/app-kit-web/core/backNav';
   import { places as saved, type DavPlace } from './lib/places.svelte';
   import { read, settings, write } from './lib/settings.svelte';
+  import { APP_COMMANDS, type CommandId } from './lib/hotkeys';
   import { MAX_TABS, SETTINGS_PLACE, cycleIndex, indexAfterClose, moveItem, parseSavedTabs, serializeTabs, tabLabel } from './lib/tabs';
 
   // 外枠（上のバー・左の場所の一覧）と、エクスプローラーの本体。
@@ -573,32 +574,132 @@
     explorer?.nav.reload();
   }
 
+  /** 選んでいる項目のうち、フォルダのパス（このフォルダの一覧で見つかるものだけ） */
+  function selectedDirs(): string[] {
+    const ex = explorer;
+    if (!ex || activeSettings) return [];
+    const st = ex.index.state(ex.nav.dir);
+    if (st?.kind !== 'ok') return [];
+    return ex.selection.paths().filter((path) => {
+      const e = st.entries.get(baseName(path));
+      return e?.kind === 'dir' && e.path === path;
+    });
+  }
+
+  /** 選んでいる項目（無ければ、いま開いているフォルダ）のパスを、OS の形でコピーする */
+  async function copyPaths(): Promise<void> {
+    const ex = explorer;
+    const b = current;
+    if (!ex || !b || activeSettings) return;
+    const picked = ex.selection.paths();
+    const list = picked.length > 0 ? picked : [ex.nav.dir];
+    const text = list.map((p) => (b.local ? b.local.osPath(p) : p)).join('\n');
+    if (await ex.host.clipboard.copyText(text)) host.toast(list.length === 1 ? 'パスをコピーしました' : `${list.length} 件のパスをコピーしました`);
+    else host.toast('パスをコピーできませんでした', 'error');
+  }
+
+  /** すべてのウィンドウを閉じて、アプリを終える */
+  async function quitApp(): Promise<void> {
+    try {
+      await exitApp();
+    } catch (e) {
+      host.toast(failureText(e), 'error');
+    }
+  }
+
   /**
-   * ホットキー（設定で変えられる。lib/hotkeys.ts）。戻る・再読み込み・タブの操作。
+   * アプリ側の操作を行う（設定で変えられるホットキーに、割り当てた操作）。行ったら true（ブラウザの既定の動きを止める）。
+   * 一覧の操作（検索・コピー・矢印の移動など）は、共有の部品が受ける
+   */
+  function runCommand(id: CommandId): boolean {
+    const at = tabs.findIndex((t) => t.id === activeId);
+    const goto = (i: number): boolean => {
+      if (tabs.length === 0) return false;
+      activate(tabs[Math.max(0, Math.min(i, tabs.length - 1))].id);
+      return true;
+    };
+    switch (id) {
+      case 'tab.new':
+        addTab();
+        return true;
+      case 'tab.duplicate':
+        if (tabs.length === 0) return false;
+        duplicateTab(activeId);
+        return true;
+      case 'tab.close':
+        if (tabs.length === 0) return false;
+        closeTab(activeId);
+        return true;
+      case 'tab.next':
+        return tabs.length > 0 && goto(cycleIndex(at, tabs.length, 1));
+      case 'tab.prev':
+        return tabs.length > 0 && goto(cycleIndex(at, tabs.length, -1));
+      case 'tab.last':
+        return goto(tabs.length - 1);
+      case 'app.settings':
+        openSettings();
+        return true;
+      case 'app.quit':
+        void quitApp();
+        return true;
+      case 'nav.back':
+        return host.back();
+      case 'nav.up':
+        if (activeSettings || !explorer) return false;
+        explorer.nav.up();
+        return true;
+      case 'view.reload':
+        if (!activeSettings) explorer?.nav.reload();
+        return true;
+      case 'view.toggleHidden':
+        toggleHidden();
+        return true;
+      case 'view.showHidden':
+        if (!settings.showHidden) toggleHidden();
+        return true;
+      case 'view.hideHidden':
+        if (settings.showHidden) toggleHidden();
+        return true;
+      case 'file.copyPath':
+        void copyPaths();
+        return true;
+      case 'file.openNewTab': {
+        const dirs = selectedDirs();
+        if (dirs.length === 0) return false;
+        openFoldersInTabs(dirs, at + 1);
+        return true;
+      }
+      case 'file.openNewWindow': {
+        const dirs = selectedDirs();
+        const here = current?.id;
+        if (dirs.length === 0 || !here || !hasWindowControls()) return false;
+        for (const dir of dirs) void openTabInNewWindow({ place: here, dir }).catch((e) => host.toast(`別のウィンドウで開けませんでした: ${failureText(e)}`, 'error'));
+        return true;
+      }
+      default: {
+        // 番号のタブへ
+        const n = /^tab\.goto(\d)$/.exec(id);
+        return n ? goto(Number(n[1]) - 1) : false;
+      }
+    }
+  }
+
+  /**
+   * ホットキー（設定で変えられる。lib/hotkeys.ts）。
    * 文字を打っている入力欄の中では、修飾キー（Ctrl・Alt）のないホットキーは働かせない。設定でキーを記録している間は、何もしない
    */
   function onKey(ev: KeyboardEvent): void {
-    if (hotkeys.recording) return;
+    if (hotkeys.recording || ev.defaultPrevented) return;
     const typing = ev.target instanceof Element && ev.target.closest('input, textarea, select, [contenteditable="true"]') !== null;
     if (typing && !(ev.ctrlKey || ev.metaKey || ev.altKey)) return;
-    if (hotkeys.matches(ev, 'nav.back') && host.back()) ev.preventDefault();
-    // 再読み込み: 一覧だけ（アプリ全体のページは読み直さない）
-    if (hotkeys.matches(ev, 'view.reload')) {
-      ev.preventDefault();
-      if (!activeTab()?.settings) explorer?.nav.reload();
-      return;
+    for (const c of APP_COMMANDS) {
+      if (hotkeys.matches(ev, c.id) && runCommand(c.id)) {
+        ev.preventDefault();
+        return;
+      }
     }
-    if (tabs.length === 0) return;
-    const at = tabs.findIndex((t) => t.id === activeId);
-    if (hotkeys.matches(ev, 'tab.new')) addTab();
-    else if (hotkeys.matches(ev, 'tab.close')) closeTab(activeId);
-    else if (hotkeys.matches(ev, 'tab.next')) activate(tabs[cycleIndex(at, tabs.length, 1)].id);
-    else if (hotkeys.matches(ev, 'tab.prev')) activate(tabs[cycleIndex(at, tabs.length, -1)].id);
-    // 番号のタブへ（固定）: Ctrl（Mac は Cmd）+ 1〜9（9 は最後）
-    else if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && /^[1-9]$/.test(ev.key)) activate(tabs[ev.key === '9' ? tabs.length - 1 : Math.min(Number(ev.key) - 1, tabs.length - 1)].id);
-    else return;
-    ev.preventDefault();
   }
+
   function onMouseUp(ev: MouseEvent): void {
     if (ev.button === 3 && host.back()) ev.preventDefault();
   }

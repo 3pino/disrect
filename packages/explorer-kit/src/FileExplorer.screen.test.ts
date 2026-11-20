@@ -754,13 +754,14 @@ describe('名前の変更（名前を押すと、その場で入力欄になる�
 });
 
 describe('選択の印', () => {
-  it('選んでいない印は灰色（印の色を付けない）、選んだ印だけ水色', async () => {
+  it('選んでいるかは、行の背景の色（aria-pressed）で見せる。チェックの四角は出さない', async () => {
     const el = await render();
     explorerSelection.start('a.txt');
     flushSync();
-    const checks = [...el.querySelectorAll('.file-explorer-check')];
-    expect(checks).toHaveLength(3);
-    expect(checks.filter((c) => c.classList.contains('file-explorer-check-on'))).toHaveLength(1);
+    expect(el.querySelector('.file-explorer-check')).toBeNull();
+    expect(el.querySelector('.file-explorer-item svg.lucide-square, .file-explorer-item svg.lucide-square-check-big')).toBeNull();
+    const pressed = [...el.querySelectorAll('.file-explorer-row')].filter((r) => r.getAttribute('aria-pressed') === 'true');
+    expect(pressed.length).toBe(1);
   });
 });
 
@@ -1230,7 +1231,7 @@ describe('PC の選択（0 件でも続く。ダブルクリック・Enter で�
     expect(count(el)).toBe('3 件');
     clickRow(el, 'a.txt');
     expect(count(el)).toBe('1 件選択中');
-    expect(el.querySelector('.file-explorer-check')).not.toBeNull();
+    expect(rowOf(el, 'a.txt').querySelector('.file-explorer-row')!.getAttribute('aria-pressed')).toBe('true');
     clickRow(el, 'a.txt');
     expect(count(el)).toBe('3 件');
     expect(el.querySelector('.file-explorer-check')).toBeNull();
@@ -1383,7 +1384,7 @@ describe('タッチ（Android）の選択は従来どおり（0 件で終わる�
     const el = await render();
     explorerSelection.start('a.txt');
     flushSync();
-    expect(el.querySelector('.file-explorer-check')).not.toBeNull();
+    expect(explorerSelection.active).toBe(true);
     rowOf(el, 'a.txt').querySelector<HTMLElement>('.file-explorer-row')!.click();
     flushSync();
     expect(explorerSelection.active).toBe(false);
@@ -2582,5 +2583,236 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     };
     expect(start('docs')).toEqual(['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir']);
     expect(start('a.txt')).toEqual(['application/x-explorer-kit-items']);
+  });
+});
+
+describe('キーボードの操作（PC）: 矢印で項目を移る・ホットキーで操作する', () => {
+  beforeEach(() => {
+    // 前の試験が外し忘れた画面は、画面から外す（window のキーを、重ねて受けないように）
+    document.body.replaceChildren();
+    dsk.desktop = true;
+    explorerSelection.desktop = true;
+    h.trash.mockReset();
+    h.trash.mockImplementation(async (path: string) => ({ id: `id-${path}`, original_path: path, kind: 'file' as const, size: 1, deleted_at: 0 }));
+    h.restore.mockReset();
+    h.restore.mockResolvedValue({ name: '', path: '', kind: 'file', size: 1, modified: 0, mime: null } as Entry);
+  });
+  afterEach(() => {
+    explorerSelection.desktop = false;
+    ui.toasts.length = 0;
+  });
+
+  /** 画面の外（body）でキーを押す。window まで届く */
+  const press = (key: string, init: KeyboardEventInit = {}): KeyboardEvent => {
+    const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
+    document.body.dispatchEvent(ev);
+    flushSync();
+    return ev;
+  };
+  /** 一覧は、フォルダが先: docs・a.txt・pic.png */
+  const selected = () => explorerSelection.paths();
+
+  it('上下の矢印: 選ばれていなければ、下は先頭・上は末尾から。選びも移り、行にフォーカスが移る。端では動かない', async () => {
+    const el = await render();
+    const ev = press('ArrowDown');
+    expect(ev.defaultPrevented).toBe(true);
+    expect(selected()).toEqual(['docs']);
+    expect(document.activeElement).toBe(rowOf(el, 'docs').querySelector('.file-explorer-row'));
+    press('ArrowDown');
+    expect(selected()).toEqual(['a.txt']);
+    press('ArrowUp');
+    expect(selected()).toEqual(['docs']);
+    press('ArrowUp');
+    expect(selected()).toEqual(['docs']);
+    press('ArrowDown');
+    press('ArrowDown');
+    press('ArrowDown');
+    expect(selected()).toEqual(['pic.png']);
+  });
+
+  it('何も選んでいないとき、上の矢印は末尾から始まる', async () => {
+    await render();
+    press('ArrowUp');
+    expect(selected()).toEqual(['pic.png']);
+  });
+
+  it('Shift を押しながらの矢印は、選びに足していく。左右の矢印は、詳細では使わない', async () => {
+    await render();
+    press('ArrowDown');
+    press('ArrowDown', { shiftKey: true });
+    expect(selected()).toEqual(['docs', 'a.txt']);
+    const ev = press('ArrowRight');
+    expect(ev.defaultPrevented).toBe(false);
+    expect(selected()).toEqual(['docs', 'a.txt']);
+  });
+
+  it('アイコン表示では、左右の矢印で 1 つずつ移る', async () => {
+    await render();
+    explorerSelection.clear();
+    explorerView.setView('', 'grid');
+    flushSync();
+    press('ArrowRight');
+    expect(selected()).toEqual(['docs']);
+    press('ArrowRight');
+    expect(selected()).toEqual(['a.txt']);
+    press('ArrowLeft');
+    expect(selected()).toEqual(['docs']);
+  });
+
+  it('Ctrl+A ですべて選ぶ。Ctrl+C・Ctrl+X でバッファに入れる（選んだものを）', async () => {
+    await render();
+    press('a', { ctrlKey: true });
+    expect(selected().sort()).toEqual(['a.txt', 'docs', 'pic.png']);
+    explorerSelection.replace(['a.txt']);
+    press('c', { ctrlKey: true });
+    expect(explorerBuffer.mode).toBe('copy');
+    expect(explorerBuffer.items.map((i) => i.path)).toEqual(['a.txt']);
+    explorerSelection.replace(['pic.png']);
+    press('x', { ctrlKey: true });
+    expect(explorerBuffer.mode).toBe('move');
+    expect(explorerBuffer.items.map((i) => i.path)).toEqual(['pic.png']);
+  });
+
+  it('何も選んでいないときの Ctrl+C・Delete は、何もしない（ブラウザの動きも止めない）', async () => {
+    await render();
+    const ev = press('c', { ctrlKey: true });
+    expect(ev.defaultPrevented).toBe(false);
+    press('Delete');
+    expect(h.trash).not.toHaveBeenCalled();
+  });
+
+  it('Delete でゴミ箱へ（確認なし）。Ctrl+Z で元に戻し、Ctrl+Y でもう一度ゴミ箱へ', async () => {
+    await render();
+    explorerSelection.replace(['a.txt']);
+    press('Delete');
+    await vi.waitFor(() => expect(h.trash).toHaveBeenCalledWith('a.txt'));
+    expect(ui.confirmReq).toBeNull();
+    await vi.waitFor(() => expect(explorerSelection.count).toBe(0));
+    press('z', { ctrlKey: true });
+    await vi.waitFor(() => expect(h.restore).toHaveBeenCalledWith('id-a.txt'));
+    await vi.waitFor(() => expect(ui.toasts.some((t) => t.text.includes('元に戻しました'))).toBe(true));
+    h.trash.mockClear();
+    press('y', { ctrlKey: true });
+    await vi.waitFor(() => expect(h.trash).toHaveBeenCalledWith('a.txt'));
+  });
+
+  it('Shift+Delete は、確認してから完全に削除する（置き場所が完全な削除を持つなら、それで。ゴミ箱は通さない）', async () => {
+    await render();
+    explorerSelection.replace(['a.txt']);
+    press('Delete', { shiftKey: true });
+    await vi.waitFor(() => expect(ui.confirmReq).not.toBeNull());
+    expect(h.trash).not.toHaveBeenCalled();
+    ui.confirmReq!.resolve(true);
+    await vi.waitFor(() => expect(h.remove).toHaveBeenCalledWith('a.txt'));
+    expect(h.trash).not.toHaveBeenCalled();
+  });
+
+  it('入力欄・名前の書き換え・開いているダイアログの中では、効かない', async () => {
+    const el = await render();
+    explorerSelection.replace(['a.txt']);
+    const input = document.createElement('input');
+    el.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+    flushSync();
+    expect(h.trash).not.toHaveBeenCalled();
+    const dlg = document.createElement('div');
+    dlg.setAttribute('role', 'dialog');
+    document.body.appendChild(dlg);
+    press('Delete');
+    dlg.remove();
+    expect(h.trash).not.toHaveBeenCalled();
+  });
+
+  it('ホットキーは、keymap で置き換えられる（置き換えた操作の元のキーは効かない）', async () => {
+    await render();
+    explorerSelection.replace(['a.txt']);
+    // 既定では F2 が名前の変更。keymap を渡す試験は、アプリ側（App.tabs.test.ts）が受け持つ
+    const ev = press('F9');
+    expect(ev.defaultPrevented).toBe(false);
+  });
+});
+
+describe('作成日時・フォルダのサイズの写し・貼り付けの予告', () => {
+  const withCreated = (): Entry[] => [
+    { ...entry('a.txt'), created: 1_700_000_000_000 },
+    { ...entry('docs', 'dir'), created: 1_600_000_000_000 },
+    { ...entry('pic.png'), mime: 'image/png', size: 9, created: 1_650_000_000_000 },
+  ];
+
+  it('作成日時を持つ項目があれば、列と、並び替えの選択肢に出す。無ければ出さない', async () => {
+    let el = await render();
+    expect([...el.querySelectorAll('.file-explorer-columns span')].map((s) => s.textContent)).not.toContain('作成日時');
+    expect(menuLabels(el).join()).not.toContain('作成日時');
+    await unmount(instance!);
+    instance = undefined;
+    target?.remove();
+    h.current = withCreated();
+    dirIndex.clear();
+    el = await render();
+    expect([...el.querySelectorAll('.file-explorer-columns span')].map((s) => s.textContent)).toContain('作成日時');
+    expect(menuLabels(el).join()).toContain('作成日時');
+    // 並び替え: 作成日時の順（フォルダは先）
+    menuClick(el, '作成日時');
+    const names = [...el.querySelectorAll('.file-explorer-item')].map((li) => (li as HTMLElement).dataset.path);
+    expect(names).toEqual(['docs', 'pic.png', 'a.txt']);
+    h.current = null;
+  });
+
+  it('数えたフォルダのサイズは覚える: フォルダの更新日時が同じなら、一覧を読み直しても数え直さない。再読み込み（F5）で数え直す', async () => {
+    h.folderSize.mockClear();
+    const el = await render();
+    await vi.waitFor(() => expect(rowOf(el, 'docs').querySelector('.file-explorer-col-size')?.textContent).toBe('2.0 KB'));
+    expect(h.folderSize).toHaveBeenCalledTimes(1);
+    // 並び替え（一覧は同じ）→ 数え直さない
+    menuClick(el, '更新日時');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.folderSize).toHaveBeenCalledTimes(1);
+    // 再読み込み → 覚えた値を捨てて、数え直す
+    fileExplorer.reload();
+    await vi.waitFor(() => expect(h.folderSize).toHaveBeenCalledTimes(2));
+  });
+
+  it('貼り付けのボタンに乗せて少し待つと、貼る内容を一覧で見せる（アプリ内のコピー）。離すと消える', async () => {
+    vi.useFakeTimers();
+    try {
+      const el = await render();
+      explorerBuffer.set('copy', [
+        { path: 'a.txt', kind: 'file' },
+        { path: 'docs', kind: 'dir' },
+      ] as never);
+      flushSync();
+      const wrap = el.querySelector<HTMLElement>('.file-explorer-paste')!;
+      wrap.dispatchEvent(new Event('pointerenter'));
+      expect(el.querySelector('.file-explorer-paste-preview')).toBeNull();
+      await vi.advanceTimersByTimeAsync(450);
+      flushSync();
+      const text = el.querySelector('.file-explorer-paste-preview')?.textContent ?? '';
+      expect(text).toContain('コピー: 2 件');
+      expect(text).toContain('a.txt');
+      expect(text).toContain('docs');
+      wrap.dispatchEvent(new Event('pointerleave'));
+      flushSync();
+      expect(el.querySelector('.file-explorer-paste-preview')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('文字・画像がクリップボードにあれば、その先頭・画像を見せる', async () => {
+    vi.useFakeTimers();
+    try {
+      h.clip = { text: 'こんにちは\n二行目', image: null, writable: true };
+      const el = await render();
+      await vi.advanceTimersByTimeAsync(0);
+      const wrap = el.querySelector<HTMLElement>('.file-explorer-paste')!;
+      wrap.dispatchEvent(new Event('pointerenter'));
+      await vi.advanceTimersByTimeAsync(450);
+      flushSync();
+      const text = el.querySelector('.file-explorer-paste-preview')?.textContent ?? '';
+      expect(text).toContain('.txt');
+      expect(text).toContain('こんにちは');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

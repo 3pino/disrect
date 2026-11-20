@@ -51,3 +51,12 @@ describe('formatHotkey・isPlainHotkey', () => {
     expect(isPlainHotkey('Alt+ArrowLeft')).toBe(false);
   });
 });
+
+describe('matchesIgnoringShift', () => {
+  it('Shift を押していても、押していないキーとして当てる。Ctrl・Alt は区別する', async () => {
+    const { matchesIgnoringShift } = await import('./hotkeys');
+    expect(matchesIgnoringShift(ev('ArrowUp', { shiftKey: true }), ['ArrowUp'])).toBe(true);
+    expect(matchesIgnoringShift(ev('ArrowUp'), ['ArrowUp'])).toBe(true);
+    expect(matchesIgnoringShift(ev('ArrowUp', { ctrlKey: true }), ['ArrowUp'])).toBe(false);
+  });
+});

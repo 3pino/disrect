@@ -157,7 +157,7 @@ describe('runTransfer', () => {
   });
 
   it('失敗がなければ transferFailure は null', async () => {
-    expect(transferFailure({ done: [], failed: [], skipped: [], declined: [] })).toBeNull();
+    expect(transferFailure({ done: [], applied: [], failed: [], skipped: [], declined: [] })).toBeNull();
   });
 });
 
@@ -224,7 +224,7 @@ describe('ゴミ箱の項目（仮想フォルダ）の移動・コピー', () =
   });
 
   it('失敗の一言は、元の名前で出す', () => {
-    const msg = transferFailure({ done: [], failed: [{ item: item(ALIAS, 'docs/report.pdf'), message: 'x' }], skipped: [], declined: [] });
+    const msg = transferFailure({ done: [], applied: [], failed: [{ item: item(ALIAS, 'docs/report.pdf'), message: 'x' }], skipped: [], declined: [] });
     expect(msg).toContain('「report.pdf」');
     expect(msg).not.toContain('01HZX');
   });
