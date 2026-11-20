@@ -7,7 +7,7 @@
   import Folder from '@lucide/svelte/icons/folder';
   import ImageIcon from '@lucide/svelte/icons/image';
   import Upload from '@lucide/svelte/icons/upload';
-  import FolderPlus from '@lucide/svelte/icons/folder-plus';
+  import FilePlus from '@lucide/svelte/icons/file-plus';
   import X from '@lucide/svelte/icons/x';
   import ClipboardPaste from '@lucide/svelte/icons/clipboard-paste';
   import Square from '@lucide/svelte/icons/square';
@@ -37,12 +37,13 @@
   import { breadcrumbs, entryAction, kindLabel, sortEntries } from './listing';
   import type { ViewMode } from './stores/view.svelte';
   import { baseName, parentOf } from './path';
-  import { childPath, DOUBLE_CLICK_MS, EXPLORER_DRAG_DIR_TYPE, EXPLORER_DRAG_TYPE, inSpecialDir, overwriteConfirm, permanentDeleteConfirm, planUpload, renameAllowed, renameTarget, ruleTexts, sameNameEntry } from './ops';
+  import { childPath, DOUBLE_CLICK_MS, EXPLORER_DRAG_DIR_TYPE, EXPLORER_DRAG_TYPE, inSpecialDir, setExplorerDragItems, overwriteConfirm, permanentDeleteConfirm, planUpload, renameAllowed, renameTarget, ruleTexts, sameNameEntry } from './ops';
   import { runTransfer, transferFailure, type TransferItem, type TransferOp } from './transfer';
   import { displayEntry, entryLabel, trashItemOf, trashPlace, virtualDir, writeBlockReason } from './trashFolder';
   import { allWholeTrash, copyBlockedReason, cutBlockedReason, deleteBlockedReason, transferItemOf } from './selection';
   import { formatSize, formatStamp } from './format';
   import type { Explorer } from './explorer';
+  import { EXPLORER_HOTKEYS, matchesHotkey, type ExplorerHotkeyId, type Keymap } from './hotkeys';
   import type { ClipboardPeek, Entry, ExplorerApi, OsDropEntry, ViewerItem } from './types';
 
   // エクスプローラーの画面（一覧・アイコン表示・選択・コピー・移動・ゴミ箱・名前の変更・外からの取り込み）。
@@ -54,7 +55,12 @@
     menu?: Snippet<[() => void]>;
     /** パンくずの行の左に足す部品（本体の「戻る」「上へ」など） */
     lead?: Snippet;
+    /** 一覧の操作のホットキー（`search`・`open`・`rename`・`clearSelection`）。省いたものは、既定（EXPLORER_HOTKEYS） */
+    keymap?: Keymap;
   } = $props();
+  const keysOf = (id: ExplorerHotkeyId): readonly string[] => props.keymap?.[id] ?? EXPLORER_HOTKEYS[id];
+  /** 入力欄に文字を打っているところか（修飾キーのないホットキーは、働かせない） */
+  const typingIn = (t: EventTarget | null): boolean => t instanceof Element && t.closest('input, textarea, select, [contenteditable="true"]') !== null;
   function pick(): Explorer {
     return props.explorer;
   }
@@ -232,10 +238,18 @@
   /** 文字・「サブフォルダも」が変わったら、探し直す */
   const onSearchInput = (): void => search.refresh(fileExplorer.dir);
   function searchWindowKey(ev: KeyboardEvent): void {
-    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.shiftKey || ev.key.toLowerCase() !== 'f') return;
+    if (!matchesHotkey(ev, keysOf('search')) || (typingIn(ev.target) && !(ev.ctrlKey || ev.metaKey || ev.altKey))) return;
     ev.preventDefault();
     if (search.open) searchInput?.select();
     else openSearch();
+  }
+  /** Esc: 選んでいる項目があれば、選びを外す（入力中・名前の書き換え中・ダイアログやメニューが開いているときは、そちらの Esc） */
+  function escapeKey(ev: KeyboardEvent): void {
+    if (ev.defaultPrevented || !matchesHotkey(ev, keysOf('clearSelection'))) return;
+    if (explorerSelection.count === 0 || renamingPath !== null) return;
+    if (typingIn(ev.target)) return;
+    if (document.querySelector('[role="dialog"], [role="menu"], .menu-backdrop')) return;
+    explorerSelection.clear();
   }
   function searchInputKey(ev: KeyboardEvent): void {
     if (ev.key !== 'Escape') return;
@@ -297,8 +311,8 @@
   let uploadSeq = 0;
   let fileInput: HTMLInputElement | undefined = $state();
 
-  /** 特別なフォルダ（Rules.specialDir）の中では新しいフォルダは作れない（中はファイルだけ） */
-  const canCreateFolder = $derived(!inSpecialDir(rules, fileExplorer.dir) && writeBlockReason(vdir) === null);
+  /** 新しいファイル・フォルダを作れるか（特別なフォルダ（Rules.specialDir）の中は、ファイルだけ作れる） */
+  const canCreate = $derived(writeBlockReason(vdir) === null);
 
   function dropUpload(key: number): void {
     const u = uploads.find((x) => x.key === key);
@@ -1045,19 +1059,8 @@
     scrollTimer = undefined;
   }
 
-  /**
-   * 囲みを始めてよい場所。空きスペース、または、選んでいない項目の上。
-   * 選んでいる項目の上は、そのままドラッグして移す（項目の HTML5 のドラッグと、取り合わないように）
-   */
-  function bandStartSpot(t: EventTarget | null): boolean {
-    if (isEmptySpot(t)) return true;
-    if (!(t instanceof Element) || t.closest('.explorer-entry-actions, .file-explorer-rename, .file-explorer-menu, .menu-backdrop, input, textarea')) return false;
-    const path = t.closest<HTMLElement>('li.file-explorer-item[data-path]')?.dataset.path;
-    return path !== undefined && !explorerSelection.has(path);
-  }
-
   function bandStart(ev: PointerEvent): void {
-    if (ev.pointerType !== 'mouse' || ev.button !== 0 || !bodyEl || !bandStartSpot(ev.target)) return;
+    if (ev.pointerType !== 'mouse' || ev.button !== 0 || !bodyEl || !isEmptySpot(ev.target)) return;
     // スクロールバーの上は、囲みにしない
     const r = bodyEl.getBoundingClientRect();
     if (ev.clientX >= r.left + bodyEl.clientWidth || ev.clientY >= r.top + bodyEl.clientHeight) return;
@@ -1217,7 +1220,10 @@
         renameTimer = setTimeout(() => startRename(e), DOUBLE_CLICK_MS);
         return;
       }
-      explorerSelection.toggle(e.path);
+      // PC: Ctrl（Mac は Cmd）・Shift を押しながらなら、選びに足す・外す。押さないなら、その項目だけを選ぶ（選んでいる唯一の項目を押したときは、外す）
+      const only = explorerSelection.count === 1 && explorerSelection.has(e.path);
+      if (explorerSelection.desktop && !(ev.ctrlKey || ev.metaKey || ev.shiftKey) && !only) explorerSelection.replace([e.path]);
+      else explorerSelection.toggle(e.path);
       return;
     }
     if (ev.target instanceof Element && ev.target.closest('.file-explorer-name-text') && startRename(e)) {
@@ -1247,12 +1253,12 @@
    * タッチの選択モードの中では、名前の書き換えはしない（従来どおり）
    */
   function rowKey(ev: KeyboardEvent, e: Entry): void {
-    if (explorerSelection.desktop && ev.key === 'Enter') {
+    if (explorerSelection.desktop && matchesHotkey(ev, keysOf('open'))) {
       ev.preventDefault();
       activateEntry(e);
       return;
     }
-    if (ev.key !== 'F2') return;
+    if (!matchesHotkey(ev, keysOf('rename'))) return;
     if (explorerSelection.active && !explorerSelection.desktop) return;
     if (startRename(e)) ev.preventDefault();
     else {
@@ -1380,6 +1386,7 @@
     // 選択中にドラッグしたら選択中の全項目を、そうでなければその 1 件だけ
     const items = explorerSelection.active && explorerSelection.has(e.path) ? selectedItems : [item];
     dragItems = items;
+    setExplorerDragItems(items.map((i) => ({ path: i.path, kind: i.kind === 'dir' ? 'dir' : 'file' })));
     ev.dataTransfer!.effectAllowed = 'copyMove';
     ev.dataTransfer!.setData(EXPLORER_DRAG_TYPE, items.map((i) => i.path).join('|'));
     // フォルダが含まれるときだけ印を付ける（ドロップ先が、落とす前にフォルダかを見分けられる）
@@ -1388,6 +1395,7 @@
 
   function endItemDrag(): void {
     dragItems = null;
+    setExplorerDragItems(null);
     dragTarget = null;
   }
 
@@ -1719,10 +1727,17 @@
     e.preventDefault();
     if (mkdirBusy) return;
     const dir = fileExplorer.dir;
-    const name = mkdirName.trim();
+    // 末尾が / か \ なら、フォルダを作る（それ以外は、空のファイル）
+    const typed = mkdirName.trim();
+    const isDir = /[/\\]$/.test(typed);
+    const name = isDir ? typed.replace(/[/\\]+$/, '').trim() : typed;
     const blocked = writeBlock(dir);
     if (blocked) {
       mkdirError = blocked;
+      return;
+    }
+    if (isDir && inSpecialDir(rules, dir)) {
+      mkdirError = '特別なフォルダ内にフォルダは作れません';
       return;
     }
     const bad = rules.nameError(dir, name);
@@ -1730,10 +1745,17 @@
       mkdirError = bad;
       return;
     }
+    // write は同名を黙って上書きするので、先に同名がないか確かめる（フォルダも、置き場所ごとの違いに頼らない）
+    const st = dirIndex.state(dir);
+    if (st?.kind === 'ok' && sameNameEntry(rules, st.entries, dir, name)) {
+      mkdirError = '同じ名前のファイル・フォルダがあります';
+      return;
+    }
     const path = childPath(dir, name);
     mkdirBusy = true;
     try {
-      await api.mkdir(path);
+      if (isDir) await api.mkdir(path);
+      else await api.write(path, '');
       dirIndex.invalidate(path);
       mkdirOpen = false;
     } catch (err) {
@@ -1744,7 +1766,7 @@
   }
 </script>
 
-<svelte:window onkeydown={searchWindowKey} />
+<svelte:window onkeydown={(ev) => { searchWindowKey(ev); escapeKey(ev); }} />
 
 <div class="file-explorer" role="region" aria-label="ファイルエクスプローラー"
   ondragenter={explorerDragEnter}
@@ -1777,8 +1799,8 @@
       {#if menuOpen}
         <Menu class="file-explorer-popup-menu file-explorer-menu" label="{labels.root}の操作" onclose={() => (menuOpen = false)}>
           {@render props.menu?.(() => (menuOpen = false))}
-          {#if canCreateFolder}
-            <MenuItem icon={FolderPlus} onclick={() => run(openMkdir)}>新しいフォルダ</MenuItem>
+          {#if canCreate}
+            <MenuItem icon={FilePlus} onclick={() => run(openMkdir)}>新しいファイル</MenuItem>
           {/if}
           <!-- 表示・並び替えは、開いているフォルダの設定（各デバイスに保存。決めていない下のフォルダも従う） -->
           <p class="file-explorer-menu-head muted">表示</p>
@@ -1943,7 +1965,7 @@
             class:file-explorer-item-cut={explorerBuffer.isCut(e.path)}
             class:file-explorer-item-selected={explorerSelection.has(e.path)}
             class:file-explorer-item-drag-target={e.kind === 'dir' && dragTarget === e.path}
-            draggable={(!renamingPath || renamingPath !== e.path) && !touchPointer && (!explorerSelection.desktop || explorerSelection.has(e.path))}
+            draggable={(!renamingPath || renamingPath !== e.path) && !touchPointer}
             onpointerdown={(ev) => pressStart(ev, e.path)}
             onpointermove={pressMove}
             onpointerup={() => {
@@ -2088,8 +2110,8 @@
         {#if labels.upload}
           <MenuItem icon={Upload} onclick={() => runCtx(() => fileInput?.click())}>{labels.upload}</MenuItem>
         {/if}
-        {#if canCreateFolder}
-          <MenuItem icon={FolderPlus} onclick={() => runCtx(openMkdir)}>新しいフォルダ</MenuItem>
+        {#if canCreate}
+          <MenuItem icon={FilePlus} onclick={() => runCtx(openMkdir)}>新しいファイル</MenuItem>
         {/if}
         {#if canPaste}
           <MenuItem icon={ClipboardPaste} disabled={pasting} onclick={() => runCtx(() => void pasteAny())}>貼り付け</MenuItem>
@@ -2104,9 +2126,10 @@
 {/if}
 
 {#if mkdirOpen}
-  <Modal title="新しいフォルダ" onclose={() => (mkdirOpen = false)} width={380}>
+  <Modal title="新しいファイル" onclose={() => (mkdirOpen = false)} width={380}>
     <form class="file-explorer-mkdir" onsubmit={submitMkdir}>
-      <TextInput bind:value={mkdirName} aria-label="フォルダの名前" />
+      <TextInput bind:value={mkdirName} aria-label="ファイルの名前" />
+      <p class="file-explorer-mkdir-hint">末尾を <code>/</code> にするとフォルダを作成します</p>
       {#if mkdirError}<p class="file-explorer-mkdir-error" role="alert">{mkdirError}</p>{/if}
       <div class="modal-actions">
         <Button onclick={() => (mkdirOpen = false)}>キャンセル</Button>
@@ -2214,6 +2237,16 @@
     color: var(--text);
     font-weight: var(--fw-semibold);
   }
+  /* 画面の文字は、選んでコピーできなくてよい（入力欄の中は、これまでどおり） */
+  .file-explorer {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .file-explorer :global(input),
+  .file-explorer :global(textarea) {
+    user-select: text;
+    -webkit-user-select: text;
+  }
   .file-explorer-body {
     flex: 1;
     min-height: 0;
@@ -2302,6 +2335,11 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+  }
+  .file-explorer-mkdir-hint {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--fs-sm);
   }
   .file-explorer-mkdir-error {
     margin: 0;

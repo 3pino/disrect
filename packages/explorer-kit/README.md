@@ -56,6 +56,8 @@ export const explorer = createExplorer({ api, urls, rules, host, viewStore, labe
 
 `explorer` は、その部品の一生のあいだ同じものを渡します（別の置き場所を見せるときは `{#key}` で作り直す）。
 
+一覧のホットキー（検索 `Ctrl+F`・開く `Enter`・名前の変更 `F2`・選びを外す `Escape`）は、`keymap` で置き換えられます（省いたものは既定。`EXPLORER_HOTKEYS`）: `<FileExplorer {explorer} keymap={{ rename: ['F3'] }} />`。キーの文字の書き方は `hotkeys.ts`（`hotkeyFromEvent`・`matchesHotkey`）。
+
 ## 確かめる
 
 ```sh

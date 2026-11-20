@@ -7,6 +7,7 @@ export * from './format';
 export * from './listing';
 export * from './kinds';
 export * from './ops';
+export * from './hotkeys';
 export * from './transfer';
 export * from './trashFolder';
 export * from './dirs';

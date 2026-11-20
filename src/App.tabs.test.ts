@@ -2,6 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
 import type { FsEntry } from './lib/fs/types';
+import { hotkeys } from './lib/hotkeys.svelte';
+
+// ウィンドウの操作（最後のタブを閉じる・別のウィンドウで開く）は、呼んだことだけを覚える偽物にする
+const win = vi.hoisted(() => ({ quit: vi.fn(async () => {}), open: vi.fn(async (_tab: { place: string; dir: string }, _at?: { x: number; y: number }) => {}) }));
+vi.mock('./lib/windowControls', async (orig) => ({ ...(await orig<typeof import('./lib/windowControls')>()), hasWindowControls: () => false, quitWindow: win.quit, openTabInNewWindow: win.open }));
 
 // タブ: この端末（メモリの中の木）と、追加したネットワークの場所（WebDAV の偽物）を、複数のタブで開く。
 const fake = vi.hoisted(() => {
@@ -58,6 +63,7 @@ beforeEach(() => {
   settings.showHidden = false;
   settings.dirs = {};
   localStorage.clear();
+  hotkeys.reload();
   fake.calls.length = 0;
   made.buffers.length = 0;
   fake.tree.clear();
@@ -79,7 +85,7 @@ const start = async (): Promise<void> => {
   await settle();
 };
 const names = (): string[] => [...target.querySelectorAll('.file-explorer-name-text')].map((n) => n.textContent ?? '');
-const tabEls = (): HTMLElement[] => [...target.querySelectorAll<HTMLElement>('.tabs .tab')];
+const tabEls = (): HTMLElement[] => [...target.querySelectorAll<HTMLElement>('.tabs .tab:not(.tab-ghost)')];
 const tabLabels = (): string[] => tabEls().map((t) => t.querySelector('.tab-label')!.textContent!);
 const activeLabel = (): string => target.querySelector('.tab-active .tab-label')!.textContent!;
 const button = (label: string): HTMLButtonElement => {
@@ -117,10 +123,10 @@ function drag(type: string, types: string[], data: Record<string, string> = {}):
 }
 
 describe('タブ', () => {
-  it('起動は 1 つのタブ（この端末のホーム）。1 つだけのときは閉じるボタンを出さない', async () => {
+  it('起動は 1 つのタブ（この端末のホーム）。1 つだけでも閉じるボタンを出す', async () => {
     await start();
     expect(tabLabels()).toEqual(['me']);
-    expect(target.querySelector('.tab-close')).toBeNull();
+    expect(target.querySelectorAll('.tab-close')).toHaveLength(1);
     expect(names()).toEqual(['docs', 'pics', 'a.txt']);
   });
 
@@ -155,7 +161,7 @@ describe('タブ', () => {
     expect(names()).toEqual(['docs', 'pics', 'a.txt']);
   });
 
-  it('閉じる: ×・Ctrl+W・真ん中のボタン。見ているタブを閉じたら右隣（なければ左）。最後の 1 つは閉じない', async () => {
+  it('閉じる: ×・Ctrl+W・真ん中のボタン。見ているタブを閉じたら右隣（なければ左）。最後の 1 つを閉じると、ウィンドウを閉じる', async () => {
     await start();
     await key('t');
     await key('t');
@@ -166,10 +172,14 @@ describe('タブ', () => {
     expect(tabEls()[1].classList.contains('tab-active')).toBe(true);
     await click(tabEls()[0].querySelector('.tab-close')!); // 見ていない 1 つめを閉じる → 見ているタブはそのまま
     expect(tabLabels()).toEqual(['me']);
-    expect(target.querySelector('.tab-close')).toBeNull();
+    expect(win.quit).not.toHaveBeenCalled();
+    // 最後の 1 つ: Ctrl+W でも、ウィンドウを閉じる（タブの保存は、そのまま残る）
     const ev = await key('w');
-    expect(tabLabels()).toEqual(['me']);
+    expect(win.quit).toHaveBeenCalledTimes(1);
     expect(ev.defaultPrevented).toBe(true);
+    expect(tabLabels()).toEqual(['me']);
+    await click(tabEls()[0].querySelector('.tab-close')!);
+    expect(win.quit).toHaveBeenCalledTimes(2);
     // 真ん中のボタン
     await key('t');
     const mid = new MouseEvent('auxclick', { button: 1, bubbles: true, cancelable: true });
@@ -248,29 +258,129 @@ describe('タブ', () => {
     expect(activeLabel()).toBe('me');
   });
 
-  it('フォルダをタブの欄へドラッグして落とすと、新しいタブ（見ているタブは変えない）で開く。ファイル・知らない項目は開かない', async () => {
+  it('フォルダをタブの欄へドラッグして落とすと、新しいタブで開く（見ているタブは変えない）。ファイル・知らない項目は開かない。落とす前に、点線のタブで位置（隙間）を見せる', async () => {
     await start();
     // フォルダを含むドラッグには、フォルダの印も付く（ファイルだけのドラッグには付かない）
     const types = ['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir'];
-    // ファイルだけのドラッグは、受けない（色も変えない）
+    const ghost = (): HTMLElement | null => target.querySelector('.tab-ghost');
+    // ファイルだけのドラッグは、受けない（何も見せない）
     const over = drag('dragover', [types[0]]);
     target.querySelector('.tabs')!.dispatchEvent(over);
     await settle();
     expect(over.defaultPrevented).toBe(false);
-    expect(target.querySelector('.tabs')!.classList.contains('tabs-dropping')).toBe(false);
+    expect(ghost()).toBeNull();
     const overDir = drag('dragover', types);
     target.querySelector('.tabs')!.dispatchEvent(overDir);
     await settle();
     expect(overDir.defaultPrevented).toBe(true);
-    expect(target.querySelector('.tabs')!.classList.contains('tabs-dropping')).toBe(true);
+    // タブの無いところの上: いちばん後ろに、点線のタブ
+    expect(ghost()).not.toBeNull();
+    expect(tabEls()).toHaveLength(1);
     target.querySelector('.tabs')!.dispatchEvent(drag('drop', types, { [types[0]]: 'home/me/docs|home/me/a.txt|home/me/nowhere' }));
     await settle();
+    expect(ghost()).toBeNull();
     expect(tabLabels()).toEqual(['me', 'docs']);
+    // 見ているタブは、そのまま
     expect(activeLabel()).toBe('me');
-    // 「＋」の上でも同じ（欄の中）
+    // 「＋」の上でも同じ（欄の中）。いま見ているフォルダの一覧で、見つかるものだけ
     target.querySelector('.tab-add')!.dispatchEvent(drag('drop', types, { [types[0]]: 'home/me/pics' }));
     await settle();
-    expect(tabLabels()).toEqual(['me', 'pics', 'docs']);
+    expect(tabLabels()).toEqual(['me', 'docs', 'pics']);
+    expect(activeLabel()).toBe('me');
+  });
+
+  it('タブの上へ落とすと、そのタブの隣（右半分なら後ろ）に作る。タブの欄を出ると、点線のタブは消える', async () => {
+    await start();
+    await key('t');
+    await click(tabEls()[0].querySelector('.tab-main')!);
+    const types = ['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir'];
+    tabEls()[0].dispatchEvent(drag('dragover', types));
+    await settle();
+    const all = [...target.querySelectorAll('.tabs .tab')];
+    expect(all.map((t) => t.classList.contains('tab-ghost'))).toEqual([false, true, false]);
+    target.querySelector('.tabbar')!.dispatchEvent(new Event('dragleave', { bubbles: true }));
+    await settle();
+    expect(target.querySelector('.tab-ghost')).toBeNull();
+    tabEls()[0].dispatchEvent(drag('dragover', types));
+    await settle();
+    tabEls()[0].dispatchEvent(drag('drop', types, { [types[0]]: 'home/me/docs' }));
+    await settle();
+    expect(tabLabels()).toEqual(['me', 'docs', 'me']);
+  });
+
+  it('タブをウィンドウの外へドラッグして離すと、別のウィンドウで開き、このウィンドウのタブは閉じる（1 つだけのタブは動かさない・ウィンドウの中なら動かさない）', async () => {
+    await start();
+    // dragstart してから dragend（ドラッグ中でなければ、何もしない）
+    const end = (el: Element, init: { dropEffect: string; x: number; y: number }): void => {
+      el.dispatchEvent(drag('dragstart', []));
+      const ev = new Event('dragend', { bubbles: true });
+      Object.defineProperty(ev, 'dataTransfer', { value: { dropEffect: init.dropEffect } });
+      for (const [k, v] of Object.entries({ clientX: init.x, clientY: init.y, screenX: init.x + 300, screenY: init.y + 200 })) Object.defineProperty(ev, k, { value: v });
+      el.dispatchEvent(ev);
+    };
+    // 1 つだけのタブ
+    end(tabEls()[0], { dropEffect: 'none', x: -40, y: 10 });
+    await settle();
+    expect(win.open).not.toHaveBeenCalled();
+    await key('t');
+    await goTo('/home/me/docs');
+    // ウィンドウの中で離した（取り消し）
+    end(tabEls()[1], { dropEffect: 'none', x: 100, y: 10 });
+    await settle();
+    expect(win.open).not.toHaveBeenCalled();
+    // 受け取られた（ほかのタブの上など）
+    end(tabEls()[1], { dropEffect: 'move', x: -40, y: 10 });
+    await settle();
+    expect(win.open).not.toHaveBeenCalled();
+    // ウィンドウの外
+    end(tabEls()[1], { dropEffect: 'none', x: -40, y: 10 });
+    await settle();
+    expect(win.open).toHaveBeenCalledWith({ place: 'local', dir: 'home/me/docs' }, { x: 260, y: 210 });
+    expect(tabLabels()).toEqual(['me']);
+  });
+
+  it('別のウィンドウで開いたとき（?place=…&dir=…）は、そのタブ 1 つで始める。タブの保存は、元のウィンドウのものを上書きしない', async () => {
+    localStorage.setItem('fixplor.tabs', JSON.stringify({ v: 1, active: 0, tabs: [{ place: 'local', dir: '/home/me' }, { place: 'local', dir: '/home/me/pics' }] }));
+    const before = localStorage.getItem('fixplor.tabs');
+    history.replaceState(null, '', '/?place=local&dir=%2Fhome%2Fme%2Fdocs');
+    try {
+      await start();
+      expect(tabLabels()).toEqual(['docs']);
+      await key('t');
+      expect(tabLabels()).toEqual(['docs', 'me']);
+      expect(localStorage.getItem('fixplor.tabs')).toBe(before);
+    } finally {
+      history.replaceState(null, '', '/');
+    }
+  });
+
+  it('設定のタブ: 左下の行で開く（1 つだけ）。タブとして保存・復元される。場所の欄の操作は、新しいタブで開く', async () => {
+    await start();
+    await click(target.querySelector('.about-row')!);
+    expect(tabLabels()).toEqual(['me', '設定']);
+    expect(activeLabel()).toBe('設定');
+    expect(target.querySelector('[role="region"][aria-label="設定"]')).not.toBeNull();
+    expect(target.querySelector('.file-explorer')).toBeNull();
+    expect(target.textContent).toContain('ホットキー');
+    expect(target.textContent).toContain('バージョン');
+    expect(savedTabs().tabs.map((t) => t.place)).toEqual(['local', 'fixplor:settings']);
+    // もう一度押しても、増やさない（見ているタブへ移るだけ）
+    await click(tabEls()[0].querySelector('.tab-main')!);
+    await click(target.querySelector('.about-row')!);
+    expect(tabLabels()).toEqual(['me', '設定']);
+    expect(activeLabel()).toBe('設定');
+    // 場所の欄の「コンピューター」: 設定を残して、新しいタブで開く
+    await click(target.querySelector('.places .menu-item')!);
+    expect(tabLabels()).toEqual(['me', '設定', 'me']);
+    expect(activeLabel()).toBe('me');
+    // 起動し直すと、設定のタブも戻る
+    void unmount(app!);
+    app = undefined;
+    document.body.innerHTML = '';
+    target = document.createElement('div');
+    document.body.append(target);
+    await start();
+    expect(tabLabels()).toEqual(['me', '設定', 'me']);
   });
 
   it('ネットワークの場所もタブで開く。タブの中で置き場所を切り替えても、その置き場所のフォルダ・選びは保つ', async () => {
@@ -364,5 +474,67 @@ describe('タブ', () => {
     for (let i = 0; i < 25; i++) await key('t');
     expect(tabLabels()).toHaveLength(20);
     expect(document.querySelector('.toast')!.textContent).toContain('タブは 20 個まで');
+  });
+
+  it('ホットキーは、設定で変えられる。変えると、前のキーは効かなくなり、新しいキーが効く。保存され、既定に戻せる', async () => {
+    await start();
+    await click(target.querySelector('.about-row')!); // 設定のタブ
+    const row = (id: string): HTMLElement => target.querySelector<HTMLElement>(`[data-command="${id}"]`)!;
+    // 新しいタブに、Ctrl+Y を足す（記録）
+    (row('tab.new').querySelector('button[aria-label="新しいタブのキーを追加"]') as HTMLElement).click();
+    await settle();
+    expect(row('tab.new').textContent).toContain('キーを押してください');
+    // 記録の間は、ほかの操作は働かない（Ctrl+T も、タブを作らずに記録される）
+    const before = tabLabels().length;
+    await key('Control', { ctrlKey: true }); // 修飾キーだけは、続きを待つ
+    expect(row('tab.new').textContent).toContain('キーを押してください');
+    await key('y');
+    expect(tabLabels()).toHaveLength(before);
+    expect(row('tab.new').textContent).toContain('Ctrl+Y');
+    expect(JSON.parse(localStorage.getItem('fixplor.hotkeys')!)).toEqual({ 'tab.new': ['Ctrl+T', 'Ctrl+Y'] });
+    await key('y');
+    expect(tabLabels()).toHaveLength(before + 1);
+    await click(tabEls()[1].querySelector('.tab-main')!); // 設定のタブへ戻る
+    // Ctrl+T を外す → 効かない
+    (row('tab.new').querySelector('button[aria-label="新しいタブの Ctrl+T を外す"]') as HTMLElement).click();
+    await settle();
+    await key('t');
+    expect(tabLabels()).toHaveLength(before + 1);
+    // 既定に戻す → Ctrl+T が効く。保存も消える
+    (row('tab.new').querySelector('button[aria-label="新しいタブのキーを既定に戻す"]') as HTMLElement).click();
+    await settle();
+    expect(localStorage.getItem('fixplor.hotkeys')).toBe('{}');
+    await key('t');
+    expect(tabLabels()).toHaveLength(before + 2);
+  });
+
+  it('記録は、修飾キーなしの Esc で取り消す。ほかの操作と同じキーを足すと、警告を出す', async () => {
+    await start();
+    await click(target.querySelector('.about-row')!);
+    const row = (id: string): HTMLElement => target.querySelector<HTMLElement>(`[data-command="${id}"]`)!;
+    (row('tab.prev').querySelector('button[aria-label="前のタブのキーを追加"]') as HTMLElement).click();
+    await settle();
+    await key('Escape', {});
+    expect(row('tab.prev').textContent).not.toContain('キーを押してください');
+    expect(localStorage.getItem('fixplor.hotkeys')).toBeNull();
+    expect(row('tab.prev').querySelector('[role="img"]')).toBeNull();
+    (row('tab.prev').querySelector('button[aria-label="前のタブのキーを追加"]') as HTMLElement).click();
+    await settle();
+    await key('t'); // 「新しいタブ」と同じ
+    expect(row('tab.prev').querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('新しいタブ');
+    expect(row('tab.new').querySelector('[role="img"]')).not.toBeNull();
+  });
+
+  it('一覧の操作（名前の変更・検索など）のホットキーも、設定のとおりになる', async () => {
+    localStorage.setItem('fixplor.hotkeys', JSON.stringify({ rename: ['F3'], search: [] }));
+    hotkeys.reload();
+    await start();
+    const row = target.querySelector<HTMLElement>('.file-explorer-item[data-path="home/me/docs"] .file-explorer-row')!;
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true, cancelable: true }));
+    await settle();
+    expect(target.querySelector('.file-explorer-rename')).toBeNull();
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'F3', bubbles: true, cancelable: true }));
+    await settle();
+    expect(target.querySelector('.file-explorer-rename')).not.toBeNull();
   });
 });

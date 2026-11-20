@@ -246,8 +246,12 @@ describe('検索（この端末）', () => {
   });
 });
 
-/** 狭い画面（Android など）: 右へのスワイプで場所の欄を出し、左へのスワイプ・外側・戻るで閉じる */
-describe('場所の欄（狭い画面のドロワー）', () => {
+/** Android の狭い画面: 右へのスワイプで場所の欄を出し、左へのスワイプ・外側・戻るで閉じる。デスクトップは、どんなに狭くても、いつも見える */
+describe('場所の欄（Android の狭い画面のドロワー）', () => {
+  const platform = (android: boolean): void => {
+    (window as unknown as Record<string, unknown>).__FIXPLOR_PLATFORM__ = { os: android ? 'android' : 'linux', desktop: !android, android, capabilities: null };
+  };
+  beforeEach(() => platform(true));
   const setNarrow = (narrow: boolean): void => {
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
@@ -257,6 +261,7 @@ describe('場所の欄（狭い画面のドロワー）', () => {
   };
   afterEach(() => {
     delete (window as unknown as Record<string, unknown>).matchMedia;
+    delete (window as unknown as Record<string, unknown>).__FIXPLOR_PLATFORM__;
   });
 
   /** 指で（x1,y1）から（x2,y2）へ動かす */
@@ -288,6 +293,17 @@ describe('場所の欄（狭い画面のドロワー）', () => {
     expect(isOpen()).toBe(false);
   });
 
+  it('デスクトップは、狭くても、スワイプで出す引き出しにしない（場所の欄は、いつもの場所に見えている）', async () => {
+    platform(false);
+    setNarrow(true);
+    app = mount(App, { target });
+    await settle();
+    expect(target.querySelector('.app')!.classList.contains('app-android')).toBe(false);
+    swipe([40, 300], [220, 310]);
+    flushSync();
+    expect(isOpen()).toBe(false);
+  });
+
   it('縦のスワイプ・短い動きでは出ない。広い画面（場所の欄がいつも見える）でも出さない', async () => {
     setNarrow(true);
     app = mount(App, { target });
@@ -314,7 +330,7 @@ describe('場所の欄（狭い画面のドロワー）', () => {
     expect(isOpen()).toBe(false);
   });
 
-  it('外側（暗くした部分）を押す・戻る・場所を選ぶ、のどれでも閉じる', async () => {
+  it('外側（暗くした部分）を押す・戻る・場所の欄の行を押す、のどれでも閉じる', async () => {
     setNarrow(true);
     app = mount(App, { target });
     await settle();
@@ -332,7 +348,7 @@ describe('場所の欄（狭い画面のドロワー）', () => {
     await settle();
     expect(isOpen()).toBe(false);
     await open();
-    nav().querySelector<HTMLButtonElement>('.menu-item')!.click();
+    nav().querySelector<HTMLButtonElement>('.about-row')!.click(); // 場所・「設定」の行を押す
     await settle();
     expect(isOpen()).toBe(false);
   });

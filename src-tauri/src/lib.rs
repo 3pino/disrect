@@ -179,6 +179,12 @@ fn fs_open(app: tauri::AppHandle, path: String) -> FsResult<()> {
         .map_err(|e| FsError::new("io", format!("開けませんでした: {e}")))
 }
 
+/// アプリを終える（Android で、最後のタブを閉じたとき。デスクトップは、ウィンドウを閉じる）
+#[tauri::command]
+fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 状態（資格情報・証明書の固定・一時の送信）は setup で作る（保存先を、OS の設定フォルダから取るため）
@@ -242,6 +248,7 @@ pub fn run() {
             fs_places,
             fs_start_dir,
             fs_open,
+            exit_app,
             webdav::commands::dav_list,
             webdav::commands::dav_stat,
             webdav::commands::dav_mkdir,

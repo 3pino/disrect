@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "description": "デスクトップだけの権限。アプリの更新（updater）と、入れ替えたあとの再起動（process）",
+  "description": "デスクトップだけの権限。アプリの更新（updater）と、入れ替えたあとの再起動（process）、自前のタイトルバー（最小化・最大化・閉じる・ウィンドウを動かす）、タブを別のウィンドウで開く",
   "windows": [
-    "main"
+    "main",
+    "win-*"
   ],
   "platforms": [
     "linux",
@@ -12,6 +13,12 @@
   ],
   "permissions": [
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized",
+    "core:webview:allow-create-webview-window"
   ]
 }

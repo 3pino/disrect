@@ -36,7 +36,7 @@ git push origin vX.Y.Z  # ← これでリリースが始まる
 - 「最新のリリース」がこのリリース（プラグインのリリースではない）。次の 1 行で見られる:
   `curl -sL https://github.com/3pino/fixplor/releases/latest/download/latest.json | jq '.version, (.platforms | keys)'`
   → `"X.Y.Z"` と 5 つの platform が出れば、アプリはこの版を見つけられる。
-- 入れ替えの確認（実機。版を出すたびに行う）: 1 つ前の版を入れて起動 →（起動時と 6 時間おきに確認。すぐ見るなら左下の「fixplor v…」→「バージョン情報」→「アップデートを確認」）→
+- 入れ替えの確認（実機。版を出すたびに行う）: 1 つ前の版を入れて起動 →（起動時と 6 時間おきに確認。すぐ見るなら左下の「fixplor v…」→「設定」のタブの「バージョン」→「アップデートを確認」）→
   新しい版が出る → 「アップデート」→ 起動し直した版が X.Y.Z。Windows は passive インストール（進みだけ出る）、Linux は AppImage の入れ替え（`.deb` は、権限を求められることがある）。
 
 ## 4. 鍵（更新の署名）
@@ -54,7 +54,7 @@ git push origin vX.Y.Z  # ← これでリリースが始まる
   `plugin.yml` は `--latest=false` で作る。手で作るときも同じにする。直すには: `gh release edit <タグ> --latest=false`、アプリのリリースに `gh release edit vX.Y.Z --latest`。
 - `.sig` が無くて止まる: Secrets が無い・パスワードが違う。Actions のログで `bundle` の署名の段を見る。
 - 下書きが残る: ワークフローが途中で止まると、下書きのリリースが残る。直して同じタグで再実行するなら、残った下書きとタグを消してから（`gh release delete vX.Y.Z --cleanup-tag`）。
-- 更新の確認が失敗しても、アプリは使える（裏の確認は黙って失敗する。「バージョン情報」で手で確認すると、理由が出る）。
+- 更新の確認が失敗しても、アプリは使える（裏の確認は黙って失敗する。設定の「バージョン」で手で確認すると、理由が出る）。
 
 ## 6. Android（sideload。Play には出さない）
 

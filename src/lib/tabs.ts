@@ -67,3 +67,16 @@ export function tabLabel(placeName: string, dir: string): string {
   const base = dir.slice(dir.lastIndexOf('/') + 1);
   return base === '' ? placeName : base;
 }
+
+/** 設定のタブの「置き場所」の名前（保存・復元で、置き場所のタブと並べて扱う） */
+export const SETTINGS_PLACE = 'fixplor:settings';
+
+/**
+ * タブのドラッグが、ウィンドウの外へ落ちて終わったか（別のウィンドウで開くかの判定）。
+ * どこにも受け取られず（dropEffect が none）、離した位置がウィンドウの外のとき。位置が分からない（0・0）ときは、外とは見なさない
+ */
+export function endedOutside(ev: { dropEffect: string; clientX: number; clientY: number; screenX: number; screenY: number }, size: { width: number; height: number }): boolean {
+  if (ev.dropEffect !== 'none') return false;
+  if (ev.clientX === 0 && ev.clientY === 0 && ev.screenX === 0 && ev.screenY === 0) return false;
+  return ev.clientX < 0 || ev.clientY < 0 || ev.clientX > size.width || ev.clientY > size.height;
+}

@@ -11,6 +11,15 @@ export const EXPLORER_DRAG_TYPE = 'application/x-explorer-kit-items';
 /** ドラッグする項目にフォルダがあるときだけ付ける印（ドロップ先が、落とす前にフォルダかを見分ける） */
 export const EXPLORER_DRAG_DIR_TYPE = 'application/x-explorer-kit-has-dir';
 
+/** いまドラッグしている項目（パスと種類）。ドラッグの間だけ在る。落とす前（dragover）には、DataTransfer の中身は読めないので、ドロップ先が名前を見せるときに使う */
+let draggingItems: readonly { path: string; kind: 'file' | 'dir' }[] | null = null;
+export function setExplorerDragItems(items: readonly { path: string; kind: 'file' | 'dir' }[] | null): void {
+  draggingItems = items;
+}
+export function explorerDragItems(): readonly { path: string; kind: 'file' | 'dir' }[] | null {
+  return draggingItems;
+}
+
 /** ダブルクリックとみなす間隔（ms）。名前の文字を押してから、書き換えに入るまでの待ちにも使う */
 export const DOUBLE_CLICK_MS = 300;
 

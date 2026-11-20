@@ -11,3 +11,17 @@ body,
   height: 100%;
   margin: 0;
 }
+
+/* 画面の文字は、選んでコピーできなくてよい。入力欄と、読んで写したいもの（.selectable。版・更新の説明など）は選べる */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+input,
+textarea,
+[contenteditable='true'],
+.selectable,
+.selectable * {
+  user-select: text;
+  -webkit-user-select: text;
+}

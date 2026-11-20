@@ -79,7 +79,8 @@ const button = (label: string): HTMLButtonElement => {
 };
 const aboutRow = (): HTMLElement => target.querySelector<HTMLElement>('.about-row')!;
 const dot = (): Element | null => target.querySelector('.update-dot');
-const modalText = (): string => document.querySelector('.modal')?.textContent ?? '';
+/** 設定のタブの中身（ホットキー・バージョン） */
+const modalText = (): string => document.querySelector('[aria-label="設定"][role="region"]')?.textContent ?? '';
 
 beforeEach(() => {
   localStorage.clear();
@@ -121,7 +122,7 @@ describe('アプリの更新', () => {
     expect(h.state.log).toEqual([]);
   });
 
-  it('新しい版があると、トースト（1 回だけ）と行の点。「更新」で、バージョン情報が開く', async () => {
+  it('新しい版があると、トースト（1 回だけ）と行の点。「更新」で、設定のタブが開く', async () => {
     h.state.update = { version: '0.2.0', body: '直したこと\n- あれ' };
     app = mount(App, { target });
     await settle();
@@ -130,7 +131,7 @@ describe('アプリの更新', () => {
     expect(dot()!.getAttribute('aria-label')).toBe('新しいバージョンがあります');
     button('更新').click();
     await settle();
-    expect(modalText()).toContain('バージョン情報');
+    expect(modalText()).toContain('バージョン');
     expect(modalText()).toContain('fixplor v0.1.0');
     expect(modalText()).toContain('新しいバージョンがあります: v0.2.0');
     expect(modalText()).toContain('あれ');
@@ -166,9 +167,10 @@ describe('アプリの更新', () => {
     await settle();
     expect(modalText()).toContain('最新です');
     expect(h.state.log.filter((l) => l === 'check')).toHaveLength(2);
-    button('閉じる').click();
+    // 設定のタブは、タブの × で閉じる（ダイアログではない）
+    button('「設定」のタブを閉じる').click();
     await settle();
-    expect(document.querySelector('.modal')).toBeNull();
+    expect(modalText()).toBe('');
   });
 
   it('確認に失敗すると、理由とリリースページを出す（裏の確認は黙って、手で押したときだけ）', async () => {

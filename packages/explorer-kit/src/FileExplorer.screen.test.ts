@@ -126,15 +126,49 @@ describe('置き場所の書き込み', () => {
     expect(h.upload).not.toHaveBeenCalled();
   });
 
-  it('新しいフォルダは、名前を確かめてから作る', async () => {
+  it('新しいファイルは、名前を確かめてから作る。末尾が / か \\ なら、フォルダを作る', async () => {
     const el = await render();
-    menuClick(el, '新しいフォルダ');
+    menuClick(el, '新しいファイル');
+    expect(document.querySelector('.file-explorer-mkdir-hint')?.textContent).toContain('末尾を / にするとフォルダを作成します');
     const input = document.querySelector<HTMLInputElement>('.file-explorer-mkdir input')!;
     input.value = 'x/y';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector<HTMLFormElement>('.file-explorer-mkdir')!.requestSubmit();
     await vi.waitFor(() => expect(document.querySelector('.file-explorer-mkdir-error')?.textContent).toContain('使えません'));
     expect(h.mkdir).not.toHaveBeenCalled();
+    expect(h.write).not.toHaveBeenCalled();
+    // 同じ名前（ファイルでも、フォルダでも）は、上書きせずに断る
+    const submit = async (name: string): Promise<void> => {
+      input.value = name;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector<HTMLFormElement>('.file-explorer-mkdir')!.requestSubmit();
+    };
+    await submit('a.txt');
+    await vi.waitFor(() => expect(document.querySelector('.file-explorer-mkdir-error')?.textContent).toContain('同じ名前'));
+    await submit('docs/');
+    await vi.waitFor(() => expect(document.querySelector('.file-explorer-mkdir-error')?.textContent).toContain('同じ名前'));
+    expect(h.write).not.toHaveBeenCalled();
+    expect(h.mkdir).not.toHaveBeenCalled();
+    // ふつうの名前は、空のファイルを作る
+    await submit('memo.txt');
+    await vi.waitFor(() => expect(h.write).toHaveBeenCalledWith('memo.txt', ''));
+    expect(h.mkdir).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(document.querySelector('.file-explorer-mkdir')).toBeNull());
+  });
+
+  it('新しいファイルの名前の末尾が / でも \\ でも、フォルダを作る（末尾の記号は名前に含めない）', async () => {
+    const el = await render();
+    for (const typed of ['newdir/', 'newdir\\', 'newdir//']) {
+      h.mkdir.mockClear();
+      menuClick(el, '新しいファイル');
+      const input = document.querySelector<HTMLInputElement>('.file-explorer-mkdir input')!;
+      input.value = typed;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector<HTMLFormElement>('.file-explorer-mkdir')!.requestSubmit();
+      await vi.waitFor(() => expect(h.mkdir).toHaveBeenCalledWith('newdir'));
+      await vi.waitFor(() => expect(document.querySelector('.file-explorer-mkdir')).toBeNull());
+    }
+    expect(h.write).not.toHaveBeenCalled();
   });
 
   it('上端は共通の見出し（PanelBar = .top-bar）の 1 行。操作は同じ行にある', async () => {
@@ -743,7 +777,7 @@ describe('空きスペースの長押し・右クリックのメニュー', () =
       body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 600 }));
       vi.advanceTimersByTime(LONG_PRESS_MS + 20);
       flushSync();
-      expect(ctxLabels()).toEqual(['アップロード', '新しいフォルダ']);
+      expect(ctxLabels()).toEqual(['アップロード', '新しいファイル']);
     } finally {
       vi.useRealTimers();
     }
@@ -767,7 +801,7 @@ describe('空きスペースの長押し・右クリックのメニュー', () =
     h.clip.text = 'hello';
     const el = await render();
     el.querySelector<HTMLElement>('.file-explorer-body')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 50, clientY: 600 }));
-    await vi.waitFor(() => expect(ctxLabels()).toEqual(['アップロード', '新しいフォルダ', '貼り付け']));
+    await vi.waitFor(() => expect(ctxLabels()).toEqual(['アップロード', '新しいファイル', '貼り付け']));
     [...document.querySelectorAll<HTMLButtonElement>('.file-explorer-context .menu-item')].find((b) => b.textContent?.includes('貼り付け'))!.click();
     flushSync();
     expect(document.querySelector('.file-explorer-context')).toBeNull();
@@ -1207,6 +1241,54 @@ describe('PC の選択（0 件でも続く。ダブルクリック・Enter で�
     expect(count(el)).toBe('1 件選択中');
   });
 
+  it('選んでいるときに別の項目を押すと、それだけを選ぶ。Ctrl（Cmd）・Shift を押しながらなら、足す・外す', async () => {
+    const el = await render();
+    clickRow(el, 'a.txt');
+    clickRow(el, 'docs');
+    expect(explorerSelection.paths()).toEqual(['docs']);
+    const withKey = (name: string, init: MouseEventInit): void => {
+      rowOf(el, name).querySelector<HTMLElement>('.file-explorer-row')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, ...init }));
+      flushSync();
+    };
+    withKey('a.txt', { ctrlKey: true });
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'docs']);
+    withKey('pic.png', { shiftKey: true });
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'docs', 'pic.png']);
+    withKey('docs', { metaKey: true });
+    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
+    // 複数選んでいるうちの 1 つを（キー無しで）押すと、それだけにする
+    clickRow(el, 'a.txt');
+    expect(explorerSelection.paths()).toEqual(['a.txt']);
+  });
+
+  it('Esc で、選びを外す（入力中・ダイアログやメニューが開いているときは、外さない）', async () => {
+    const el = await render();
+    const esc = (target: EventTarget = window): void => {
+      target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      flushSync();
+    };
+    clickRow(el, 'a.txt');
+    clickRow(el, 'docs', 1);
+    explorerSelection.replace(['a.txt', 'docs']);
+    flushSync();
+    // メニューが開いているあいだは、メニューの Esc
+    el.querySelector<HTMLButtonElement>('button[aria-label="メニュー"]')!.click();
+    flushSync();
+    esc();
+    expect(explorerSelection.count).toBe(2);
+    document.querySelector<HTMLButtonElement>('.menu-backdrop')?.click();
+    flushSync();
+    // 入力欄の中は、入力の Esc
+    const input = document.createElement('input');
+    document.body.append(input);
+    esc(input);
+    expect(explorerSelection.count).toBe(2);
+    input.remove();
+    esc();
+    expect(explorerSelection.count).toBe(0);
+    expect(count(el)).toBe('3 件');
+  });
+
   it('0 件のときは、通常の一覧（チェック・選択の件数なし）。選ぶ操作は押せるまま', async () => {
     const el = await render();
     expect(el.querySelectorAll('.file-explorer-check').length).toBe(0);
@@ -1588,8 +1670,8 @@ describe('ゴミ箱は、ふつうのフォルダとして開く（.trash）', (
     fileExplorer.open(ALIAS4);
     flushSync();
     await vi.waitFor(() => expect(names(el)).toEqual(['sub', 'k.txt']));
-    // 新しいフォルダは出さない
-    expect(menuLabels(el).some((l) => l.includes('新しいフォルダ'))).toBe(false);
+    // 新しいファイル・フォルダは出さない
+    expect(menuLabels(el).some((l) => l.includes('新しいファイル'))).toBe(false);
     // アップロードは止める（理由を出す）
     pick(el, new File(['x'], 'new.txt'));
     expect(h.upload).not.toHaveBeenCalled();
@@ -1648,13 +1730,13 @@ describe('ゴミ箱は、ふつうのフォルダとして開く（.trash）', (
     await vi.waitFor(() => expect(h.move).toHaveBeenCalledWith(ALIAS1, 'docs/report.pdf', false));
   });
 
-  it('本当の（実在の）.trash は、ふつうのフォルダ。書けて、新しいフォルダも作れる', async () => {
+  it('本当の（実在の）.trash は、ふつうのフォルダ。書けて、新しいファイルも作れる', async () => {
     serve({ '': [entry('.trash', 'dir'), entry('docs', 'dir')], '.trash': [entry('memo.txt')] });
     const el = await render();
     fileExplorer.open('.trash');
     flushSync();
     await vi.waitFor(() => expect(names(el)).toEqual(['memo.txt']));
-    expect(menuLabels(el).some((l) => l.includes('新しいフォルダ'))).toBe(true);
+    expect(menuLabels(el).some((l) => l.includes('新しいファイル'))).toBe(true);
     pick(el, new File(['x'], 'new.txt'));
     await vi.waitFor(() => expect(h.upload).toHaveBeenCalledWith('.trash/new.txt', expect.any(File), expect.any(Function)));
   });
@@ -1668,7 +1750,7 @@ describe('ゴミ箱は、ふつうのフォルダとして開く（.trash）', (
       fileExplorer.open('.trash');
       flushSync();
       await vi.waitFor(() => expect(names(el)).toEqual(['memo.txt']));
-      expect(menuLabels(el).some((l) => l.includes('新しいフォルダ'))).toBe(true);
+      expect(menuLabels(el).some((l) => l.includes('新しいファイル'))).toBe(true);
       pick(el, new File(['x'], 'new.txt'));
       await vi.waitFor(() => expect(h.upload).toHaveBeenCalledWith('.trash/new.txt', expect.any(File), expect.any(Function)));
     } finally {
@@ -1685,7 +1767,7 @@ describe('ゴミ箱は、ふつうのフォルダとして開く（.trash）', (
     fileExplorer.open(ALIAS4);
     flushSync();
     await vi.waitFor(() => expect(names(target!)).toEqual(['sub', 'k.txt']));
-    expect(menuLabels(target!).some((l) => l.includes('新しいフォルダ'))).toBe(false);
+    expect(menuLabels(target!).some((l) => l.includes('新しいファイル'))).toBe(false);
     pick(target!, new File(['x'], 'new.txt'));
     expect(h.upload).not.toHaveBeenCalled();
     expect(toastTexts().some((t) => t.includes('確かめて'))).toBe(true);
@@ -1697,7 +1779,7 @@ describe('ゴミ箱は、ふつうのフォルダとして開く（.trash）', (
     fileExplorer.open(ALIAS4);
     flushSync();
     await vi.waitFor(() => expect(el.querySelector('.file-explorer-empty, .file-explorer-list-empty') ?? el).toBeTruthy());
-    expect(menuLabels(el).some((l) => l.includes('新しいフォルダ'))).toBe(false);
+    expect(menuLabels(el).some((l) => l.includes('新しいファイル'))).toBe(false);
     pick(el, new File(['x'], 'new.txt'));
     expect(h.upload).not.toHaveBeenCalled();
     expect(toastTexts().some((t) => t.includes('ゴミ箱の中には書き込めません'))).toBe(true);
@@ -1905,7 +1987,7 @@ describe('ゴミ箱の中にいるあいだに .trash が変わったら、直�
       expect(names(el)).toEqual(['memo.txt']);
     });
     flushSync();
-    expect(menuLabels(el).some((l) => l.includes('新しいフォルダ'))).toBe(true);
+    expect(menuLabels(el).some((l) => l.includes('新しいファイル'))).toBe(true);
     pick(el, new File(['x'], 'new.txt'));
     await vi.waitFor(() => expect(h.upload).toHaveBeenCalledWith('.trash/new.txt', expect.any(File), expect.any(Function)));
   });
@@ -2057,14 +2139,22 @@ describe('選んだ項目への操作は、同時に 1 つだけ（確認の途�
 
 /* ---- 特別なフォルダの中・OS のドロップの途中で置き場所が変わったとき・ドラッグの印 ---- */
 
-describe('特別なフォルダの中では、新しいフォルダを作れない', () => {
-  it('いちばん上の ≡ には「新しいフォルダ」があり、special の中の ≡・空きスペースのメニューには無い', async () => {
+describe('特別なフォルダの中では、ファイルだけ作れる（フォルダは作れない）', () => {
+  it('新しいファイルは、special の中の ≡ にもある。末尾が / の名前（フォルダ）は、断る', async () => {
     const el = await render();
-    expect(menuLabels(el)).toContain('新しいフォルダ');
+    expect(menuLabels(el)).toContain('新しいファイル');
     fileExplorer.open('special');
     flushSync();
     await vi.waitFor(() => expect(fileExplorer.dir).toBe('special'));
-    expect(menuLabels(el)).not.toContain('新しいフォルダ');
+    expect(menuLabels(el)).toContain('新しいファイル');
+    menuClick(el, '新しいファイル');
+    const input = document.querySelector<HTMLInputElement>('.file-explorer-mkdir input')!;
+    input.value = 'sub/';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector<HTMLFormElement>('.file-explorer-mkdir')!.requestSubmit();
+    await vi.waitFor(() => expect(document.querySelector('.file-explorer-mkdir-error')?.textContent).toBe('特別なフォルダ内にフォルダは作れません'));
+    expect(h.mkdir).not.toHaveBeenCalled();
+    expect(h.write).not.toHaveBeenCalled();
   });
 
   it('special の中へ、フォルダを OS からドロップしても作らず、置き場所の文で断る（ファイルは別）', async () => {
@@ -2440,26 +2530,17 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     body.dispatchEvent(ptr('pointerup', 400, 10));
   });
 
-  it('選んでいない項目の上からも囲める（選んでいる項目の上は、ドラッグで移すので囲まない）', async () => {
+  it('項目の上からは囲まない（項目はドラッグで移す）。囲めるのは空きスペースだけ', async () => {
     const el = await render();
     const body = layout(el);
     const second = rowOf(el, 'a.txt').querySelector<HTMLElement>('.file-explorer-name-text')!;
-    // 選んでいない項目は、HTML5 のドラッグにしない（囲みと取り合わない）
-    expect(rowOf(el, 'a.txt').closest('li')!.getAttribute('draggable')).toBe('false');
+    // 選んでいてもいなくても、項目は、HTML5 のドラッグで移せる
+    expect(rowOf(el, 'a.txt').closest('li')!.getAttribute('draggable')).toBe('true');
     second.dispatchEvent(ptr('pointerdown', 100, 60));
     body.dispatchEvent(ptr('pointermove', 100, 110));
     flushSync();
-    expect(document.querySelector('.file-explorer-band')).not.toBeNull();
-    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
-    body.dispatchEvent(ptr('pointerup', 100, 110));
-    flushSync();
-    // 選んでいる項目の上からは、囲みを始めない（ドラッグで移せる）
-    expect(rowOf(el, 'a.txt').closest('li')!.getAttribute('draggable')).toBe('true');
-    second.dispatchEvent(ptr('pointerdown', 100, 60));
-    body.dispatchEvent(ptr('pointermove', 100, 10));
-    flushSync();
     expect(document.querySelector('.file-explorer-band')).toBeNull();
-    expect(explorerSelection.paths().sort()).toEqual(['a.txt', 'pic.png']);
+    expect(explorerSelection.paths()).toEqual([]);
   });
 
   it('Ctrl を押して囲むと、いまの選びに足す。ただのクリック（動かさない）は、囲みにならず、選びを外す', async () => {

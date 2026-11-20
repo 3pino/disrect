@@ -48,11 +48,12 @@ GitHub Actions: `CI`（型・試験・ビルド。Rust は Linux と Windows。A
 | `src/lib/settings.svelte.ts`・`localKeys.ts` | 設定の保存（土台のストレージを通す。キーは `fixplor.` で、`localKeys.ts` に登録。試験が止める） |
 | `src/lib/platformGlobal.ts`・`src-tauri/src/platform.rs` | Rust が `window.__FIXPLOR_PLATFORM__` に入れる OS の事実の名前を、土台（`core/platform`）へ教える |
 | `src/lib/fs/pins.ts`・`src-tauri/src/webdav/pin.rs` | 証明書の指紋の固定（Rust の検証器と、確認・信頼の画面 `CertDialog.svelte`）。保管は設定フォルダの `dav-pins.json` |
-| `src/lib/tabs.ts`・`src/components/TabBar.svelte` | タブ（保存・復元の決まりと、タブの欄） |
+| `src/lib/tabs.ts`・`src/components/TabBar.svelte`・`WindowControls.svelte`・`src/lib/windowControls.ts` | タブ（保存・復元の決まりと、タブの欄。デスクトップはタイトルバーを兼ねる。別のウィンドウで開く） |
+| `src/components/SettingsView.svelte`・`src/lib/hotkeys.ts` | 設定のタブ（ホットキーの一覧・バージョンと更新） |
 | `src/lib/fs/search.ts`・`src-tauri/src/fs/search.rs` | 検索（ネットワークの場所は手元で上限つき、この端末は Rust で流して返す） |
 | `src/lib/updateBackend.ts`・`updateWatch.ts`・`stores/updater.svelte.ts` | アプリの更新（土台 `@3pino/app-kit-web` の Updater）。Android は `src-tauri/gen/android` と、アプリの中のプラグイン（Kotlin）で APK を取って渡す |
 | `plugins/fixplor/` | Disnans のプラグイン（`plugins/fixplor/README.md`） |
-| `src/App.svelte` | 外枠（タブの欄・左の場所の一覧（幅は、つまみで変えられる））。上のバー・場所の欄は無い（戻る・上へは道筋の行、再読み込みは F5、隠しファイルは ≡ のメニュー）。見た目は仮 |
+| `src/App.svelte` | 外枠（タブの欄（タイトルバーを兼ねる）・左の場所の一覧（幅は、つまみで変えられる。Android の狭い画面は引き出し））。上のバー・場所の欄は無い（戻る・上へは道筋の行、再読み込みは F5、隠しファイルは ≡ のメニュー）。見た目は仮 |
 
 ### リリース
 

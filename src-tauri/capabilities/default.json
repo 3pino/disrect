@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "default",
-  "description": "メインウィンドウの権限（すべての OS）。ファイルの操作は本体のコマンド（fs_*）だけで行う（fs プラグインは入れない）。opener は既定のアプリでファイルを開く・リリースページを開く",
+  "description": "メインウィンドウと、タブを別のウィンドウで開いたもの（win-…）の権限（すべての OS）。ファイルの操作は本体のコマンド（fs_*）だけで行う（fs プラグインは入れない）。opener は既定のアプリでファイルを開く・リリースページを開く",
   "windows": [
-    "main"
+    "main",
+    "win-*"
   ],
   "permissions": [
     "core:default",

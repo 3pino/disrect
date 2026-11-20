@@ -13,10 +13,13 @@
   import { baseName, createExplorer, ExplorerBuffer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
   import Toasts from '@3pino/app-kit-web/shell/Toasts.svelte';
   import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
-  import { isBackKey } from '@3pino/app-kit-web/core/backNav';
+  import { hotkeys } from './lib/hotkeys.svelte';
   import PlaceDialog from './components/PlaceDialog.svelte';
   import CertDialog from './components/CertDialog.svelte';
-  import AboutDialog from './components/AboutDialog.svelte';
+  import SettingsView from './components/SettingsView.svelte';
+  import Settings from '@lucide/svelte/icons/settings';
+  import { isAndroid } from '@3pino/app-kit-web/core/platform';
+  import { detachedStart, hasWindowControls, openTabInNewWindow, quitWindow } from './lib/windowControls';
   import { showUpdateBadge, UPDATE_BADGE_LABEL } from '@3pino/app-kit-web/updater';
   import { updater } from './lib/stores/updater.svelte';
   import { startUpdateWatch } from './lib/updateWatch';
@@ -34,7 +37,7 @@
   import { startBackNav, type BackNav } from '@3pino/app-kit-web/core/backNav';
   import { places as saved, type DavPlace } from './lib/places.svelte';
   import { read, settings, write } from './lib/settings.svelte';
-  import { MAX_TABS, cycleIndex, indexAfterClose, moveItem, parseSavedTabs, serializeTabs, tabLabel } from './lib/tabs';
+  import { MAX_TABS, SETTINGS_PLACE, cycleIndex, indexAfterClose, moveItem, parseSavedTabs, serializeTabs, tabLabel } from './lib/tabs';
 
   // 外枠（上のバー・左の場所の一覧）と、エクスプローラーの本体。
   // 本体は共有の部品（@3pino/explorer-kit）に、置き場所（この端末、または追加したネットワークの場所）を渡したもの。
@@ -53,7 +56,7 @@
   const TABS_KEY = 'fixplor.tabs';
   const PLACES_WIDTH_KEY = 'fixplor.placesWidth';
   /** タブ。タブごとに、開いた置き場所のエクスプローラー（切り替えても、開いていたフォルダ・選びを保つ）と、いま見ている置き場所を持つ */
-  type Tab = { id: number; bundles: Map<string, Bundle>; currentId: string };
+  type Tab = { id: number; bundles: Map<string, Bundle>; currentId: string; /** 設定のタブ（中身は、設定の画面。見ていた置き場所は、裏に持っておく） */ settings?: boolean };
   let tabs = $state.raw<Tab[]>([]);
   let activeId = $state(0);
   let tabSeq = 0;
@@ -73,17 +76,11 @@
   let dialog = $state.raw<{ place?: DavPlace; cred?: CredInfo | null; credError?: string; focusPassword?: boolean; pin?: string | null } | null>(null);
   /** 証明書を確認できない・変わった置き場所。利用者に確かめてもらうまで、案内を出す */
   let certIssue = $state.raw<Record<string, 'tls' | 'cert_changed'>>({});
-  /** 「バージョン情報」のダイアログ */
-  let aboutOpen = $state(false);
-  /** 狭い画面のタブの一覧。戻るの層（開いているあいだ、「戻る」で閉じる）。ダイアログも同じく host.addBack で登録する */
-  let tabListOpen = $state(false);
-  $effect(() => (tabListOpen ? untrack(() => host.addBack(() => (tabListOpen = false))) : undefined));
-  /** 狭い画面（Android など）の、左から出す場所の欄。開いているあいだは、「戻る」でも閉じる */
+  /** 狭い画面（Android）の、左から出す場所の欄。開いているあいだは、「戻る」でも閉じる（ダイアログも同じく host.addBack で層を登録する） */
   let navOpen = $state(false);
   $effect(() => (navOpen ? untrack(() => host.addBack(() => (navOpen = false))) : undefined));
   $effect(() => (dialog ? untrack(() => host.addBack(() => (dialog = null))) : undefined));
   $effect(() => (certDialog ? untrack(() => host.addBack(() => (certDialog = null))) : undefined));
-  $effect(() => (aboutOpen ? untrack(() => host.addBack(() => (aboutOpen = false))) : undefined));
   /** 証明書を確かめるダイアログ（previous は、前に信頼した指紋） */
   let certDialog = $state.raw<{ place: DavPlace; previous: string | null } | null>(null);
   /** 認証が通らなかった置き場所（401）。入れ直してもらうまで、案内を出す */
@@ -133,6 +130,8 @@
   const pins = createPins();
 
   const explorer = $derived(current?.explorer ?? null);
+  /** 見ているのが、設定のタブか（そのあいだ、一覧は裏に回る） */
+  const activeSettings = $derived(tabs.find((t) => t.id === activeId)?.settings === true);
   const viewStore = { read: () => settings.dirs, write: (map: unknown) => (settings.dirs = map) };
 
   function makeBundle(id: string, parts: { api: ExplorerApi; urls: EntryUrls; rules: Rules; open: (path: string) => Promise<void>; sources: Sources; isMissing: (e: unknown) => boolean }, extra: Pick<Parameters<typeof createExplorer>[0], 'caps' | 'labels'>): Explorer {
@@ -217,7 +216,7 @@
   const startDir = (placeId: string): string => (placeId === LOCAL ? (localFs?.start ?? '') : '');
 
   /** 新しいタブ（見ているタブの右隣）。place・dir を省くと、いま見ている置き場所の、いちばん上（この端末は、ホーム） */
-  function addTab(opts: { place?: string; dir?: string; afterId?: number; focus?: boolean } = {}): void {
+  function addTab(opts: { place?: string; dir?: string; afterId?: number; at?: number; focus?: boolean } = {}): void {
     if (tabs.length >= MAX_TABS) {
       host.toast(`タブは ${MAX_TABS} 個までです`, 'error');
       return;
@@ -227,13 +226,17 @@
     const b = bundleIn(tab, place);
     if (!b) return;
     b.explorer.nav.dir = opts.dir ?? startDir(place);
-    const at = Math.max(0, tabs.findIndex((t) => t.id === (opts.afterId ?? activeId))) + 1;
+    const at = opts.at !== undefined ? Math.max(0, Math.min(tabs.length, opts.at)) : Math.max(0, tabs.findIndex((t) => t.id === (opts.afterId ?? activeId))) + 1;
     tabs = [...tabs.slice(0, at), tab, ...tabs.slice(at)];
     if (opts.focus !== false) activate(tab.id);
   }
 
+  /** タブを閉じる。最後の 1 つなら、ウィンドウを閉じる（Android は、アプリを終える）。保存したタブは、そのまま残る */
   function closeTab(id: number): void {
-    if (tabs.length <= 1) return;
+    if (tabs.length <= 1) {
+      void quitWindow().catch((e) => host.toast(failureText(e), 'error'));
+      return;
+    }
     const i = tabs.findIndex((t) => t.id === id);
     if (i < 0) return;
     const activeIndex = tabs.findIndex((t) => t.id === activeId);
@@ -260,16 +263,51 @@
     if (t && b) addTab({ place: b.id, dir: b.explorer.nav.dir, afterId: id });
   }
 
-  /** エクスプローラーからドラッグされた項目のうち、フォルダを、新しいタブで開く（このフォルダの一覧で見つかるものだけ） */
-  function openFoldersInTabs(paths: string[]): void {
+  /** 設定のタブを開く（すでにあれば、そこへ。無ければ、見ているタブの右隣に作る） */
+  function openSettings(): void {
+    const existing = tabs.find((t) => t.settings);
+    if (existing) {
+      activate(existing.id);
+      return;
+    }
+    if (tabs.length >= MAX_TABS) {
+      host.toast(`タブは ${MAX_TABS} 個までです`, 'error');
+      return;
+    }
+    // 見ていた置き場所は、裏に持つ（閉じるまで、場所の欄の操作は、新しいタブで開く）
+    const tab: Tab = { id: ++tabSeq, bundles: new Map(), currentId: LOCAL, settings: true };
+    if (!bundleIn(tab, LOCAL)) return;
+    const at = Math.max(0, tabs.findIndex((t) => t.id === activeId)) + 1;
+    tabs = [...tabs.slice(0, at), tab, ...tabs.slice(at)];
+    activate(tab.id);
+  }
+
+  /** タブを、別のウィンドウで開く（タブをウィンドウの外へドラッグして離したとき）。開けたら、このウィンドウのタブは閉じる */
+  async function detachTab(id: number, at: { x: number; y: number }): Promise<void> {
+    const t = tabs.find((x) => x.id === id);
+    if (!t || tabs.length <= 1) return;
+    const place = t.settings ? SETTINGS_PLACE : t.currentId;
+    const dir = t.bundles.get(t.currentId)?.explorer.nav.dir ?? '';
+    try {
+      await openTabInNewWindow({ place, dir }, at);
+    } catch (e) {
+      host.toast(`別のウィンドウで開けませんでした: ${failureText(e)}`, 'error');
+      return;
+    }
+    closeTab(id);
+  }
+
+  /** エクスプローラーからドラッグされた項目のうち、フォルダを、新しいタブで開く（このフォルダの一覧で見つかるものだけ）。at 番目から並べる（見ているタブは変えない） */
+  function openFoldersInTabs(paths: string[], at: number): void {
     const ex = explorer;
     const here = current?.id;
     if (!ex || !here) return;
     const st = ex.index.state(ex.nav.dir);
     if (st?.kind !== 'ok') return;
+    let n = 0;
     for (const path of paths) {
       const e = st.entries.get(baseName(path));
-      if (e?.kind === 'dir' && e.path === path) addTab({ place: here, dir: path, focus: false });
+      if (e?.kind === 'dir' && e.path === path) addTab({ place: here, dir: path, at: at + n++, focus: false });
     }
   }
 
@@ -278,6 +316,7 @@
       const b = t.bundles.get(t.currentId);
       const dir = b?.explorer.nav.dir ?? '';
       const place = b?.explorer.labels.root ?? '';
+      if (t.settings) return { id: t.id, label: '設定', title: '設定', icon: 'settings' as const };
       return { id: t.id, label: tabLabel(place, dir), title: b?.local ? b.local.osPath(dir) : `${place}${dir === '' ? '' : ` / ${dir}`}` };
     }),
   );
@@ -287,6 +326,7 @@
     if (!tabsReady) return;
     const list = tabs.flatMap((t) => {
       const b = t.bundles.get(t.currentId);
+      if (t.settings) return [{ place: SETTINGS_PLACE, dir: '' }];
       return b ? [{ place: t.currentId, dir: b.explorer.nav.dir }] : [];
     });
     if (list.length === 0) return;
@@ -315,7 +355,7 @@
     window.addEventListener('focus', onFocus);
     // アプリの更新を、裏で確かめる（対応している環境だけ。新しい版はトーストで 1 度だけ知らせる）
     void updater.loadVersion();
-    const stopWatch = startUpdateWatch({ updater, notify: (text, action) => host.toast(text, 'info', action), openAbout: () => (aboutOpen = true) });
+    const stopWatch = startUpdateWatch({ updater, notify: (text, action) => host.toast(text, 'info', action), openAbout: openSettings });
     void (async () => {
       try {
         localFs = await createLocalFs({ showHidden: () => settings.showHidden });
@@ -330,19 +370,27 @@
           sdList = [...sdList, { id: uuid, name: v.name }];
         }
         // 前回のタブを戻す（外した置き場所のタブは捨てる）。無ければ、この端末のホームで 1 つ
-        const restored = parseSavedTabs(read(TABS_KEY), (id) => id === LOCAL || saved.get(id) !== undefined);
+        const exists = (id: string): boolean => id === LOCAL || id === SETTINGS_PLACE || saved.get(id) !== undefined;
+        // 別のウィンドウで開いたタブ（?place=…&dir=…）は、そのタブ 1 つで始める。保存は、元のウィンドウのもの（上書きしない）
+        const detached = detachedStart(location.search);
+        const own = detached && exists(detached.place) ? detached : null;
+        const restored = own ? { tabs: [own], active: 0 } : parseSavedTabs(read(TABS_KEY), exists);
         const first = restored ?? { tabs: [{ place: LOCAL, dir: localFs.start }], active: 0 };
         const made: Tab[] = [];
         for (const s of first.tabs) {
-          const tab: Tab = { id: ++tabSeq, bundles: new Map(), currentId: s.place };
-          const b = bundleIn(tab, s.place);
+          const isSettings = s.place === SETTINGS_PLACE;
+          // 設定のタブは 1 つだけ。見ていた置き場所は、この端末（裏に持つ）
+          if (isSettings && made.some((t) => t.settings)) continue;
+          const place = isSettings ? LOCAL : s.place;
+          const tab: Tab = { id: ++tabSeq, bundles: new Map(), currentId: place, ...(isSettings ? { settings: true } : {}) };
+          const b = bundleIn(tab, place);
           if (!b) continue;
-          b.explorer.nav.dir = s.dir;
+          b.explorer.nav.dir = isSettings ? localFs.start : s.dir;
           made.push(tab);
         }
         tabs = made;
         activate(made[Math.min(first.active, made.length - 1)].id);
-        tabsReady = true;
+        if (!own) tabsReady = true;
       } catch (e) {
         failed = failureText(e);
       }
@@ -357,18 +405,22 @@
 
   /** 追加したネットワークの場所を開く（このタブで。初めてなら、置き場所を作る） */
   function openDav(p: DavPlace): void {
+    // 設定のタブを見ているときは、新しいタブで開く（設定は、そのまま残す）
+    if (activeTab().settings) return addTab({ place: p.id, dir: '' });
     const b = bundleIn(activeTab(), p.id);
     if (b) setCurrent(b);
   }
 
   /** Android: 差した SD カードを開く（このタブで） */
   function openSd(id: string): void {
+    if (activeTab().settings) return addTab({ place: SD + id, dir: '' });
     const b = bundleIn(activeTab(), SD + id);
     if (b) setCurrent(b);
   }
 
   /** この端末の場所を開く（ネットワークの場所を見ていたら、この端末へ戻る） */
   function go(path: string): void {
+    if (activeTab().settings) return addTab({ place: LOCAL, dir: path });
     const b = bundleIn(activeTab(), LOCAL);
     if (!b) return;
     setCurrent(b);
@@ -521,24 +573,29 @@
     explorer?.nav.reload();
   }
 
-  /** 「戻る」（マウスの戻るボタン・Alt+←）。入力中の欄では、文字の操作を奪わない */
+  /**
+   * ホットキー（設定で変えられる。lib/hotkeys.ts）。戻る・再読み込み・タブの操作。
+   * 文字を打っている入力欄の中では、修飾キー（Ctrl・Alt）のないホットキーは働かせない。設定でキーを記録している間は、何もしない
+   */
   function onKey(ev: KeyboardEvent): void {
-    if (isBackKey(ev) && host.back()) ev.preventDefault();
-    // F5: 一覧の再読み込み（アプリ全体のページは読み直さない）
-    if (ev.key === 'F5' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
+    if (hotkeys.recording) return;
+    const typing = ev.target instanceof Element && ev.target.closest('input, textarea, select, [contenteditable="true"]') !== null;
+    if (typing && !(ev.ctrlKey || ev.metaKey || ev.altKey)) return;
+    if (hotkeys.matches(ev, 'nav.back') && host.back()) ev.preventDefault();
+    // 再読み込み: 一覧だけ（アプリ全体のページは読み直さない）
+    if (hotkeys.matches(ev, 'view.reload')) {
       ev.preventDefault();
-      explorer?.nav.reload();
+      if (!activeTab()?.settings) explorer?.nav.reload();
       return;
     }
-    // タブの操作（Ctrl・Cmd）: T 新しいタブ・W 閉じる・Tab / Shift+Tab / PageDown / PageUp で切り替え・1〜9 で番号（9 は最後）
-    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || tabs.length === 0) return;
+    if (tabs.length === 0) return;
     const at = tabs.findIndex((t) => t.id === activeId);
-    const key = ev.key.toLowerCase();
-    if (!ev.shiftKey && key === 't') addTab();
-    else if (!ev.shiftKey && key === 'w') closeTab(activeId);
-    else if (key === 'tab') activate(tabs[cycleIndex(at, tabs.length, ev.shiftKey ? -1 : 1)].id);
-    else if (key === 'pagedown' || key === 'pageup') activate(tabs[cycleIndex(at, tabs.length, key === 'pagedown' ? 1 : -1)].id);
-    else if (!ev.shiftKey && /^[1-9]$/.test(key)) activate(tabs[key === '9' ? tabs.length - 1 : Math.min(Number(key) - 1, tabs.length - 1)].id);
+    if (hotkeys.matches(ev, 'tab.new')) addTab();
+    else if (hotkeys.matches(ev, 'tab.close')) closeTab(activeId);
+    else if (hotkeys.matches(ev, 'tab.next')) activate(tabs[cycleIndex(at, tabs.length, 1)].id);
+    else if (hotkeys.matches(ev, 'tab.prev')) activate(tabs[cycleIndex(at, tabs.length, -1)].id);
+    // 番号のタブへ（固定）: Ctrl（Mac は Cmd）+ 1〜9（9 は最後）
+    else if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && /^[1-9]$/.test(ev.key)) activate(tabs[ev.key === '9' ? tabs.length - 1 : Math.min(Number(ev.key) - 1, tabs.length - 1)].id);
     else return;
     ev.preventDefault();
   }
@@ -546,13 +603,17 @@
     if (ev.button === 3 && host.back()) ev.preventDefault();
   }
 
-  // ---- 狭い画面: 右へのスワイプで場所の欄を出し、左へのスワイプ（か、外側を押す・戻る）で閉じる ----
+  // ---- Android の狭い画面: 右へのスワイプで場所の欄を出し、左へのスワイプ（か、外側を押す・戻る）で閉じる ----
   /** スワイプとみなす横の距離（px）。縦より横が大きいときだけ */
   const NAV_SWIPE_PX = 56;
   /** 向きを決めるまでの距離（px） */
   const NAV_SWIPE_START_PX = 12;
   /** CSS の「場所の欄を、左から出す画面」の幅と同じ */
   const NARROW_QUERY = '(max-width: 767px)';
+  /** Android か（場所の欄の引き出しは、Android だけ） */
+  const android = isAndroid();
+  /** デスクトップの自前のタイトルバー（タブの欄が兼ねる） */
+  const windowControls = hasWindowControls();
   let swipe: { x: number; y: number; target: EventTarget | null; dir: 'h' | 'v' | null } | null = null;
 
   /** 指の下に、右へ動かすと横にスクロールするもの（左へ戻れる、横に長い一覧）があるか。あれば、スワイプはそちらの操作 */
@@ -565,7 +626,8 @@
 
   function swipeStart(ev: TouchEvent): void {
     swipe = null;
-    if (ev.touches.length !== 1 || typeof window.matchMedia !== 'function' || !window.matchMedia(NARROW_QUERY).matches) return;
+    // デスクトップは、どんなに狭くても、場所の欄はいつも見える（引き出しにしない）
+    if (!android || ev.touches.length !== 1 || typeof window.matchMedia !== 'function' || !window.matchMedia(NARROW_QUERY).matches) return;
     // 入力欄・ダイアログ・メニューの上の操作は、スワイプにしない
     if (ev.target instanceof Element && ev.target.closest('input, textarea, dialog, [role="dialog"], [role="menu"], .menu-backdrop')) return;
     swipe = { x: ev.touches[0].clientX, y: ev.touches[0].clientY, target: ev.target, dir: null };
@@ -593,7 +655,7 @@
 
 <svelte:window onkeydown={onKey} onmouseup={onMouseUp} ontouchstart={swipeStart} ontouchmove={swipeMove} ontouchend={swipeEnd} ontouchcancel={swipeEnd} />
 
-<div class="app">
+<div class="app" class:app-android={android}>
   {#if failed}
     <p class="status-line status-line-error start-error" role="alert">起動できませんでした: {failed}</p>
   {:else if current && explorer}
@@ -607,7 +669,8 @@
       onmove={moveTab}
       oncloseothers={closeOthers}
       ondropfolders={openFoldersInTabs}
-      bind:listOpen={tabListOpen}
+      ondetach={(id, at) => void detachTab(id, at)}
+      {windowControls}
     />
 
     <div class="body">
@@ -618,10 +681,10 @@
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
       <nav class="places scroll" class:places-open={navOpen} aria-label="場所" style:width="{placesWidth}px" onclick={() => (navOpen = false)}>
         {#each places as p (p.kind + p.path)}
-          <button class="menu-item" type="button" aria-current={current.local && p.path === explorer.nav.dir ? 'page' : undefined} onclick={() => go(p.path)}>{placeLabel(p)}</button>
+          <button class="menu-item" type="button" aria-current={!activeSettings && current.local && p.path === explorer.nav.dir ? 'page' : undefined} onclick={() => go(p.path)}>{placeLabel(p)}</button>
         {/each}
         {#each sdList as v (v.id)}
-          <button class="menu-item" type="button" aria-current={current.id === SD + v.id ? 'page' : undefined} onclick={() => openSd(v.id)}>{v.name}</button>
+          <button class="menu-item" type="button" aria-current={!activeSettings && current.id === SD + v.id ? 'page' : undefined} onclick={() => openSd(v.id)}>{v.name}</button>
         {/each}
         <div class="places-head">
           <span class="places-title">ネットワーク</span>
@@ -630,15 +693,16 @@
         {#each saved.list as p (p.id)}
           {@const why = broken(p.id)}
           <div class="place-row">
-            <button class="menu-item place-open" type="button" aria-current={current.id === p.id ? 'page' : undefined} title={why ? `つながりません: ${why}` : p.url} onclick={() => openDav(p)}>
+            <button class="menu-item place-open" type="button" aria-current={!activeSettings && current.id === p.id ? 'page' : undefined} title={why ? `つながりません: ${why}` : p.url} onclick={() => openDav(p)}>
               {p.name}{#if why}<span class="place-broken" role="img" aria-label="つながりません">!</span>{/if}
             </button>
             <IconButton label={`「${p.name}」を直す`} title="直す・外す" onclick={() => void openDialog(p)}><Pencil size={14} /></IconButton>
           </div>
         {/each}
-        <!-- 版と、アプリの更新（新しい版があるときは点）。押すと「バージョン情報」 -->
-        <button class="about-row" type="button" onclick={() => (aboutOpen = true)}>
-          <span>fixplor{updater.supported && updater.version ? ` v${updater.version}` : ''}</span>
+        <!-- 版と、アプリの更新（新しい版があるときは点）。押すと「設定」のタブ -->
+        <button class="about-row" type="button" onclick={openSettings}>
+          <Settings size={14} />
+          <span class="about-name">fixplor{updater.supported && updater.version ? ` v${updater.version}` : ''}</span>
           {#if updater.supported && showUpdateBadge(updater.state)}<span class="update-dot" role="img" aria-label={UPDATE_BADGE_LABEL}></span>{/if}
         </button>
       </nav>
@@ -658,6 +722,9 @@
         onkeydown={resizeKey}
       ></div>
       <main class="main">
+        {#if activeSettings}
+          <SettingsView {updater} />
+        {:else}
         {#if needAllFiles}
           <p class="status-line status-line-error auth-banner" role="alert">
             <span>この端末のファイルを見るには、「すべてのファイルへのアクセス」の許可が要ります。</span>
@@ -682,7 +749,7 @@
           </p>
         {/if}
         {#key current}
-          <FileExplorer {explorer}>
+          <FileExplorer {explorer} keymap={hotkeys.keymap}>
             {#snippet lead()}
               <IconButton label="戻る" title="戻る" disabled={!host.canBack} onclick={() => host.back()}><ArrowLeft size={16} /></IconButton>
               <IconButton label="上のフォルダへ" title="上のフォルダへ" disabled={explorer.nav.dir === ''} onclick={() => explorer?.nav.up()}><ArrowUp size={16} /></IconButton>
@@ -692,6 +759,7 @@
             {/snippet}
           </FileExplorer>
         {/key}
+        {/if}
       </main>
     </div>
   {/if}
@@ -835,12 +903,17 @@
   .nav-scrim {
     display: none;
   }
-  /* 狭い画面: 場所の欄は、左から出す引き出し。開いているあいだはこれがいちばん上で、残りは幕で暗くする */
+  .about-name {
+    flex: 1;
+    text-align: left;
+  }
+  /* Android の狭い画面: 場所の欄は、左から出す引き出し。開いているあいだはこれがいちばん上で、残りは幕で暗くする。
+     デスクトップは、どんなに狭くても、場所の欄はいつも見える */
   @media (max-width: 767px) {
-    .places-resizer {
+    .app-android .places-resizer {
       display: none;
     }
-    .places {
+    .app-android .places {
       position: fixed;
       inset-block: 0;
       inset-inline-start: 0;
@@ -857,12 +930,12 @@
       visibility: hidden;
       transition: transform 0.2s ease, visibility 0s linear 0.2s;
     }
-    .places-open {
+    .app-android .places-open {
       transform: none;
       visibility: visible;
       transition: transform 0.2s ease, visibility 0s;
     }
-    .nav-scrim {
+    .app-android .nav-scrim {
       display: block;
       position: fixed;
       inset: 0;
@@ -872,21 +945,18 @@
       pointer-events: none;
       transition: opacity 0.2s ease;
     }
-    .nav-scrim-open {
+    .app-android .nav-scrim-open {
       opacity: 1;
       pointer-events: auto;
     }
   }
   @media (max-width: 767px) and (prefers-reduced-motion: reduce) {
-    .places,
-    .nav-scrim {
+    .app-android .places,
+    .app-android .nav-scrim {
       transition: none;
     }
   }
 </style>
 {#if certDialog}
   <CertDialog place={certDialog.place} previous={certDialog.previous} probe={(base) => pins.probe(base)} ontrust={(fp) => trustCert(certDialog!.place, fp)} onclose={() => (certDialog = null)} />
-{/if}
-{#if aboutOpen}
-  <AboutDialog {updater} onclose={() => (aboutOpen = false)} />
 {/if}
