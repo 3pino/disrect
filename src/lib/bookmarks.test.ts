@@ -24,6 +24,26 @@ describe('bookmarks', () => {
     bookmarks.reload();
   });
 
+  it('moveTo: 並べ替え。指したブックマークの位置へ入り、間のものはずれる。保存される。無い id や同じ位置は何もしない', () => {
+    bookmarks.seed([
+      { place: 'local', dir: 'a', name: 'A' },
+      { place: 'local', dir: 'b', name: 'B' },
+      { place: 'local', dir: 'c', name: 'C' },
+    ]);
+    const [a, b, c] = bookmarks.list.map((x) => x.id);
+    bookmarks.moveTo(a, c);
+    expect(bookmarks.list.map((x) => x.name)).toEqual(['B', 'C', 'A']);
+    bookmarks.moveTo(a, b);
+    expect(bookmarks.list.map((x) => x.name)).toEqual(['A', 'B', 'C']);
+    bookmarks.moveTo(a, a);
+    bookmarks.moveTo('none', a);
+    bookmarks.moveTo(a, 'none');
+    expect(bookmarks.list.map((x) => x.name)).toEqual(['A', 'B', 'C']);
+    bookmarks.moveTo(c, a);
+    bookmarks.reload();
+    expect(bookmarks.list.map((x) => x.name)).toEqual(['C', 'A', 'B']);
+  });
+
   it('初めて開いたときだけ、最初の一覧を入れる。全部消しても、入れ直さない', () => {
     expect(bookmarks.fresh).toBe(true);
     bookmarks.seed([{ place: 'local', dir: 'home/me', name: 'ホーム' }, { place: 'local', dir: 'home/me/Downloads', name: 'ダウンロード' }]);

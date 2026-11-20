@@ -235,6 +235,9 @@ export interface DirIndexLike {
 }
 
 /** フォルダごとの表示方法を保存する先（本体の設定） */
+/** 詳細の列の幅（px）。省いた列は既定の幅。名前の列は、残りの幅 */
+export type ColumnWidths = Partial<Record<'kind' | 'size' | 'modified' | 'created', number>>;
+
 export type ViewStore = {
   /** 保存されている値（形は部品が確かめる） */
   read(): unknown;

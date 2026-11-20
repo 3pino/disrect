@@ -9,6 +9,7 @@ export type LocalKey = { key: string; prefix?: true; owner: string; purpose: str
 export const LOCAL_KEYS: readonly LocalKey[] = [
   { key: 'fixplor.showHidden', owner: 'lib/settings.svelte.ts', purpose: '隠しファイルを出すか', kind: 'state' },
   { key: 'fixplor.dirs', owner: 'lib/settings.svelte.ts', purpose: 'フォルダごとの表示方法と並び順', kind: 'state' },
+  { key: 'fixplor.columns', owner: 'lib/settings.svelte.ts', purpose: '詳細の列の幅（見出しの境目をつまんで変えた分）', kind: 'state' },
   { key: 'fixplor.hotkeys', owner: 'lib/hotkeys.svelte.ts', purpose: '利用者が変えたホットキー（既定と違う操作だけ）', kind: 'state' },
   { key: 'fixplor.tabs', owner: 'App.svelte', purpose: '開いているタブ（置き場所と開いているフォルダ）と、見ているタブ。起動で戻す', kind: 'state' },
   { key: 'fixplor.placesWidth', owner: 'App.svelte', purpose: '左の場所の欄の幅（px）', kind: 'state' },

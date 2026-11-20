@@ -57,6 +57,11 @@ describe('planTransfer', () => {
     const plan = planTransfer('move', [f('docs/a.txt')], 'docs', entries(entry('docs/a.txt')));
     expect(plan[0].kind).toBe('skip');
   });
+  it('フォルダを自分の中へ移すのは、エラーにせず何もしない（skip）。コピーは、これまでどおり止める', () => {
+    expect(planTransfer('move', [d('docs')], 'docs', entries())[0]).toMatchObject({ kind: 'skip' });
+    expect(planTransfer('move', [d('docs')], 'docs/sub', entries())[0]).toMatchObject({ kind: 'skip' });
+    expect(planTransfer('copy', [d('docs')], 'docs/sub', entries())[0]).toMatchObject({ kind: 'blocked' });
+  });
   it('同じフォルダへのコピーは、名前の末尾に copy を付けた別の項目にする（あれば copy 2…）', () => {
     expect(planTransfer('copy', [f('docs/a.txt')], 'docs', entries(entry('docs/a.txt')))[0]).toMatchObject({ kind: 'create', name: 'a copy.txt', to: 'docs/a copy.txt' });
     expect(planTransfer('copy', [f('a.txt')], '', entries(entry('a.txt'), entry('a copy.txt'), entry('a copy 2.txt')))[0]).toMatchObject({ kind: 'create', to: 'a copy 3.txt' });

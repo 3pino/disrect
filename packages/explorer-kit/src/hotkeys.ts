@@ -23,6 +23,8 @@ export type ExplorerHotkeyId =
   | 'moveDown'
   | 'moveLeft'
   | 'moveRight'
+  | 'selectFirst'
+  | 'selectLast'
   | 'selectAll'
   | 'copy'
   | 'cut'
@@ -47,6 +49,8 @@ export const EXPLORER_HOTKEYS: Record<ExplorerHotkeyId, readonly string[]> = {
   moveDown: ['ArrowDown'],
   moveLeft: ['ArrowLeft'],
   moveRight: ['ArrowRight'],
+  selectFirst: ['Home'],
+  selectLast: ['End'],
   selectAll: ['Ctrl+A'],
   copy: ['Ctrl+C'],
   cut: ['Ctrl+X'],

@@ -93,6 +93,8 @@ export function planTransfer(
     let name = item.name ?? baseName(item.path);
     let to = childPath(destDir, name);
     const blocked = (message: string): Planned => ({ item, name, to, kind: 'blocked', message });
+    // フォルダを自分の中へ移す（落とす先を間違えたとき。ゴミ箱の項目を除く）は、何もしない（エラーにしない）
+    if (op === 'move' && !item.trash && item.kind === 'dir' && (destDir === item.path || destDir.startsWith(item.path + '/'))) return { item, name, to, kind: 'skip' };
     const c = checkTransfer(rules, op, item, destDir);
     if (!c.ok) return blocked(c.message);
     if (to === item.path) {

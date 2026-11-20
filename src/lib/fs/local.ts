@@ -203,17 +203,21 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     },
     mkdir: async (path) => entry(await run<FsEntry>('fs_mkdir', { path: os(path) })),
     async trash(path) {
-      await run<void>('fs_trash', { path: os(path) });
-      // OS のゴミ箱へ入る。この部品からは戻せない（caps.restore: false）ので、id は使わない
-      return { id: '', original_path: path, kind: 'file', size: 0, deleted_at: Date.now() };
+      // 戻すときの印（デスクトップ: OS のゴミ箱の項目の id。Android: アプリの中のゴミ箱の id）。見つけられないときや、戻せない OS は空（元に戻す履歴には積まない）
+      const id = await run<string | null | undefined>('fs_trash', { path: os(path) });
+      return { id: id ?? '', original_path: path, kind: 'file', size: 0, deleted_at: Date.now() };
     },
     // Android: ゴミ箱の画面が無いあいだは、確認のうえ完全に削除する（caps.trash が偽のとき、部品はこれを呼ぶ）
     async remove(path) {
       await run<void>('fs_remove', { path: os(path) });
     },
-    // Android のアプリの中のゴミ箱: 元の場所へ戻す（同名・親の無さは Rust が断る）・完全に消す
+    // 元の場所へ戻す（同名・親の無さは Rust が断る）。Android のアプリの中のゴミ箱と、デスクトップの OS のゴミ箱（Windows・Linux。Ctrl+Z、「取り消す」）
     restore: async (id) => {
-      if (!internal) throw new FsError('unsupported', 'OS のゴミ箱から戻してください');
+      if (!internal) {
+        if (android || id === '') throw new FsError('unsupported', 'OS のゴミ箱から戻してください');
+        const back = await run<string>('fs_os_trash_restore', { id });
+        return entry(await run<FsEntry>('fs_stat', { path: back }));
+      }
       const orig = await run<string>('fs_trash_restore', { volume: base, id });
       return entry(await run<FsEntry>('fs_stat', { path: orig }));
     },
@@ -280,7 +284,7 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     osPath: (path) => toOsPath(path) ?? '',
     fromOsPath: (abs) => relOf(abs) ?? abs,
     isMissing: (e) => e instanceof FsError && (e.code === 'not_found' || e.code === 'not_dir'),
-    // OS のゴミ箱（デスクトップ）。Android はゴミ箱の画面が入るまで、ゴミ箱は無い扱い
-    caps: { restore: internal, trash: !android || internal },
+    // OS のゴミ箱（デスクトップ。元に戻せる）。Android の SD カードは、ゴミ箱の画面が入るまで、ゴミ箱は無い扱い
+    caps: { restore: internal || !android, trash: !android || internal },
   };
 }

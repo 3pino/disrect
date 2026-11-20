@@ -10,7 +10,7 @@ pub mod trash;
 
 pub use entry::{abs, entry_of, list, Entry, Kind};
 pub use error::{FsError, FsResult};
-pub use ops::{copy, mkdir, remove, rename, size, size_within, trash, write_file, Size};
+pub use ops::{copy, mkdir, os_trash_restore, remove, rename, size, size_within, trash, write_file, Size};
 pub use places::{places, start_dir, Place};
 pub use search::{search, Limits, Outcome, Partial};
 

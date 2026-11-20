@@ -306,6 +306,23 @@ describe('場所の欄（Android の狭い画面のドロワー）', () => {
     expect(isOpen()).toBe(false);
   });
 
+  it('設定の画面では、スワイプしても何も開かない（場所の欄も、暗い幕も無い。幕だけ残って操作できなくならない）。開いたまま設定へ移っても閉じる', async () => {
+    setNarrow(true);
+    app = mount(App, { target });
+    await settle();
+    swipe([40, 300], [220, 310]);
+    await settle();
+    expect(isOpen()).toBe(true);
+    nav().querySelector<HTMLButtonElement>('.about-row')!.click();
+    await settle();
+    expect(target.querySelector('nav.places')).toBeNull();
+    expect(target.querySelector('.nav-scrim')).toBeNull();
+    swipe([40, 300], [220, 310]);
+    await settle();
+    expect(target.querySelector('nav.places')).toBeNull();
+    expect(target.querySelector('.nav-scrim')).toBeNull();
+  });
+
   it('縦のスワイプ・短い動きでは出ない。広い画面（場所の欄がいつも見える）でも出さない', async () => {
     setNarrow(true);
     app = mount(App, { target });

@@ -73,12 +73,20 @@ describe('この端末の置き場所（POSIX）', () => {
     expect(decodeURIComponent(headers['x-path'])).toBe('/a/メモ.txt');
   });
 
-  it('ゴミ箱は OS のもの。この部品からは戻せない', async () => {
-    const { call, calls } = fake({ fs_trash: undefined });
+  it('ゴミ箱は OS のもの。入れたときの印（id）で、元の場所へ戻せる（Ctrl+Z）。印が無いときは戻せない', async () => {
+    const { call, calls } = fake({ fs_trash: '/home/me/.local/share/Trash/info/x.trashinfo', fs_os_trash_restore: '/a/x', fs_stat: raw('/a/x') });
     const fs = await createLocalFs({ call });
-    expect((await fs.api.trash('a/x')).original_path).toBe('a/x');
+    expect(fs.caps).toEqual({ restore: true, trash: true });
+    const t = await fs.api.trash('a/x');
+    expect(t).toMatchObject({ original_path: 'a/x', id: '/home/me/.local/share/Trash/info/x.trashinfo' });
     expect(calls[1]).toEqual(['fs_trash', { path: '/a/x' }]);
-    await expect(fs.api.restore('')).rejects.toMatchObject({ code: 'unsupported' });
+    expect((await fs.api.restore(t.id)).path).toBe('a/x');
+    expect(calls.find((c) => c[0] === 'fs_os_trash_restore')?.[1]).toEqual({ id: '/home/me/.local/share/Trash/info/x.trashinfo' });
+    // 印を見つけられなかった（macOS など）ときは、id が空で、戻せない
+    const none = fake({ fs_trash: null });
+    const fs2 = await createLocalFs({ call: none.call });
+    expect((await fs2.api.trash('a/y')).id).toBe('');
+    await expect(fs2.api.restore('')).rejects.toMatchObject({ code: 'unsupported' });
   });
 
   it('失敗は code を保つ。無いフォルダは「無い」と見分ける', async () => {

@@ -11,13 +11,14 @@
   import TabBar from './components/TabBar.svelte';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
   import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
-  import { baseName, createExplorer, ExplorerBuffer, type Explorer, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
+  import { baseName, createExplorer, ExplorerBuffer, type Explorer, type FolderSizeCache, type ExplorerApi, type EntryUrls, type Rules } from '@3pino/explorer-kit';
   import Toasts from '@3pino/app-kit-web/shell/Toasts.svelte';
   import ConfirmDialog from '@3pino/app-kit-web/shell/ConfirmDialog.svelte';
   import { hotkeys } from './lib/hotkeys.svelte';
   import PlaceDialog from './components/PlaceDialog.svelte';
   import PlacesNav, { type NavEntry } from './components/PlacesNav.svelte';
   import { bookmarks } from './lib/bookmarks.svelte';
+  import BookmarkSearch from './components/BookmarkSearch.svelte';
   import CertDialog from './components/CertDialog.svelte';
   import SettingsView from './components/SettingsView.svelte';
   import Settings from '@lucide/svelte/icons/settings';
@@ -73,6 +74,8 @@
   const davFsOf = new Map<string, ReturnType<typeof createDavFs>>();
   /** 切り取り・コピーのバッファは、同じ置き場所のタブで共有する（別の置き場所とは共有しない。パスが別のものになる） */
   const bufferOf = new Map<string, ExplorerBuffer>();
+  /** 置き場所ごとの、数えたフォルダのサイズの写し（タブを切り替えても、数え直さない） */
+  const sizeCacheOf = new Map<string, FolderSizeCache>();
   /** 状態の表示のために、作った置き場所の写し（bundles は反応しない入れ物なので） */
   let known = $state.raw<Record<string, Bundle>>({});
   let places = $state.raw<FsPlace[]>([]);
@@ -83,6 +86,10 @@
   /** 狭い画面（Android）の、左から出す場所の欄。開いているあいだは、「戻る」でも閉じる（ダイアログも同じく host.addBack で層を登録する） */
   let navOpen = $state(false);
   $effect(() => (navOpen ? untrack(() => host.addBack(() => (navOpen = false))) : undefined));
+  // 設定の画面には場所の欄が無いので、開いたまま設定へ移ったら閉じる
+  $effect(() => {
+    if (activeSettings) navOpen = false;
+  });
   $effect(() => (dialog ? untrack(() => host.addBack(() => (dialog = null))) : undefined));
   $effect(() => (certDialog ? untrack(() => host.addBack(() => (certDialog = null))) : undefined));
   /** 証明書を確かめるダイアログ（previous は、前に信頼した指紋） */
@@ -136,13 +143,19 @@
   const explorer = $derived(current?.explorer ?? null);
   /** 見ているのが、設定のタブか（そのあいだ、一覧は裏に回る） */
   const activeSettings = $derived(tabs.find((t) => t.id === activeId)?.settings === true);
+  const hasSettingsTab = $derived(tabs.some((t) => t.settings === true));
+  /** 「ブックマークから検索」を開いているか */
+  let bookmarkSearchOpen = $state(false);
   const viewStore = { read: () => settings.dirs, write: (map: unknown) => (settings.dirs = map) };
 
   function makeBundle(id: string, parts: { api: ExplorerApi; urls: EntryUrls; rules: Rules; open: (path: string) => Promise<void>; sources: Sources; isMissing: (e: unknown) => boolean }, extra: Pick<Parameters<typeof createExplorer>[0], 'caps' | 'labels'>): Explorer {
     let buffer = bufferOf.get(id);
     if (!buffer) bufferOf.set(id, (buffer = new ExplorerBuffer()));
+    let folderSizeCache = sizeCacheOf.get(id);
+    if (!folderSizeCache) sizeCacheOf.set(id, (folderSizeCache = new Map()));
     return createExplorer({
       buffer,
+      folderSizeCache,
       api: parts.api,
       urls: parts.urls,
       rules: parts.rules,
@@ -302,7 +315,7 @@
   }
 
   /** エクスプローラーからドラッグされた項目のうち、フォルダを、新しいタブで開く（このフォルダの一覧で見つかるものだけ）。at 番目から並べる（見ているタブは変えない） */
-  function openFoldersInTabs(paths: string[], at: number): void {
+  function openFoldersInTabs(paths: string[], at: number, focusFirst = false): void {
     const ex = explorer;
     const here = current?.id;
     if (!ex || !here) return;
@@ -311,7 +324,10 @@
     let n = 0;
     for (const path of paths) {
       const e = st.entries.get(baseName(path));
-      if (e?.kind === 'dir' && e.path === path) addTab({ place: here, dir: path, at: at + n++, focus: false });
+      if (e?.kind === 'dir' && e.path === path) {
+        const first = n === 0;
+        addTab({ place: here, dir: path, at: at + n++, focus: focusFirst && first });
+      }
     }
   }
 
@@ -477,7 +493,7 @@
       .map((b) => ({
         key: b.id,
         label: b.name,
-        title: b.place === LOCAL ? undefined : `${placeName(b.place)}: ${b.dir || '/'}`,
+        title: b.place === LOCAL ? (localFs?.osPath(b.dir) || '/') : `${placeName(b.place)}: ${b.dir || '/'}`,
         current: !activeSettings && current?.id === b.place && explorer?.nav.dir === b.dir,
         open: () => openAt(b.place, b.dir),
         openTab: () => openAt(b.place, b.dir, 'tab'),
@@ -485,6 +501,12 @@
         remove: () => bookmarks.remove(b.id),
       })),
   );
+
+  /** ブックマークを並べ替える（key は、ブックマークの id。toIndex は、左の欄に出ているブックマークの中での、動かしたあとの番号） */
+  function moveBookmark(key: string, toIndex: number): void {
+    const target = bookmarkEntries[toIndex];
+    if (target) bookmarks.moveTo(key, target.key);
+  }
 
   const driveEntries = $derived<NavEntry[]>([
     ...places
@@ -529,6 +551,7 @@
   function forget(id: string): void {
     davFsOf.delete(id);
     bufferOf.delete(id);
+    sizeCacheOf.delete(id);
     // どのタブでも、その置き場所を捨てる。見ていたタブは、この端末へ戻す
     for (const t of tabs) {
       t.bundles.delete(id);
@@ -734,6 +757,20 @@
         return tabs.length > 0 && goto(cycleIndex(at, tabs.length, -1));
       case 'tab.last':
         return goto(tabs.length - 1);
+      case 'tab.closeOthers':
+        if (tabs.length < 2) return false;
+        closeOthers(activeId);
+        return true;
+      case 'tab.moveLeft':
+      case 'tab.moveRight': {
+        const to = at + (id === 'tab.moveLeft' ? -1 : 1);
+        if (at < 0 || to < 0 || to >= tabs.length) return false;
+        moveTab(at, to);
+        return true;
+      }
+      case 'bookmark.search':
+        bookmarkSearchOpen = true;
+        return true;
       case 'app.settings':
         openSettings();
         return true;
@@ -769,6 +806,13 @@
         openFoldersInTabs(dirs, at + 1);
         return true;
       }
+      case 'file.openNewTabFocus': {
+        const dirs = selectedDirs();
+        if (dirs.length === 0) return false;
+        // 開いたあと、いちばん最初のフォルダのタブへ移る
+        openFoldersInTabs(dirs, at + 1, true);
+        return true;
+      }
       case 'file.openNewWindow': {
         const dirs = selectedDirs();
         const here = current?.id;
@@ -777,9 +821,14 @@
         return true;
       }
       default: {
-        // 番号のタブへ
+        // 番号のタブへ・番号のブックマークへ
         const n = /^tab\.goto(\d)$/.exec(id);
-        return n ? goto(Number(n[1]) - 1) : false;
+        if (n) return goto(Number(n[1]) - 1);
+        const b = /^bookmark\.goto(\d)$/.exec(id);
+        const entry = b ? bookmarkEntries[Number(b[1]) - 1] : undefined;
+        if (!entry) return false;
+        entry.open();
+        return true;
       }
     }
   }
@@ -835,7 +884,8 @@
   function swipeStart(ev: TouchEvent): void {
     swipe = null;
     // デスクトップは、どんなに狭くても、場所の欄はいつも見える（引き出しにしない）
-    if (!android || ev.touches.length !== 1 || typeof window.matchMedia !== 'function' || !window.matchMedia(NARROW_QUERY).matches) return;
+    // 設定の画面には、場所の欄が無い（開くと、暗い幕だけが残って、押すまで操作できなくなる）
+    if (!android || activeSettings || ev.touches.length !== 1 || typeof window.matchMedia !== 'function' || !window.matchMedia(NARROW_QUERY).matches) return;
     // 入力欄・ダイアログ・メニューの上の操作は、スワイプにしない
     if (ev.target instanceof Element && ev.target.closest('input, textarea, dialog, [role="dialog"], [role="menu"], .menu-backdrop')) return;
     swipe = { x: ev.touches[0].clientX, y: ev.touches[0].clientY, target: ev.target, dir: null };
@@ -882,11 +932,11 @@
     />
 
     <div class="body">
+      <!-- 設定の画面では、場所の欄（と、狭い画面の幕）は出さない（設定は、タブの 1 つ。場所を選ぶ必要がない） -->
+      {#if !activeSettings}
       <!-- 狭い画面: 場所の欄が開いているあいだ、残りを暗くする幕。押すと閉じる -->
       <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
       <div class="nav-scrim" class:nav-scrim-open={navOpen} onclick={() => (navOpen = false)}></div>
-      <!-- 設定の画面では、場所の欄は出さない（設定は、タブの 1 つ。場所を選ぶ必要がない） -->
-      {#if !activeSettings}
       <!-- 場所や「バージョン情報」を押したら、狭い画面では場所の欄を閉じる（押しは、各ボタンの処理のあとでここへ届く） -->
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
       <nav class="places scroll" class:places-open={navOpen} aria-label="場所" style:width="{placesWidth}px" onclick={() => (navOpen = false)}>
@@ -898,6 +948,7 @@
           onaddbookmark={addBookmarkHere}
           onaddnetwork={() => void openDialog()}
           ondropdirs={(paths) => addBookmarks(paths)}
+          onmovebookmark={moveBookmark}
         />
         <!-- 版と、アプリの更新（新しい版があるときは点）。押すと「設定」のタブ -->
         <button class="about-row" type="button" onclick={openSettings}>
@@ -923,9 +974,13 @@
       ></div>
       {/if}
       <main class="main">
-        {#if activeSettings}
-          <SettingsView {updater} addBack={(run) => host.addBack(run)} />
-        {:else}
+        <!-- 設定のタブがあるあいだは、他のタブを見ていても作ったままにする（戻ったとき、ホットキーの画面・開いた節・検索の文字が続きから見える） -->
+        {#if hasSettingsTab}
+          <div class="settings-host" style:display={activeSettings ? 'flex' : 'none'}>
+            <SettingsView {updater} active={activeSettings} addBack={(run) => host.addBack(run)} />
+          </div>
+        {/if}
+        {#if !activeSettings}
         {#if needAllFiles}
           <p class="status-line status-line-error auth-banner" role="alert">
             <span>この端末のファイルを見るには、「すべてのファイルへのアクセス」の許可が要ります。</span>
@@ -950,7 +1005,7 @@
           </p>
         {/if}
         {#key current}
-          <FileExplorer {explorer} keymap={hotkeys.keymap}>
+          <FileExplorer {explorer} keymap={hotkeys.keymap} columnWidths={settings.columns} oncolumnwidths={(w) => (settings.columns = w)}>
             {#snippet lead()}
               <IconButton label="戻る" title="戻る" disabled={!host.canBack} onclick={() => host.back()}><ArrowLeft size={16} /></IconButton>
               <IconButton label="進む" title="進む" disabled={explorer.nav.future.length === 0} onclick={() => explorer?.nav.forward()}><ArrowRight size={16} /></IconButton>
@@ -1076,6 +1131,12 @@
   .nav-scrim {
     display: none;
   }
+  .settings-host {
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
   .about-name {
     flex: 1;
     text-align: left;
@@ -1130,6 +1191,9 @@
     }
   }
 </style>
+{#if bookmarkSearchOpen}
+  <BookmarkSearch entries={bookmarkEntries} onclose={() => (bookmarkSearchOpen = false)} />
+{/if}
 {#if certDialog}
   <CertDialog place={certDialog.place} previous={certDialog.previous} probe={(base) => pins.probe(base)} ontrust={(fp) => trustCert(certDialog!.place, fp)} onclose={() => (certDialog = null)} />
 {/if}

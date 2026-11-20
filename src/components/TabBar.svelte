@@ -463,9 +463,6 @@
     color: var(--text);
     margin-bottom: -1px;
   }
-  .tab-over {
-    outline: 2px solid var(--accent);
-  }
   /* 動かしているタブの元の位置: 空きは、隣のタブがずれて埋める（残すと、ずれたタブと重なって見える） */
   .tab-dragging {
     opacity: 0;
@@ -509,6 +506,10 @@
     background: transparent;
     color: inherit;
     text-align: left;
+  }
+  /* キーボードでフォーカスしているときの枠は出さない（どのタブが開いているかは、タブの色で分かる） */
+  .tab-main:focus-visible {
+    outline: none;
   }
   .tab-label {
     display: block;

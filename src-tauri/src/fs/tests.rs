@@ -237,6 +237,34 @@ fn trash_of_a_missing_path_is_not_found() {
     assert_eq!(trash(&d.path().join("nope")).unwrap_err().code, "not_found");
 }
 
+// 完全に削除する（デスクトップ。Android は、保存領域の中だけで別の決まりなので、この試験は対象外）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[test]
+fn remove_deletes_files_and_folders_for_good_and_refuses_a_root() {
+    let d = tempdir().unwrap();
+    write(&d.path().join("f.txt"), "x");
+    stdfs::create_dir_all(d.path().join("dir/sub")).unwrap();
+    write(&d.path().join("dir/sub/in.txt"), "y");
+    remove(&d.path().join("f.txt")).unwrap();
+    remove(&d.path().join("dir")).unwrap();
+    assert!(!d.path().join("f.txt").exists() && !d.path().join("dir").exists());
+    assert_eq!(remove(&d.path().join("nope")).unwrap_err().code, "not_found");
+    // 親が無いパス（ドライブ・根）は消さない
+    assert_eq!(remove(Path::new(std::path::MAIN_SEPARATOR_STR)).unwrap_err().code, "invalid");
+}
+
+#[cfg(all(unix, not(any(target_os = "android", target_os = "ios"))))]
+#[test]
+fn remove_deletes_a_symlink_but_not_what_it_points_to() {
+    let d = tempdir().unwrap();
+    stdfs::create_dir(d.path().join("real")).unwrap();
+    write(&d.path().join("real/keep.txt"), "k");
+    std::os::unix::fs::symlink(d.path().join("real"), d.path().join("link")).unwrap();
+    remove(&d.path().join("link")).unwrap();
+    assert!(stdfs::symlink_metadata(d.path().join("link")).is_err());
+    assert_eq!(read(&d.path().join("real/keep.txt")), "k");
+}
+
 #[test]
 fn errors_serialize_as_code_and_message() {
     let v = serde_json::to_value(FsError::new("exists", "m")).unwrap();
@@ -268,6 +296,8 @@ fn write_file_creates_replaces_files_and_never_folders() {
 
 mod search_tests {
     use super::*;
+    // この節の試験は、自前の探し方（上限・一度に渡す件数など、こちらの決まり）を見る。fd が入っている開発機でも同じ結果になるように
+    use super::super::search::{search_builtin as search, search_fd};
     use std::sync::atomic::AtomicBool;
     use std::time::Duration;
 
@@ -403,6 +433,39 @@ mod search_tests {
         search(d.path(), "m", false, Limits::default(), &cancel, |b| sizes.push(b.len())).unwrap();
         assert_eq!(sizes.iter().sum::<usize>(), 120);
         assert_eq!(sizes, [50, 50, 20]);
+    }
+
+    /// fd が入っているときだけ確かめる（無ければ、何もしない）: fd の結果は、自前と同じ項目になる（並びは違うので、そろえて比べる）
+    #[test]
+    fn fd_gives_the_same_items_as_the_builtin_when_installed() {
+        let d = tempdir().unwrap();
+        mk(d.path(), "a/Cat.png", Some("x"));
+        mk(d.path(), "a/b/concat.txt", Some("x"));
+        mk(d.path(), "a/b/dog.md", Some("x"));
+        mk(d.path(), "CATALOG/readme", Some("x"));
+        mk(d.path(), ".git/cat-in-git", Some("x"));
+        // .gitignore に書いてあっても、出す（fd の既定の無視を使わない）
+        mk(d.path(), ".gitignore", Some("ignored-cat.txt\n"));
+        mk(d.path(), "ignored-cat.txt", Some("x"));
+        for hidden in [false, true] {
+            let cancel = AtomicBool::new(false);
+            let mut via_fd: Vec<String> = Vec::new();
+            let Some(out) = search_fd(d.path(), " CAT ", hidden, Limits::default(), &cancel, &mut |b| via_fd.extend(b.into_iter().map(|e| e.path))) else {
+                return; // fd が無い
+            };
+            assert_eq!(out.unwrap().partial, None);
+            via_fd.sort();
+            let (builtin, _) = run(d.path(), " CAT ", hidden, Limits::default());
+            assert_eq!(rel(d.path(), &via_fd), rel(d.path(), &builtin), "hidden = {hidden}");
+        }
+        // 件数の上限で止めると、その理由を返す
+        let cancel = AtomicBool::new(false);
+        let mut n = 0;
+        let out = search_fd(d.path(), "cat", true, Limits { max_hits: 2, ..Limits::default() }, &cancel, &mut |b| n += b.len()).unwrap().unwrap();
+        assert_eq!((n, out.partial), (2, Some(Partial::Hits)));
+        // 中止
+        let cancel = AtomicBool::new(true);
+        assert_eq!(search_fd(d.path(), "cat", true, Limits::default(), &cancel, &mut |_| {}).unwrap().unwrap_err().code, "aborted");
     }
 
     #[cfg(unix)]

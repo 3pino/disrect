@@ -44,17 +44,57 @@ pub fn copy(from: &Path, to: &Path, overwrite: bool) -> FsResult<Entry> {
     entry_of(to)
 }
 
-/// ゴミ箱へ入れる（OS のゴミ箱。そこから戻せる）
+/// ゴミ箱へ入れる（OS のゴミ箱）。戻すときの印（OS のゴミ箱の項目の id）を返す。見つけられないとき・戻せない OS（macOS）は None
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub fn trash(path: &Path) -> FsResult<()> {
+pub fn trash(path: &Path) -> FsResult<Option<String>> {
     fs::symlink_metadata(path).map_err(|e| FsError::io(&e, path))?;
-    trash::delete(path).map_err(|e| FsError::new("io", format!("ゴミ箱へ入れられませんでした: {}: {e}", path.display())))
+    trash::delete(path).map_err(|e| FsError::new("io", format!("ゴミ箱へ入れられませんでした: {}: {e}", path.display())))?;
+    Ok(os_trash_id(path))
+}
+
+/// 入れたばかりの項目の id（元のパスが同じで、いちばん新しいもの）。一覧が読めないときは None
+#[cfg(any(target_os = "windows", all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))))]
+fn os_trash_id(path: &Path) -> Option<String> {
+    // trash の original_path は、親を正規化したパス
+    let want = path.parent()?.canonicalize().ok()?.join(path.file_name()?);
+    trash::os_limited::list()
+        .ok()?
+        .into_iter()
+        .filter(|i| i.original_path() == want)
+        .max_by_key(|i| i.time_deleted)
+        .map(|i| i.id.to_string_lossy().into_owned())
+}
+
+#[cfg(not(any(target_os = "windows", all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))))]
+fn os_trash_id(_path: &Path) -> Option<String> {
+    None
+}
+
+/// OS のゴミ箱から、元の場所へ戻す。戻したパスを返す。元の場所に同じ名前があれば、戻さない（`exists`）
+#[cfg(any(target_os = "windows", all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))))]
+pub fn os_trash_restore(id: &str) -> FsResult<String> {
+    let item = trash::os_limited::list()
+        .map_err(|e| FsError::new("io", format!("ゴミ箱を読めませんでした: {e}")))?
+        .into_iter()
+        .find(|i| i.id.to_string_lossy() == id)
+        .ok_or_else(|| FsError::new("not_found", "ゴミ箱に見つかりません（空にしたか、ほかで戻したようです）"))?;
+    let path = item.original_path();
+    trash::os_limited::restore_all([item]).map_err(|e| match e {
+        trash::Error::RestoreCollision { .. } => FsError::new("exists", "元の場所に同じ名前があるので、戻せません"),
+        e => FsError::new("io", format!("ゴミ箱から戻せませんでした: {e}")),
+    })?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[cfg(not(any(target_os = "windows", all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))))]
+pub fn os_trash_restore(_id: &str) -> FsResult<String> {
+    Err(FsError::new("unsupported", "この OS のゴミ箱からは、アプリからは戻せません"))
 }
 
 /// Android: アプリの中のゴミ箱（内部ストレージの `.fixplor-trash/`。同じ保存領域の中だけ移す）。画面は trashDir で見せる
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn trash(path: &Path) -> FsResult<()> {
-    super::trash::trash_path(path).map(|_| ())
+pub fn trash(path: &Path) -> FsResult<Option<String>> {
+    super::trash::trash_path(path).map(|t| Some(t.id))
 }
 
 /// 完全に削除する（元に戻せない）。Android の保存領域（内部ストレージ・SD）の中だけ。シンボリックリンクは、リンクそのものを消す（辿らない）
@@ -73,8 +113,12 @@ pub fn remove(path: &Path) -> FsResult<()> {
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub fn remove(_path: &Path) -> FsResult<()> {
-    Err(FsError::new("unsupported", "この OS では、完全に削除する操作は使いません（ゴミ箱を使う）"))
+pub fn remove(path: &Path) -> FsResult<()> {
+    // ドライブのいちばん上（親が無いパス）は消さない。フォルダは中身ごと、シンボリックリンクはリンクそのものを消す（辿らない）
+    if path.parent().is_none() {
+        return Err(FsError::new("invalid", "ドライブのいちばん上は消せません"));
+    }
+    remove_source(path)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

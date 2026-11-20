@@ -13,6 +13,16 @@ export class ExplorerBuffer {
    */
   clipText = $state<string | null>(null);
 
+  /**
+   * クリップボードの文字が、このバッファを書いたときの文字か。改行は、OS・WebView が \r\n に変える・末尾に足すことがあるので、そろえて比べる
+   * （複数の項目のパスは改行でつないでいる。そろえないと、パスの並びをテキストとして貼ってしまう）
+   */
+  matchesClip(text: string | null): boolean {
+    if (this.clipText === null || text === null) return false;
+    const norm = (t: string): string => t.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+    return norm(text) === norm(this.clipText);
+  }
+
   get empty(): boolean {
     return this.items.length === 0;
   }

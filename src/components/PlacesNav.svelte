@@ -23,6 +23,9 @@
   import Pencil from '@lucide/svelte/icons/pencil';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import Trash from '@lucide/svelte/icons/trash-2';
+  import { tick } from 'svelte';
+  import ArrowUp from '@lucide/svelte/icons/arrow-up';
+  import ArrowDown from '@lucide/svelte/icons/arrow-down';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
   import Menu from '@3pino/ui-kit-web/Menu.svelte';
   import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
@@ -39,6 +42,7 @@
     onaddbookmark,
     onaddnetwork,
     ondropdirs,
+    onmovebookmark,
   }: {
     bookmarks: NavEntry[];
     drives: NavEntry[];
@@ -50,10 +54,73 @@
     onaddnetwork: () => void;
     /** エクスプローラーからフォルダをドラッグして落とした（フォルダのパス） */
     ondropdirs: (paths: string[]) => void;
+    /** ブックマークを並べ替えた（key と、動かしたあとの位置。ブックマークの一覧の中での 0 から数えた番号） */
+    onmovebookmark: (key: string, toIndex: number) => void;
   } = $props();
 
   let menu = $state.raw<{ entry: NavEntry; x: number; y: number } | null>(null);
   let dropping = $state(false);
+
+  // ---- ブックマークの並べ替え（ドラッグ・Alt+↑↓・メニューの「上へ」「下へ」） ----
+  /** ドラッグしているブックマーク */
+  let dragKey = $state<string | null>(null);
+  /** 落とす位置の印（その行の、上か下） */
+  let slot = $state<{ key: string; after: boolean } | null>(null);
+  const BOOKMARK_DRAG = 'application/x-fixplor-bookmark';
+
+  const indexOf = (key: string): number => bookmarks.findIndex((b) => b.key === key);
+  function bookmarkDragStart(ev: DragEvent, e: NavEntry): void {
+    if (!ev.dataTransfer) return;
+    dragKey = e.key;
+    ev.dataTransfer.effectAllowed = 'move';
+    ev.dataTransfer.setData(BOOKMARK_DRAG, e.key);
+  }
+  function bookmarkDragOver(ev: DragEvent, e: NavEntry): void {
+    if (dragKey === null) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    slot = { key: e.key, after: ev.clientY > r.top + r.height / 2 };
+  }
+  function bookmarkDrop(ev: DragEvent): void {
+    if (dragKey === null || slot === null) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const from = indexOf(dragKey);
+    const at = indexOf(slot.key) + (slot.after ? 1 : 0);
+    const key = dragKey;
+    bookmarkDragEnd();
+    if (from < 0) return;
+    // 引き抜いたあとの位置
+    const to = from < at ? at - 1 : at;
+    if (to !== from) onmovebookmark(key, to);
+  }
+  function bookmarkDragEnd(): void {
+    dragKey = null;
+    slot = null;
+  }
+  /** メニューから（メニューを閉じると項目が消えるので、key を先に受け取っておく） */
+  function moveFromMenu(key: string, step: -1 | 1): void {
+    menu = null;
+    moveBy(key, step);
+  }
+  function moveBy(key: string, step: -1 | 1): void {
+    const to = indexOf(key) + step;
+    if (to >= 0 && to < bookmarks.length) onmovebookmark(key, to);
+  }
+  /** ブックマークのボタンで Alt+↑↓：並べ替え（動かしたあとも、フォーカスを保つ） */
+  async function bookmarkKey(ev: KeyboardEvent, e: NavEntry): Promise<void> {
+    if (!ev.altKey || (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown')) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const btn = ev.currentTarget as HTMLElement;
+    moveBy(e.key, ev.key === 'ArrowUp' ? -1 : 1);
+    await tick();
+    // 並べ替えで行が作り直されても、同じブックマークのボタンにフォーカスを戻す
+    if (btn.isConnected && document.activeElement === btn) return;
+    [...document.querySelectorAll<HTMLElement>('[data-bookmark]')].find((el) => el.dataset.bookmark === e.key)?.focus();
+  }
 
   function openMenu(ev: MouseEvent, entry: NavEntry): void {
     ev.preventDefault();
@@ -84,11 +151,24 @@
   }
 </script>
 
-{#snippet row(e: NavEntry)}
-  <div class="place-row">
+{#snippet row(e: NavEntry, sortable = false)}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="place-row"
+    class:place-row-dragging={sortable && dragKey === e.key}
+    class:place-row-slot-before={sortable && slot?.key === e.key && !slot.after && dragKey !== e.key}
+    class:place-row-slot-after={sortable && slot?.key === e.key && slot.after && dragKey !== e.key}
+    draggable={sortable}
+    ondragstart={sortable ? (ev) => bookmarkDragStart(ev, e) : undefined}
+    ondragover={sortable ? (ev) => bookmarkDragOver(ev, e) : undefined}
+    ondrop={sortable ? bookmarkDrop : undefined}
+    ondragend={sortable ? bookmarkDragEnd : undefined}
+  >
     <button
       class="menu-item place-open"
       type="button"
+      data-bookmark={sortable ? e.key : undefined}
+      onkeydown={sortable ? (ev) => void bookmarkKey(ev, e) : undefined}
       aria-current={e.current ? 'page' : undefined}
       title={e.broken ? `つながりません: ${e.broken}` : e.title}
       onclick={e.open}
@@ -109,7 +189,7 @@
     <IconButton class="places-add" label="いま開いているフォルダをブックマークに追加" title={canAddBookmark ? 'いま開いているフォルダを追加' : 'ここは追加できません（設定の画面・追加済み）'} iconSize={14} disabled={!canAddBookmark} onclick={onaddbookmark}><Plus size={14} /></IconButton>
   </div>
   {#each bookmarks as e (e.key)}
-    {@render row(e)}
+    {@render row(e, true)}
   {:else}
     <p class="places-empty muted">フォルダをここへドラッグするか、＋で追加します</p>
   {/each}
@@ -137,6 +217,8 @@
         <MenuItem icon={Pencil} onclick={() => pick(entry.edit!)}>直す・外す</MenuItem>
       {/if}
       {#if entry.remove}
+        <MenuItem icon={ArrowUp} disabled={indexOf(entry.key) <= 0} onclick={() => moveFromMenu(entry.key, -1)}>上へ移動</MenuItem>
+        <MenuItem icon={ArrowDown} disabled={indexOf(entry.key) < 0 || indexOf(entry.key) >= bookmarks.length - 1} onclick={() => moveFromMenu(entry.key, 1)}>下へ移動</MenuItem>
         <MenuItem icon={Trash} danger onclick={() => pick(entry.remove!)}>ブックマークから削除</MenuItem>
       {/if}
     </Menu>
@@ -149,6 +231,16 @@
     flex-direction: column;
     flex: none;
     border-radius: var(--radius-sm);
+  }
+  /* ブックマークをドラッグして並べ替えるとき: 動かしている行は薄く、落とす位置は、行の上か下の線で示す */
+  .place-row-dragging {
+    opacity: 0.4;
+  }
+  .place-row-slot-before {
+    box-shadow: 0 -2px 0 0 var(--accent);
+  }
+  .place-row-slot-after {
+    box-shadow: 0 2px 0 0 var(--accent);
   }
   /* フォルダをドラッグして、ブックマークの上に来たときの印 */
   .places-section-drop {

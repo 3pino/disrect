@@ -44,7 +44,7 @@
   import type { Explorer } from './explorer';
   import { EXPLORER_HOTKEYS, matchesHotkey, matchesIgnoringShift, type ExplorerHotkeyId, type Keymap } from './hotkeys';
   import { copyEntry, createEntry, explorerHistory, moveEntry, trashEntry } from './history';
-  import type { ClipboardPeek, Entry, ExplorerApi, OsDropEntry, ViewerItem } from './types';
+  import type { ClipboardPeek, ColumnWidths, Entry, ExplorerApi, OsDropEntry, ViewerItem } from './types';
 
   // エクスプローラーの画面（一覧・アイコン表示・選択・コピー・移動・ゴミ箱・名前の変更・外からの取り込み）。
   // 置き場所（api）と、本体から借りる機能（host）は explorer で受け取る（explorer.ts）。この部品の一生のあいだ変わらない
@@ -59,6 +59,10 @@
     lead?: Snippet;
     /** 一覧の操作のホットキー（`search`・`open`・`rename`・`clearSelection`）。省いたものは、既定（EXPLORER_HOTKEYS） */
     keymap?: Keymap;
+    /** 詳細の列の幅（px）。見出しの境目をつまんで変えられる（省いた列は既定） */
+    columnWidths?: ColumnWidths;
+    /** 列の幅を変えたとき（保存するのは本体） */
+    oncolumnwidths?: (widths: ColumnWidths) => void;
   } = $props();
   const keysOf = (id: ExplorerHotkeyId): readonly string[] => props.keymap?.[id] ?? EXPLORER_HOTKEYS[id];
   /** 入力欄に文字を打っているところか（修飾キーのないホットキーは、働かせない） */
@@ -129,10 +133,55 @@
     });
   });
 
+  // 戻る・上の階層へ上がったとき、いたフォルダを、一覧で選んで（フォーカスして）見えるようにする
+  // （どのフォルダか分からなくならないように。下の階層から上がったときだけ）
+  let lastDir = fileExplorer.dir;
+  let revealPath: string | null = null;
+  /** こちらで選んだ（元いた）フォルダ。選びが変わったら、忘れる */
+  let revealedPath = $state<string | null>(null);
+  $effect(() => {
+    if (revealedPath !== null && !(explorerSelection.count === 1 && explorerSelection.has(revealedPath))) revealedPath = null;
+  });
+  $effect(() => {
+    const dir = fileExplorer.dir;
+    untrack(() => {
+      const from = lastDir;
+      lastDir = dir;
+      revealPath = null;
+      if (from === dir) return;
+      const rest = dir === '' ? from : from.startsWith(dir + '/') ? from.slice(dir.length + 1) : null;
+      if (rest) revealPath = childPath(dir, rest.split('/')[0]);
+    });
+  });
+  $effect(() => {
+    // 一覧を先に読む（読まないと、一覧が読み終わったときにこの効果が動かない）
+    const l = listing;
+    const path = revealPath;
+    if (path === null || l?.kind !== 'ok') return;
+    if (![...l.entries.values()].some((e) => e.path === path)) return;
+    untrack(() => {
+      revealPath = null;
+      void tick().then(() => revealItem(path));
+    });
+  });
+  /** 項目を選んで、フォーカスし、見える位置へスクロールする（PC）。タッチは、見える位置へスクロールするだけ（選択モードに入らない） */
+  function revealItem(path: string): void {
+    const el = [...(bodyEl?.querySelectorAll<HTMLElement>('.file-explorer-item') ?? [])].find((x) => x.dataset.path === path);
+    if (!el) return;
+    el.scrollIntoView?.({ block: 'center' });
+    if (!explorerSelection.desktop) return;
+    cursorPath = path;
+    explorerSelection.replace([path]);
+    revealedPath = path;
+    el.querySelector<HTMLElement>('.file-explorer-row')?.focus({ preventScroll: true });
+  }
+
   // 選んでいる間の「戻る」（Android の戻る・Alt+←）は、選びを外す（フォルダやパネルは戻らない）。
   // PC の 0 件（操作だけ続いている）では登録しない（戻るを奪わない）
+  // 戻った・上へ上がったときに、いたフォルダをこちらで選んだだけのとき（revealedPath）は、「戻る」を奈わない（ここで止めると、さらに戻れない）
   $effect(() => {
     if (!explorerSelection.showing) return;
+    if (revealedPath !== null && explorerSelection.count === 1 && explorerSelection.has(revealedPath)) return;
     // 登録が読む本体の状態には依存しない（依存すると、登録のたびにやり直して回り続ける）
     return untrack(() => host.addBack(() => explorerSelection.clear()));
   });
@@ -163,7 +212,7 @@
   type FolderSize = { size: number; partial: boolean } | 'loading' | 'error';
   const folderSizes = new SvelteMap<string, FolderSize>();
   /** 数えた値と、そのときのフォルダの更新日時 */
-  const sizeCache = new Map<string, { value: { size: number; partial: boolean }; modified: number }>();
+  const sizeCache = explorer.folderSizeCache;
   let sizeGen = 0;
   let sizeReloads = fileExplorer.reloads;
   $effect(() => {
@@ -178,16 +227,21 @@
         folderSizes.clear();
         sizeReloads = reloads;
       }
+      // 数え直すものは、先に全部「…」にする（順に数えるので、順番を待っているものも、数えているものと同じに見せる）。
+      // 更新日時が変わったものは、古い値を出したまま数え直す
+      const todo: Entry[] = [];
+      for (const e of dirs) {
+        const hit = sizeCache.get(e.path);
+        if (hit && hit.modified === e.modified) {
+          if (folderSizes.get(e.path) !== hit.value) folderSizes.set(e.path, hit.value);
+          continue;
+        }
+        if (!folderSizes.has(e.path)) folderSizes.set(e.path, 'loading');
+        todo.push(e);
+      }
       void (async () => {
-        for (const e of dirs) {
+        for (const e of todo) {
           if (gen !== sizeGen) return;
-          const hit = sizeCache.get(e.path);
-          if (hit && hit.modified === e.modified) {
-            if (folderSizes.get(e.path) !== hit.value) folderSizes.set(e.path, hit.value);
-            continue;
-          }
-          // 更新日時が変わったものは、古い値を出したまま数え直す（無ければ「…」）
-          if (!folderSizes.has(e.path)) folderSizes.set(e.path, 'loading');
           try {
             const value = await count.call(api, e.path);
             // 途中で一覧が変わっても、数えた値は覚える（次の回で使える）
@@ -203,6 +257,45 @@
       sizeGen++;
     };
   });
+  // ---- 詳細の列の幅（見出しの境目をつまんで変える。名前の列が、残りの幅を使う） ----
+  const COL_MIN_PX = 48;
+  const COL_MAX_PX = 480;
+  type ColumnKey = keyof ColumnWidths;
+  // 初めの幅だけを受け取る（あとはここで持ち、変えたら oncolumnwidths で知らせる）
+  let colWidths = $state<ColumnWidths>(untrack(() => ({ ...props.columnWidths })));
+  const colStyle = $derived(
+    (Object.entries(colWidths) as [ColumnKey, number | undefined][])
+      .filter(([, w]) => typeof w === 'number')
+      .map(([k, w]) => `--col-${k}:${w}px`)
+      .join(';') || undefined,
+  );
+  let colDrag: { key: ColumnKey; x: number; width: number } | null = null;
+  /** 列の左の境目をつまむ。左へ動かすと、その列が広がる（名前の列が縮む）。右へ動かすと狭まる */
+  function startColResize(ev: PointerEvent, key: ColumnKey): void {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const grip = ev.currentTarget as HTMLElement;
+    colDrag = { key, x: ev.clientX, width: grip.parentElement?.getBoundingClientRect().width ?? 0 };
+    grip.setPointerCapture?.(ev.pointerId);
+  }
+  function moveColResize(ev: PointerEvent): void {
+    if (!colDrag) return;
+    const width = Math.round(Math.min(COL_MAX_PX, Math.max(COL_MIN_PX, colDrag.width + colDrag.x - ev.clientX)));
+    colWidths = { ...colWidths, [colDrag.key]: width };
+  }
+  function endColResize(): void {
+    if (!colDrag) return;
+    colDrag = null;
+    props.oncolumnwidths?.({ ...colWidths });
+  }
+  /** 境目をダブルクリックすると、その列の幅を既定に戻す */
+  function resetColWidth(key: ColumnKey): void {
+    const { [key]: _drop, ...rest } = colWidths;
+    colWidths = rest;
+    props.oncolumnwidths?.({ ...rest });
+  }
+
   /** 詳細の「サイズ」の列に出す文字 */
   function sizeCell(e: Entry): string {
     if (e.kind === 'file') return formatSize(e.size);
@@ -366,6 +459,18 @@
     return true;
   }
 
+  /** 一覧の最初・最後の項目を選んで、フォーカスする */
+  function selectEdge(which: 'first' | 'last'): void {
+    const items = [...(bodyEl?.querySelectorAll<HTMLElement>('.file-explorer-item') ?? [])];
+    const el = which === 'first' ? items[0] : items.at(-1);
+    if (!el) return;
+    const path = el.dataset.path ?? '';
+    cursorPath = path;
+    el.querySelector<HTMLElement>('.file-explorer-row')?.focus();
+    el.scrollIntoView?.({ block: 'nearest' });
+    explorerSelection.replace([path]);
+  }
+
   async function runHistory(way: 'undo' | 'redo'): Promise<void> {
     try {
       const label = await explorerHistory[way]();
@@ -393,7 +498,9 @@
       ev.preventDefault();
       f();
     };
-    if (is('selectAll')) run(() => explorerSelection.selectAll(shownEntries.map((e) => e.path)));
+    if (is('selectFirst')) run(() => selectEdge('first'));
+    else if (is('selectLast')) run(() => selectEdge('last'));
+    else if (is('selectAll')) run(() => explorerSelection.selectAll(shownEntries.map((e) => e.path)));
     else if (is('copy') && some && copyBlocked === null) run(copySelected);
     else if (is('cut') && some && cutBlocked === null) run(cutSelected);
     else if (is('paste') && canPaste && !pasting) run(() => void pasteAny());
@@ -671,7 +778,7 @@
     // バッファをクリップボードに書けていない（結び付いていない）なら、クリップボードは読まない
     if (!explorerBuffer.empty && explorerBuffer.clipText === null) return bufferPreview();
     const text = await host.clipboard.readText();
-    if (!explorerBuffer.empty && (explorerBuffer.clipText === null || text === explorerBuffer.clipText)) return bufferPreview();
+    if (!explorerBuffer.empty && (explorerBuffer.clipText === null || explorerBuffer.matchesClip(text))) return bufferPreview();
     const img = await host.clipboard.readImage();
     if (img) return { kind: 'image', url: URL.createObjectURL(img) };
     if (text) return { kind: 'text', text: text.slice(0, PREVIEW_TEXT), more: text.length > PREVIEW_TEXT };
@@ -827,7 +934,7 @@
       if (sent.length === 1) renameAfterPaste(dir, sent[0]);
       return;
     }
-    if (!explorerBuffer.empty && (explorerBuffer.clipText === null || text === explorerBuffer.clipText)) return paste(dir);
+    if (!explorerBuffer.empty && (explorerBuffer.clipText === null || explorerBuffer.matchesClip(text))) return paste(dir);
     const img = await image();
     if (img) return renameAfterPaste(dir, await sendOne(dir, img));
     if (text) return renameAfterPaste(dir, await sendOne(dir, new File([text], host.clipboard.textName(), { type: 'text/plain' })));
@@ -1119,16 +1226,18 @@
       // ゴミ箱に移した項目をバッファからも除去（cut済み→trash→pasteでnot_foundにならないよう）
       if (!changed) explorerBuffer.remove(succeeded.map((s) => s.path));
       // 成功したIDの不変スナップショット（この一括操作だけが対象、過去/他ユーザーの削除はundoしない）
-      const ids = succeeded.map((s) => s.id);
+      // 戻す印（id）を持つものだけ（OS のゴミ箱で、印を見つけられなかったものは、戻せない）
+      const restorable = permanent ? [] : succeeded.filter((s) => s.id !== '');
+      const ids = restorable.map((s) => s.id);
       // 元に戻す（Ctrl+Z）の履歴。ゴミ箱から戻せる置き場所だけ
-      if (explorer.caps.restore && !permanent) explorerHistory.push(trashEntry(api, succeeded, (p) => dirIndex.invalidate(p)));
+      if (explorer.caps.restore && restorable.length > 0) explorerHistory.push(trashEntry(api, restorable, (p) => dirIndex.invalidate(p)));
       // 取り消しは、削除した置き場所へだけ送る（restoreBatch が確かめる）
       const trashServerUrl = scope.url;
       // 「取り消す」は、この部品から元へ戻せる置き場所だけ
-      const undo = explorer.caps.restore && !permanent
+      const undo = explorer.caps.restore && ids.length === succeeded.length && !permanent
         ? { label: '取り消す', run: () => void restoreBatch(ids, trashServerUrl).catch((e) => host.toast(host.errorText(e), 'error')) }
         : undefined;
-      host.toast(permanent ? `${ids.length} 件を完全に削除しました` : `${ids.length} 件をゴミ箱に移しました`, 'info', undo);
+      host.toast(permanent ? `${succeeded.length} 件を完全に削除しました` : `${succeeded.length} 件をゴミ箱に移しました`, 'info', undo);
     }
     if (changed) host.toast(`${SERVER_CHANGED}。残りは移していません`, 'error');
     if (failed.length > 0) host.toast(`${failed.length} 件を${permanent ? '完全に削除できませんでした' : 'ゴミ箱に移せませんでした'}（${failed[0]}）`, 'error');
@@ -1757,6 +1866,18 @@
     });
   });
 
+  // 貼り付けを始めてから、できた項目が一覧に現れる（名前の書き換えに入る）までの間、これが 0.5 秒を超えたら、カーソルを「待つ」にする
+  const WAIT_CURSOR_MS = 500;
+  let waitCursor = $state(false);
+  $effect(() => {
+    if (!pasting && pendingRename === null) {
+      waitCursor = false;
+      return;
+    }
+    const t = setTimeout(() => (waitCursor = true), WAIT_CURSOR_MS);
+    return () => clearTimeout(t);
+  });
+
   /** 移動・コピーを、元に戻せる履歴に積む（上書きしたものは、元に戻せないので積まない。コピーは、ゴミ箱へ入れて戻すので、ゴミ箱を戻せる置き場所だけ） */
   function recordTransfer(result: TransferResult): void {
     const ok = result.applied.filter((a) => !a.overwrote);
@@ -1979,10 +2100,7 @@
       mkdirError = blocked;
       return;
     }
-    if (isDir && inSpecialDir(rules, dir)) {
-      mkdirError = '特別なフォルダ内にフォルダは作れません';
-      return;
-    }
+    // 特別なフォルダの中のフォルダは、ここでは断らない（置き場所の側が断る。disnans の WebDAV は 403 を返す）。失敗は、下で理由を出す
     const bad = rules.nameError(dir, name);
     if (bad) {
       mkdirError = bad;
@@ -2012,7 +2130,7 @@
 
 <svelte:window onkeydown={(ev) => { searchWindowKey(ev); escapeKey(ev); explorerKey(ev); }} />
 
-<div class="file-explorer" role="region" aria-label="ファイルエクスプローラー"
+<div class="file-explorer" class:file-explorer-wait={waitCursor} role="region" aria-label="ファイルエクスプローラー" style={colStyle}
   ondragenter={explorerDragEnter}
   ondragleave={explorerDragLeave}
 >
@@ -2186,11 +2304,15 @@
       {#if dirView.view === 'details'}
         <div class="file-explorer-columns" aria-hidden="true">
           <span class="file-explorer-col-name">名前</span>
-          <span class="file-explorer-col-kind">種類</span>
-          <span class="file-explorer-col-size">サイズ</span>
-          <span class="file-explorer-col-date">更新日時</span>
-          {#if hasCreated}<span class="file-explorer-col-date">作成日時</span>{/if}
-          <span class="file-explorer-col-actions"></span>
+          {#snippet grip(key: ColumnKey)}
+            <!-- 列の左の境目（つまんで動かすと、幅が変わる。ダブルクリックで既定の幅） -->
+            <span class="file-explorer-col-grip" role="presentation" onpointerdown={(ev) => startColResize(ev, key)} onpointermove={moveColResize} onpointerup={endColResize} onpointercancel={endColResize} ondblclick={() => resetColWidth(key)}></span>
+          {/snippet}
+          <span class="file-explorer-col-kind">{@render grip('kind')}種類</span>
+          <span class="file-explorer-col-size">{@render grip('size')}サイズ</span>
+          <span class="file-explorer-col-date">{@render grip('modified')}更新日時</span>
+          {#if hasCreated}<span class="file-explorer-col-date file-explorer-col-created">{@render grip('created')}作成日時</span>{/if}
+          {#if !explorerSelection.desktop}<span class="file-explorer-col-actions"></span>{/if}
         </div>
       {/if}
       {#if sorted.length === 0}
@@ -2272,7 +2394,7 @@
                 <span class="file-explorer-col-kind">{kindLabel(e, host.isImage)}</span>
                 <span class="file-explorer-col-size">{sizeCell(e)}</span>
                 <span class="file-explorer-col-date">{formatStamp(e.modified, now)}</span>
-                {#if hasCreated}<span class="file-explorer-col-date">{e.created ? formatStamp(e.created, now) : ''}</span>{/if}
+                {#if hasCreated}<span class="file-explorer-col-date file-explorer-col-created">{e.created ? formatStamp(e.created, now) : ''}</span>{/if}
               {/if}
             {/snippet}
             {#if renaming}
@@ -2307,8 +2429,10 @@
                 onkeydown={(ev: KeyboardEvent) => rowKey(ev, e)}
               >{@render row()}</svelte:element>
             {/if}
-            <!-- 「…」（プロパティ）は、選択中も含めて常に見せる -->
-            <EntryActions {explorer} entry={e} placement={dirView.view === 'grid' ? 'overlay' : 'inline'} />
+            <!-- 「…」（プロパティ）は、選択中も含めて常に見せる。PC は、右クリックのメニューにプロパティがあるので出さない -->
+            {#if !explorerSelection.desktop}
+              <EntryActions {explorer} entry={e} placement={dirView.view === 'grid' ? 'overlay' : 'inline'} />
+            {/if}
           </li>
         {/each}
       </ul>
@@ -2339,7 +2463,7 @@
                 <p class="file-explorer-paste-head">画像</p>
                 <img src={pastePreview.url} alt="貼り付ける画像" />
               {:else if pastePreview.kind === 'text'}
-                <p class="file-explorer-paste-head">文字（.txt のファイルにします）</p>
+                <p class="file-explorer-paste-head">テキスト</p>
                 <pre>{pastePreview.text}{pastePreview.more ? '…' : ''}</pre>
               {:else}
                 <p class="muted">貼り付けられるものがありません</p>
@@ -2494,6 +2618,20 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--fs-sm, 0.85em);
+  }
+  /* 貼り付けが終わるまで（0.5 秒を超えたら）、どこに乗せても「待つ」カーソル */
+  .file-explorer-wait,
+  .file-explorer-wait :global(*) {
+    cursor: wait !important;
+  }
+  /* 上端の行: 余白を詰める（左 8px・上 6px（Android はステータスバーの分を足す）・部品の間はあけない） */
+  .file-explorer > :global(.file-explorer-bar.panel-bar) {
+    gap: 0;
+    padding-top: calc(env(safe-area-inset-top) + 6px);
+    padding-left: 8px;
+  }
+  .file-explorer > :global(.file-explorer-bar .panel-bar-main) {
+    gap: 0;
   }
   /* 道筋の欄: 入力欄のような見た目（押すと書き換えられる）。パンくずは、はみ出したら横にスクロールする */
   .file-explorer-path {
@@ -2856,20 +2994,20 @@
   }
   .file-explorer-view-details .file-explorer-col-kind {
     flex: none;
-    width: 4.5em;
+    width: var(--col-kind, 4.5em);
     color: var(--text-muted);
     font-size: var(--fs-sm);
   }
   .file-explorer-view-details .file-explorer-col-size {
     flex: none;
-    width: 5.5em;
+    width: var(--col-size, 5.5em);
     text-align: right;
     color: var(--text-muted);
     font-size: var(--fs-sm);
   }
   .file-explorer-view-details .file-explorer-col-date {
     flex: none;
-    width: 8em;
+    width: var(--col-modified, 8em);
     color: var(--text-muted);
     font-size: var(--fs-sm);
   }
@@ -2879,14 +3017,47 @@
     flex: none;
   }
   .file-explorer-columns .file-explorer-col-kind {
-    width: 4.5em;
+    width: var(--col-kind, 4.5em);
   }
   .file-explorer-columns .file-explorer-col-size {
-    width: 5.5em;
+    width: var(--col-size, 5.5em);
     text-align: right;
   }
   .file-explorer-columns .file-explorer-col-date {
-    width: 8em;
+    width: var(--col-modified, 8em);
+  }
+  /* 作成日時の列は、決めていなければ、更新日時の列と同じ幅 */
+  .file-explorer-view-details .file-explorer-col-created,
+  .file-explorer-columns .file-explorer-col-created {
+    width: var(--col-created, var(--col-modified, 8em));
+  }
+  /* 見出しの列の左の境目（つまむところ）。列の左の隙間の真ん中に置く */
+  .file-explorer-columns .file-explorer-col-kind,
+  .file-explorer-columns .file-explorer-col-size,
+  .file-explorer-columns .file-explorer-col-date {
+    position: relative;
+  }
+  .file-explorer-col-grip {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    left: calc(var(--space-3) / -2 - 5px);
+    width: 10px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .file-explorer-col-grip::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: 2px;
+    border-radius: 1px;
+    background: transparent;
+  }
+  .file-explorer-col-grip:hover::after {
+    background: var(--border);
   }
   /* アイコン（グリッド）: 並べ目。画像は正方形の縮小 */
   /* 項目の間と下に空き（押すと選択を解除できる場所）。下は項目 1 つ分（正方形の画像 + 名前）くらい。

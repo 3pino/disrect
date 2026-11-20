@@ -56,6 +56,17 @@ class Bookmarks {
     this.save(this.list.filter((b) => b.id !== id));
   }
 
+  /** id のブックマークを、targetId のブックマークがいる位置へ動かす（間にあるものは 1 つずつずれる。並べ替え） */
+  moveTo(id: string, targetId: string): void {
+    const from = this.list.findIndex((b) => b.id === id);
+    const to = this.list.findIndex((b) => b.id === targetId);
+    if (from < 0 || to < 0 || from === to) return;
+    const next = [...this.list];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    this.save(next);
+  }
+
   /** 置き場所を外したとき、その場所のブックマークも外す */
   removePlace(place: string): void {
     if (this.list.some((b) => b.place === place)) this.save(this.list.filter((b) => b.place !== place));

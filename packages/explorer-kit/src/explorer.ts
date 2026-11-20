@@ -43,7 +43,12 @@ export type Explorer = {
   view: ExplorerView;
   /** 検索（名前の絞り込み・サブフォルダも探す） */
   search: ExplorerSearch;
+  /** 数えたフォルダのサイズの写し（タブを切り替えても、数え直さない） */
+  folderSizeCache: FolderSizeCache;
 };
+
+/** 数えたフォルダのサイズ（パス → 値と、そのときのフォルダの更新日時）。更新日時が同じなら、数え直さない */
+export type FolderSizeCache = Map<string, { value: { size: number; partial: boolean }; modified: number }>;
 
 export type ExplorerOptions = {
   api: ExplorerApi;
@@ -62,6 +67,11 @@ export type ExplorerOptions = {
    * 省くと、ここで作る（そのエクスプローラーだけのもの）。置き場所が違うものとは共有しないこと（パスが別の置き場所のものになる）。
    */
   buffer?: ExplorerBuffer;
+  /**
+   * 数えたフォルダのサイズの写し。同じ置き場所を、複数のエクスプローラー（タブ）で開くとき、それらで 1 つを共有するために渡す（タブを切り替えても、数え直さない）。
+   * 省くと、ここで作る。置き場所が違うものとは共有しないこと。
+   */
+  folderSizeCache?: FolderSizeCache;
   /** 検索を始めるまでの待ち（ms。文字を打ち終えるのを待つ。試験で縮める。既定 250） */
   searchDelayMs?: number;
   /** 一覧の失敗が「そのフォルダが無い」か（index を省いたときだけ使う） */
@@ -83,7 +93,9 @@ export function createExplorer(options: ExplorerOptions): Explorer {
   const view = new ExplorerView(options.viewStore);
   const search = new ExplorerSearch(options.api, (e) => options.host.errorText(e), options.searchDelayMs);
   const scope = options.scope ?? FIXED_SCOPE;
+  const folderSizeCache: FolderSizeCache = options.folderSizeCache ?? new Map();
   scope.onChange(() => {
+    folderSizeCache.clear();
     own?.clear();
     nav.reset();
     buffer.clear();
@@ -104,5 +116,6 @@ export function createExplorer(options: ExplorerOptions): Explorer {
     selection,
     view,
     search,
+    folderSizeCache,
   };
 }

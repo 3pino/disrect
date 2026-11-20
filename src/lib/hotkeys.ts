@@ -31,7 +31,21 @@ export type AppCommandId =
   | 'view.hideHidden'
   | 'file.copyPath'
   | 'file.openNewTab'
-  | 'file.openNewWindow';
+  | 'file.openNewTabFocus'
+  | 'file.openNewWindow'
+  | 'tab.closeOthers'
+  | 'tab.moveLeft'
+  | 'tab.moveRight'
+  | 'bookmark.search'
+  | 'bookmark.goto1'
+  | 'bookmark.goto2'
+  | 'bookmark.goto3'
+  | 'bookmark.goto4'
+  | 'bookmark.goto5'
+  | 'bookmark.goto6'
+  | 'bookmark.goto7'
+  | 'bookmark.goto8'
+  | 'bookmark.goto9';
 
 export type CommandId = AppCommandId | ExplorerHotkeyId;
 
@@ -46,9 +60,10 @@ export type Command = {
 };
 
 /** 設定に出す順。節の名前 */
-export const GROUPS = ['アプリ', 'タブ', '移動', '選択・編集', '表示'] as const;
+export const GROUPS = ['アプリ', 'タブ', '移動', 'ブックマーク', '選択・編集', '表示'] as const;
 
 const gotoTab = (n: number): Command => ({ id: `tab.goto${n}` as AppCommandId, name: `${n} 番目のタブへ`, group: 'タブ', defaults: [`Ctrl+${n}`] });
+const gotoBookmark = (n: number): Command => ({ id: `bookmark.goto${n}` as AppCommandId, name: `ブックマークの ${n} 番目を開く`, group: 'ブックマーク', defaults: [] });
 
 export const COMMANDS: readonly Command[] = [
   { id: 'app.settings', name: '設定を開く', group: 'アプリ', defaults: ['Ctrl+,', 'F12'] },
@@ -61,17 +76,25 @@ export const COMMANDS: readonly Command[] = [
   { id: 'tab.prev', name: '前のタブ', group: 'タブ', defaults: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'] },
   ...[1, 2, 3, 4, 5, 6, 7, 8].map(gotoTab),
   { id: 'tab.last', name: '最後のタブへ', group: 'タブ', defaults: ['Ctrl+9'] },
-  { id: 'file.openNewTab', name: 'フォルダを新しいタブで開く', group: 'タブ', defaults: ['Ctrl+Enter'] },
+  { id: 'tab.closeOthers', name: 'ほかのタブを閉じる', group: 'タブ', defaults: [] },
+  { id: 'tab.moveLeft', name: 'タブを左へ移す', group: 'タブ', defaults: [] },
+  { id: 'tab.moveRight', name: 'タブを右へ移す', group: 'タブ', defaults: [] },
+  { id: 'file.openNewTabFocus', name: 'フォルダを新しいタブで開いて移る', group: 'タブ', defaults: ['Ctrl+Enter'] },
+  { id: 'file.openNewTab', name: 'フォルダを新しいタブで開く（今のタブに残る）', group: 'タブ', defaults: [] },
   { id: 'nav.back', name: '戻る', group: '移動', defaults: ['Alt+ArrowLeft', 'Mouse4'] },
   { id: 'nav.forward', name: '進む', group: '移動', defaults: ['Alt+ArrowRight', 'Mouse5'] },
   { id: 'nav.up', name: '上の階層へ', group: '移動', defaults: ['Ctrl+ArrowUp', 'Alt+ArrowUp'] },
-  { id: 'editPath', name: '道筋（パス）を書き換える', group: '移動', defaults: EXPLORER_HOTKEYS.editPath },
+  { id: 'editPath', name: 'パス入力欄にフォーカス', group: '移動', defaults: EXPLORER_HOTKEYS.editPath },
   { id: 'open', name: '開く', group: '移動', defaults: EXPLORER_HOTKEYS.open },
   { id: 'search', name: '検索', group: '移動', defaults: EXPLORER_HOTKEYS.search },
   { id: 'moveUp', name: '上の項目へフォーカス', group: '移動', defaults: EXPLORER_HOTKEYS.moveUp },
   { id: 'moveDown', name: '下の項目へフォーカス', group: '移動', defaults: EXPLORER_HOTKEYS.moveDown },
   { id: 'moveLeft', name: '左の項目へフォーカス（アイコン表示）', group: '移動', defaults: EXPLORER_HOTKEYS.moveLeft },
   { id: 'moveRight', name: '右の項目へフォーカス（アイコン表示）', group: '移動', defaults: EXPLORER_HOTKEYS.moveRight },
+  { id: 'selectFirst', name: '最初の項目を選択', group: '移動', defaults: EXPLORER_HOTKEYS.selectFirst },
+  { id: 'selectLast', name: '最後の項目を選択', group: '移動', defaults: EXPLORER_HOTKEYS.selectLast },
+  { id: 'bookmark.search', name: 'ブックマークから検索', group: 'ブックマーク', defaults: [] },
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(gotoBookmark),
   { id: 'selectAll', name: 'すべて選ぶ', group: '選択・編集', defaults: EXPLORER_HOTKEYS.selectAll },
   { id: 'clearSelection', name: '選択解除', group: '選択・編集', defaults: EXPLORER_HOTKEYS.clearSelection },
   { id: 'copy', name: 'コピー', group: '選択・編集', defaults: EXPLORER_HOTKEYS.copy },

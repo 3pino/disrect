@@ -88,6 +88,8 @@ export function resetUi(): void {
   ui.lightbox = null;
   ui.lightboxGallery = null;
   ui.pluginBack = [];
+  // 数えたフォルダのサイズの写しは、この explorer を使い回す試験の間で引き継がない
+  explorer.folderSizeCache.clear();
 }
 
 /** 特別なフォルダ（special/）を持つ置き場所の決まり。名前は、使えない文字（:）と、特別なフォルダの中の [ ] | も断る */

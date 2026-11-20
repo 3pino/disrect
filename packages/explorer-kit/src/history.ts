@@ -130,7 +130,7 @@ export function copyEntry(api: Pick<Api, 'copy' | 'trash' | 'restore'>, copies: 
         async (c) => {
           const t = trashed.get(c.to);
           // 入れたコピーを戻せるなら戻す（中身が同じ）。無ければ、もう一度コピーする
-          if (t) await api.restore(t.id);
+          if (t && t.id !== '') await api.restore(t.id);
           else await api.copy(c.from, c.to);
           trashed.delete(c.to);
           onChange(c.to);

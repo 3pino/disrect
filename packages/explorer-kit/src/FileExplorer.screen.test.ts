@@ -603,7 +603,7 @@ describe('表示方法と並び順', () => {
 
   it('詳細は列の見出しを出し、種類・サイズ・更新日時を各項目に出す', async () => {
     const el = await render();
-    const heads = [...el.querySelectorAll('.file-explorer-columns span:not(.file-explorer-col-actions)')].map((x) => x.textContent);
+    const heads = [...el.querySelectorAll('.file-explorer-columns span:not(.file-explorer-col-actions):not(.file-explorer-col-grip)')].map((x) => x.textContent);
     expect(heads).toEqual(['名前', '種類', 'サイズ', '更新日時']);
     const pic = [...el.querySelectorAll('.file-explorer-item')].find((li) => li.textContent?.includes('pic.png'))!;
     expect(pic.querySelector('.file-explorer-col-kind')?.textContent).toBe('画像');
@@ -2142,8 +2142,10 @@ describe('選んだ項目への操作は、同時に 1 つだけ（確認の途�
 
 /* ---- 特別なフォルダの中・OS のドロップの途中で置き場所が変わったとき・ドラッグの印 ---- */
 
-describe('特別なフォルダの中では、ファイルだけ作れる（フォルダは作れない）', () => {
-  it('新しいファイルは、special の中の ≡ にもある。末尾が / の名前（フォルダ）は、断る', async () => {
+describe('特別なフォルダの中でも、「新しいファイル」は出る（フォルダを断るのは置き場所の側）', () => {
+  it('新しいファイルは、special の中の ≡ にもある。末尾が / の名前（フォルダ）も、部品は断らず置き場所に任せる（失敗は理由を出す）', async () => {
+    h.mkdir.mockClear();
+    h.mkdir.mockRejectedValueOnce(new Error('403 Forbidden'));
     const el = await render();
     expect(menuLabels(el)).toContain('新しいファイル');
     fileExplorer.open('special');
@@ -2155,8 +2157,8 @@ describe('特別なフォルダの中では、ファイルだけ作れる（フ�
     input.value = 'sub/';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector<HTMLFormElement>('.file-explorer-mkdir')!.requestSubmit();
-    await vi.waitFor(() => expect(document.querySelector('.file-explorer-mkdir-error')?.textContent).toBe('特別なフォルダ内にフォルダは作れません'));
-    expect(h.mkdir).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(h.mkdir).toHaveBeenCalledWith('special/sub'));
+    await vi.waitFor(() => expect(document.querySelector('.file-explorer-mkdir-error')?.textContent).toContain('403'));
     expect(h.write).not.toHaveBeenCalled();
   });
 
@@ -2811,7 +2813,8 @@ describe('作成日時・フォルダのサイズの写し・貼り付けの予�
       await vi.advanceTimersByTimeAsync(450);
       flushSync();
       const text = el.querySelector('.file-explorer-paste-preview')?.textContent ?? '';
-      expect(text).toContain('.txt');
+      expect(text).toContain('テキスト');
+      expect(text).not.toContain('.txt');
       expect(text).toContain('こんにちは');
     } finally {
       vi.useRealTimers();
@@ -2907,5 +2910,157 @@ describe('道筋の欄・同じフォルダへの貼り付け', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(h.move).not.toHaveBeenCalled();
     expect(el.querySelector('.file-explorer-rename')).toBeNull();
+  });
+});
+
+describe('列の幅・待つカーソル・戻ったときのフォーカス・サイズの写し', () => {
+  beforeEach(() => {
+    dsk.desktop = true;
+    explorerSelection.desktop = true;
+    document.body.replaceChildren();
+  });
+  afterEach(() => {
+    explorerSelection.desktop = false;
+    ui.toasts.length = 0;
+  });
+
+  it('最初・最後の項目を選ぶ（Home・End。keymap で連続のキー G G にもできる）', async () => {
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    instance = mount(FileExplorer, { target, props: { explorer, keymap: { selectFirst: ['G G'], selectLast: ['End'] } } });
+    flushSync();
+    await vi.waitFor(() => expect(target!.querySelector('.file-explorer-list')).not.toBeNull());
+    const order = [...target.querySelectorAll<HTMLElement>('.file-explorer-item')].map((li) => li.dataset.path);
+    const press = (key: string, code: string): void => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true }));
+      flushSync();
+    };
+    press('End', 'End');
+    expect(explorerSelection.paths()).toEqual([order.at(-1)]);
+    expect(document.activeElement?.closest('.file-explorer-item')?.getAttribute('data-path')).toBe(order.at(-1));
+    // Home は、この keymap では割り当てていない（G G に置き換えた）
+    press('Home', 'Home');
+    expect(explorerSelection.paths()).toEqual([order.at(-1)]);
+    press('g', 'KeyG');
+    expect(explorerSelection.paths()).toEqual([order.at(-1)]);
+    press('g', 'KeyG');
+    expect(explorerSelection.paths()).toEqual([order[0]]);
+  });
+
+  it('右クリックのメニューと≡のメニューは、Esc で閉じる（下の画面の Esc＝選択解除は、動かない）', async () => {
+    const el = await render();
+    rowOf(el, 'a.txt').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 }));
+    flushSync();
+    await vi.waitFor(() => expect(document.querySelector('.file-explorer-context-menu')).not.toBeNull());
+    expect(explorerSelection.paths()).toEqual(['a.txt']);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    flushSync();
+    expect(document.querySelector('.file-explorer-context-menu')).toBeNull();
+    expect(explorerSelection.paths()).toEqual(['a.txt']);
+    // ≡ のメニュー
+    el.querySelector<HTMLButtonElement>('button[aria-label="メニュー"]')!.click();
+    flushSync();
+    expect(document.querySelector('.file-explorer-popup-menu')).not.toBeNull();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    flushSync();
+    expect(document.querySelector('.file-explorer-popup-menu')).toBeNull();
+    // メニューが無いときの Esc は、これまでどおり選択解除
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    flushSync();
+    expect(explorerSelection.paths()).toEqual([]);
+  });
+
+  it('詳細の見出しの境目をつまんで列の幅を変えられる（左へで広がり、変えたら知らせる）。ダブルクリックで既定に戻す', async () => {
+    const saved: unknown[] = [];
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    instance = mount(FileExplorer, { target, props: { explorer, columnWidths: { size: 100 }, oncolumnwidths: (w: unknown) => saved.push(w) } });
+    flushSync();
+    await vi.waitFor(() => expect(target!.querySelector('.file-explorer-list')).not.toBeNull());
+    const root = target.querySelector<HTMLElement>('.file-explorer')!;
+    expect(root.style.getPropertyValue('--col-size')).toBe('100px');
+    const grip = target.querySelector<HTMLElement>('.file-explorer-columns .file-explorer-col-kind .file-explorer-col-grip')!;
+    const ptr = (type: string, x: number): void => {
+      const ev = new MouseEvent(type, { clientX: x, button: 0, bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'pointerId', { value: 1 });
+      grip.dispatchEvent(ev);
+      flushSync();
+    };
+    // jsdom は幅を測れない（つまんだ列の幅は 0 扱い）ので、動いた距離だけを見る
+    ptr('pointerdown', 300);
+    ptr('pointermove', 240);
+    expect(root.style.getPropertyValue('--col-kind')).toBe('60px');
+    ptr('pointermove', -400); // 左へ行きすぎても上限で止まる
+    expect(root.style.getPropertyValue('--col-kind')).toBe('480px');
+    ptr('pointermove', 400); // 右へ行きすぎても下限で止まる
+    expect(root.style.getPropertyValue('--col-kind')).toBe('48px');
+    expect(saved).toEqual([]);
+    ptr('pointerup', 400);
+    expect(saved).toEqual([{ size: 100, kind: 48 }]);
+    grip.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    flushSync();
+    expect(root.style.getPropertyValue('--col-kind')).toBe('');
+    expect(saved.at(-1)).toEqual({ size: 100 });
+  });
+
+  it('同じフォルダへ貼り付けて、一覧に現れないまま 0.5 秒を超えたら、完了するまでカーソルを「待つ」にする', async () => {
+    vi.useFakeTimers();
+    try {
+      const el = await render();
+      let done = (): void => {};
+      h.copy.mockImplementation(
+        (_from: string, to: string) =>
+          new Promise((resolve) => {
+            done = () => {
+              h.current = [...listing, entry(to)];
+              resolve({} as Entry);
+            };
+          }),
+      );
+      explorerBuffer.set('copy', [{ path: 'a.txt', kind: 'file' }]);
+      flushSync();
+      pasteClick(el);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(el.querySelector('.file-explorer-wait')).toBeNull();
+      await vi.advanceTimersByTimeAsync(300);
+      expect(el.classList.contains('file-explorer-wait') || el.querySelector('.file-explorer-wait') !== null).toBe(true);
+      done();
+      await vi.advanceTimersByTimeAsync(50);
+      dirIndex.clear();
+      await vi.advanceTimersByTimeAsync(50);
+      flushSync();
+      await vi.waitFor(() => expect(el.querySelector<HTMLInputElement>('.file-explorer-rename')?.value).toBe('a copy.txt'));
+      expect(el.classList.contains('file-explorer-wait') || el.querySelector('.file-explorer-wait') !== null).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      h.current = null;
+    }
+  });
+
+  it('上の階層へ上がると、いたフォルダが選ばれてフォーカスされる（どれだったか分かる）。下へ入るときは、何も選ばない', async () => {
+    fileExplorer.open('docs');
+    const el = await render();
+    await vi.waitFor(() => expect(el.querySelector('.file-explorer-item')).not.toBeNull());
+    expect(explorerSelection.paths()).toEqual([]);
+    fileExplorer.up();
+    await vi.waitFor(() => expect(explorerSelection.paths()).toEqual(['docs']));
+    expect(document.activeElement?.closest('.file-explorer-item')?.getAttribute('data-path')).toBe('docs');
+  });
+
+  it('数えたフォルダのサイズは、タブを切り替えて（画面を作り直して）も数え直さない。数え待ちのフォルダは、みな「…」を出す', async () => {
+    h.folderSize.mockClear();
+    h.folderSize.mockImplementation(() => new Promise(() => {})); // 数え終わらない
+    const el = await render();
+    await vi.waitFor(() => expect(rowOf(el, 'docs').querySelector('.file-explorer-col-size')?.textContent).toBe('…'));
+    h.folderSize.mockReset();
+    h.folderSize.mockImplementation(async () => ({ size: 2048, partial: false }));
+    await unmount(instance!);
+    target!.remove();
+    instance = undefined;
+    // 1 つ目の画面で、数えていたものを、数え終えたことにする
+    explorer.folderSizeCache.set('docs', { value: { size: 4096, partial: false }, modified: listing.find((e) => e.name === 'docs')!.modified });
+    const again = await render();
+    await vi.waitFor(() => expect(rowOf(again, 'docs').querySelector('.file-explorer-col-size')?.textContent).toBe('4.0 KB'));
+    expect(h.folderSize).not.toHaveBeenCalledWith('docs');
   });
 });

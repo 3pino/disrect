@@ -20,7 +20,10 @@
   let {
     updater,
     addBack,
+    active = true,
   }: {
+    /** いま設定のタブを見ているか（他のタブを見ているあいだも、この画面は作ったまま。そのあいだは「戻る」を受けない） */
+    active?: boolean;
     /** 「戻る」の操作（Alt+←・マウスの戻る・Android の戻る）を受ける層を足す（外す関数を返す）。ホットキーの画面のあいだ、設定のいちばん上へ戻る */
     addBack?: (run: () => void) => () => void;
     updater: {
@@ -43,7 +46,7 @@
   onMount(() => void updater.loadVersion());
   // ホットキーの画面では、「戻る」の操作は、設定のいちばん上へ戻る
   $effect(() => {
-    if (sub === null || !addBack) return;
+    if (sub === null || !active || !addBack) return;
     // 層を足す処理は、状態を読み書きするので、この効果の依存にしない
     return untrack(() => addBack(() => (sub = null)));
   });

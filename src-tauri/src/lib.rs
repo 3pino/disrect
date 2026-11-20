@@ -77,9 +77,16 @@ async fn fs_copy(from: String, to: String, overwrite: Option<bool>) -> FsResult<
     blocking("fs_copy", move || fs::copy(&fs::abs(&from)?, &fs::abs(&to)?, overwrite.unwrap_or(false))).await
 }
 
+/// ゴミ箱へ入れる。戻すときの印（OS のゴミ箱の id。Android は、アプリ内のゴミ箱を `fs_trash_list` で見るので無し）
 #[tauri::command]
-async fn fs_trash(path: String) -> FsResult<()> {
+async fn fs_trash(path: String) -> FsResult<Option<String>> {
     blocking("fs_trash", move || fs::trash(&fs::abs(&path)?)).await
+}
+
+/// OS のゴミ箱から、元の場所へ戻す（元に戻す・Ctrl+Z）。戻したパスを返す
+#[tauri::command]
+async fn fs_os_trash_restore(id: String) -> FsResult<String> {
+    blocking("fs_os_trash_restore", move || fs::os_trash_restore(&id)).await
 }
 
 /// 完全に削除する（Android だけ。ゴミ箱の無い場所の確認つきの削除）
@@ -238,6 +245,7 @@ pub fn run() {
             fs_move,
             fs_copy,
             fs_trash,
+            fs_os_trash_restore,
             fs_remove,
             fs_trash_list,
             fs_trash_restore,

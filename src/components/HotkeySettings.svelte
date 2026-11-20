@@ -23,4 +23,5 @@
   remove={(id, k) => hotkeys.remove(id as never, k)}
   reset={(id) => hotkeys.reset(id as never)}
   onrecording={(r) => (hotkeys.recording = r)}
+  options={{ sequences: true, search: true }}
 />
