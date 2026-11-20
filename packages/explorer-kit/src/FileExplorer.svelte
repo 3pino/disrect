@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick, untrack, type Snippet } from 'svelte';
+  import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import FileIcon from '@lucide/svelte/icons/file';
@@ -1269,6 +1269,14 @@
   // ---- 行の操作: 長押しで選択モードに入る。選択モードの中では、行を押すと開かずに選び直す ----
 
   let pressTimer: ReturnType<typeof setTimeout> | undefined;
+  // 画面を閉じたあとに、長押し・名前の書き換え・メニューの待ちが動いて、選びを変えないようにする
+  onDestroy(() => {
+    clearTimeout(pressTimer);
+    clearTimeout(renameTimer);
+    clearTimeout(ctxTimer);
+    clearTimeout(pastePreviewTimer);
+    clearInterval(scrollTimer);
+  });
   let pressFrom: { x: number; y: number } | null = null;
   /** 長押しで選択に入ったところ（直後のクリックは無視する） */
   let longPressed = false;

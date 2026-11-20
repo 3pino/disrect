@@ -17,7 +17,10 @@ const KIT = 'src/';
 let instance: ReturnType<typeof mount> | undefined;
 let target: HTMLElement | undefined;
 
-beforeEach(() => {
+beforeEach(async () => {
+  // 前の試験が、終わったあとに動く非同期の処理（見つけた項目を選ぶなど）で、選びを残していることがある。負荷のある環境（CI）で試験が揺れるので、一度待ってから空にする
+  await new Promise((r) => setTimeout(r, 0));
+  explorerSelection.clear();
   resetUi();
   h.upload.mockReset();
   h.upload.mockImplementation(() => ({ promise: new Promise(() => {}), abort: () => {} }));
