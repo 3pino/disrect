@@ -182,10 +182,7 @@ fn wsl_places() -> Vec<Place> {
 /// Docker Desktop の内部用（`docker-desktop`・`docker-desktop-data`）は、利用者のものではないので除く
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn wsl_distros(bytes: &[u8]) -> Vec<String> {
-    let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
-        .collect();
+    let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
     let text = String::from_utf16_lossy(&units);
     let mut out: Vec<String> = Vec::new();
     for line in text.lines() {
