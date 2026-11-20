@@ -38,6 +38,18 @@ pub fn looks_like_apk(head: &[u8]) -> bool {
 const UPDATE_DIR: &str = "update";
 const FILE_NAME: &str = "fixplor.apk";
 
+/// 原因の連なり（reqwest の文は「error sending request」だけで、原因が見えないため）
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut cur = e.source();
+    while let Some(c) = cur {
+        out.push_str(": ");
+        out.push_str(&c.to_string());
+        cur = c.source();
+    }
+    out
+}
+
 #[command]
 async fn download_apk<R: Runtime>(app: AppHandle<R>, url: String, on_progress: Channel<Progress>) -> Result<String, String> {
     use futures_util::StreamExt;
@@ -52,7 +64,7 @@ async fn download_apk<R: Runtime>(app: AppHandle<R>, url: String, on_progress: C
     let done = dir.join(FILE_NAME);
 
     let client = reqwest::Client::builder().user_agent("fixplor-updater").build().map_err(|e| e.to_string())?;
-    let resp = client.get(&url).send().await.map_err(|_| "GitHub に接続できません".to_string())?;
+    let resp = client.get(&url).send().await.map_err(|e| format!("GitHub に接続できません: {}", error_chain(&e)))?;
     if !resp.status().is_success() {
         return Err(format!("GitHub に接続できません (HTTP {})", resp.status().as_u16()));
     }

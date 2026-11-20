@@ -13,6 +13,9 @@ serde_json = "1"
 futures-util = "0.3"
 tokio = { version = "1", features = ["fs", "io-util"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream"] }
+# Android には、rustls が読める OS の証明書の置き場所が無い（native-roots は何も見つけず、すべての https が証明書で失敗する）ので、同梱の証明書（Mozilla）も使う
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "stream"] }
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
