@@ -2,18 +2,12 @@ import type { FsErrorCode, FsPlace } from './fs/types';
 
 // 利用者に見せる文（場所の名前・失敗の説明）。
 
-/** 左の一覧の名前 */
+/** 左の一覧の名前。フォルダは、日本語にせず、そのフォルダの名前（ホームはユーザーの名前、デスクトップは Desktop など）をそのまま出す */
 export function placeLabel(p: FsPlace): string {
   switch (p.kind) {
-    case 'home': return 'ホーム';
-    case 'desktop': return 'デスクトップ';
-    case 'documents': return 'ドキュメント';
-    case 'downloads': return 'ダウンロード';
-    case 'pictures': return 'ピクチャ';
-    case 'music': return 'ミュージック';
-    case 'videos': return 'ビデオ';
     case 'root': return 'コンピューター';
     case 'volume': return p.name || p.path;
+    default: return p.path.split(/[\\/]/).filter(Boolean).at(-1) ?? p.path;
   }
 }
 
@@ -38,8 +32,8 @@ const ERROR_TEXT: Record<FsErrorCode, string> = {
   precondition: '読んだあとに相手のファイルが変わっていたので、上書きしませんでした。再読み込みしてください',
   locked: '別の人が使っているので、変えられません',
   too_large: '大きすぎます',
-  no_space: '置き場所に空きがありません',
-  server: 'サーバーがうまく答えませんでした',
+  no_space: '空き容量が不十分です',
+  server: 'サーバーが正常に応答しませんでした',
   aborted: '中止しました',
   keychain: 'キーチェーンが使えません',
 };

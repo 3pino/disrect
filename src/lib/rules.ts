@@ -1,0 +1,155 @@
+import type { Entry } from '@3pino/explorer-kit';
+
+// 見た目のルール: 条件に合うファイル・フォルダに、アイコン・色・不透明度を与える（設定の「見た目のルール」）。画面に依らない。
+// 条件は、すべてに合うとき（AND）に、そのルールが当たる。ルールは上のものほど優先（見た目の項目ごとに、最初に当たったルールの値を使う）。
+
+export type RuleField = 'kind' | 'basename' | 'stem' | 'ext' | 'path';
+export type RuleOp = 'is' | 'contains' | 'startsWith' | 'endsWith' | 'regex';
+
+export type RuleCondition = {
+  field: RuleField;
+  op: RuleOp;
+  value: string;
+  /** 条件を逆にする（「でない」） */
+  not?: boolean;
+};
+
+export type RuleLook = {
+  /** アイコンの名前（ruleIcons.ts の一覧。`logo` はアプリのロゴ） */
+  icon?: string;
+  /** 色相（0〜360）。アプリの色と同じ明るさ・濃さで、この色相の色にする */
+  hue?: number;
+  /** 色（CSS の色。hue より優先） */
+  color?: string;
+  /** 行の不透明度（0.1〜1） */
+  opacity?: number;
+};
+
+export type AppearanceRule = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  conditions: RuleCondition[];
+  look: RuleLook;
+};
+
+export const FIELD_LABEL: Record<RuleField, string> = { kind: '種類', basename: '名前（拡張子を含む）', stem: '名前（拡張子を除く）', ext: '拡張子', path: 'パス' };
+export const OP_LABEL: Record<RuleOp, string> = { is: 'と等しい', contains: 'を含む', startsWith: 'で始まる', endsWith: 'で終わる', regex: '正規表現に合う' };
+/** 種類の値 */
+export const KIND_LABEL = { dir: 'フォルダ', file: 'ファイル' } as const;
+
+/** 項目から、条件で比べる値を取り出す（拡張子は、ドットなし。ドットで始まるだけの名前（.env）は、拡張子なし） */
+export function fieldValue(e: Pick<Entry, 'name' | 'path' | 'kind'>, field: RuleField): string {
+  switch (field) {
+    case 'kind':
+      return e.kind === 'dir' ? 'dir' : 'file';
+    case 'basename':
+      return e.name;
+    case 'path':
+      return e.path;
+    case 'stem':
+    case 'ext': {
+      // フォルダは、拡張子なし（`my.folder` の `folder` は拡張子ではない）
+      const dot = e.kind === 'dir' ? -1 : e.name.lastIndexOf('.');
+      if (dot <= 0) return field === 'stem' ? e.name : '';
+      return field === 'stem' ? e.name.slice(0, dot) : e.name.slice(dot + 1);
+    }
+  }
+}
+
+const regexes = new Map<string, RegExp | null>();
+function regexOf(source: string): RegExp | null {
+  if (regexes.has(source)) return regexes.get(source)!;
+  let re: RegExp | null = null;
+  try {
+    re = new RegExp(source, 'i');
+  } catch {
+    re = null;
+  }
+  if (regexes.size > 200) regexes.clear();
+  regexes.set(source, re);
+  return re;
+}
+
+/** 条件 1 つが、項目に合うか（正規表現が壊れていれば、合わない。「でない」を付けても、壊れていれば合わない） */
+export function matchesCondition(e: Pick<Entry, 'name' | 'path' | 'kind'>, c: RuleCondition): boolean {
+  const v = fieldValue(e, c.field);
+  let hit: boolean;
+  if (c.op === 'regex') {
+    const re = regexOf(c.value);
+    if (!re) return false;
+    hit = re.test(v);
+  } else {
+    const a = v.toLowerCase();
+    const b = c.value.toLowerCase();
+    hit = c.op === 'is' ? a === b : c.op === 'contains' ? a.includes(b) : c.op === 'startsWith' ? a.startsWith(b) : a.endsWith(b);
+  }
+  return c.not ? !hit : hit;
+}
+
+/** ルールが、項目に当たるか（使っていない・条件が空のルールは、当たらない） */
+export function matchesRule(e: Pick<Entry, 'name' | 'path' | 'kind'>, rule: AppearanceRule): boolean {
+  return rule.enabled && rule.conditions.length > 0 && rule.conditions.every((c) => matchesCondition(e, c));
+}
+
+/** 項目に当たるルールの見た目を、上から重ねる（見た目の項目ごとに、最初に決まったものを使う）。何も当たらなければ null */
+export function lookOf(e: Pick<Entry, 'name' | 'path' | 'kind'>, rules: readonly AppearanceRule[]): RuleLook | null {
+  let out: RuleLook | null = null;
+  for (const r of rules) {
+    if (!matchesRule(e, r)) continue;
+    out ??= {};
+    const l = r.look;
+    if (out.icon === undefined && l.icon) out.icon = l.icon;
+    if (out.color === undefined && out.hue === undefined) {
+      if (l.color) out.color = l.color;
+      else if (l.hue !== undefined) out.hue = l.hue;
+    }
+    if (out.opacity === undefined && l.opacity !== undefined) out.opacity = l.opacity;
+  }
+  return out;
+}
+
+/** 色相から作る色。明るさは、アプリの色（app.css の --rule-l）に合わせる */
+export const hueColor = (hue: number): string => `oklch(var(--rule-l, 0.6) 0.13 ${Math.round(hue)})`;
+
+// ---- 保存した値を読む（壊れた項目は捨てる） ----
+
+const FIELDS: readonly RuleField[] = ['kind', 'basename', 'stem', 'ext', 'path'];
+const OPS: readonly RuleOp[] = ['is', 'contains', 'startsWith', 'endsWith', 'regex'];
+
+function readCondition(x: unknown): RuleCondition | null {
+  const o = x as Partial<RuleCondition> | null;
+  if (!o || typeof o !== 'object' || !FIELDS.includes(o.field as RuleField) || !OPS.includes(o.op as RuleOp) || typeof o.value !== 'string') return null;
+  return { field: o.field as RuleField, op: o.op as RuleOp, value: o.value, ...(o.not ? { not: true } : {}) };
+}
+
+function readLook(x: unknown): RuleLook {
+  const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
+  const look: RuleLook = {};
+  if (typeof o.icon === 'string' && o.icon !== '') look.icon = o.icon;
+  if (typeof o.hue === 'number' && Number.isFinite(o.hue)) look.hue = Math.max(0, Math.min(360, o.hue));
+  if (typeof o.color === 'string' && o.color.trim() !== '') look.color = o.color.trim();
+  if (typeof o.opacity === 'number' && Number.isFinite(o.opacity)) look.opacity = Math.max(0.1, Math.min(1, o.opacity));
+  return look;
+}
+
+export function parseRules(raw: string | null): AppearanceRule[] {
+  if (raw === null) return [];
+  try {
+    const list: unknown = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list.flatMap((x): AppearanceRule[] => {
+      const o = x as Partial<AppearanceRule> | null;
+      if (!o || typeof o !== 'object' || typeof o.id !== 'string' || !Array.isArray(o.conditions)) return [];
+      const conditions = o.conditions.map(readCondition).filter((c): c is RuleCondition => c !== null);
+      return [{ id: o.id, name: typeof o.name === 'string' ? o.name : '', enabled: o.enabled !== false, conditions, look: readLook(o.look) }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** 新しいルール（フォルダ・名前が一致するだけの、空の見た目） */
+export function newRule(id: string): AppearanceRule {
+  return { id, name: '', enabled: true, conditions: [{ field: 'kind', op: 'is', value: 'dir' }], look: {} };
+}

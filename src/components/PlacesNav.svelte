@@ -9,7 +9,10 @@
     /** つながらなかった理由（あれば、印を出す） */
     broken?: string | null;
     open: () => void;
+    /** 新しいタブで開いて、そのタブへ移る */
     openTab: () => void;
+    /** 新しいタブで開く（いまのタブに残る） */
+    openTabStay?: () => void;
     openWindow?: () => void;
     /** ブックマークから外す（ブックマークだけ） */
     remove?: () => void;
@@ -43,6 +46,7 @@
     onaddnetwork,
     ondropdirs,
     onmovebookmark,
+    onmoveinto,
   }: {
     bookmarks: NavEntry[];
     drives: NavEntry[];
@@ -56,50 +60,163 @@
     ondropdirs: (paths: string[]) => void;
     /** ブックマークを並べ替えた（key と、動かしたあとの位置。ブックマークの一覧の中での 0 から数えた番号） */
     onmovebookmark: (key: string, toIndex: number) => void;
+    /** 一覧の項目をドラッグして、ブックマークの上に落とした（ブックマークの key と、移動かコピーか） */
+    onmoveinto: (key: string, op: 'move' | 'copy') => void;
   } = $props();
 
   let menu = $state.raw<{ entry: NavEntry; x: number; y: number } | null>(null);
-  let dropping = $state(false);
+  /** フォルダをドラッグして、「追加」の空きの上に来ている */
+  let addDropping = $state(false);
+  /** 一覧の項目をドラッグして、上に来ているブックマーク（落とすと、その中へ移る） */
+  let moveInto = $state<string | null>(null);
 
-  // ---- ブックマークの並べ替え（ドラッグ・Alt+↑↓・メニューの「上へ」「下へ」） ----
-  /** ドラッグしているブックマーク */
-  let dragKey = $state<string | null>(null);
-  /** 落とす位置の印（その行の、上か下） */
-  let slot = $state<{ key: string; after: boolean } | null>(null);
+  // ---- ブックマークの並べ替え（ドラッグ・Alt+↑↓・メニューの「上へ」「下へ」）。タブと同じく、ほかの行がずれて空き、落とすと滑って収まる ----
+  /** ドラッグしているブックマークの番号 */
+  let dragging = $state<number | null>(null);
+  /** 落とす席（いま指の下の、行の席の番号） */
+  let over = $state<number | null>(null);
+  /** 動かしている行の高さ。ほかの行をずらす量 */
+  let dragShift = $state(0);
+  /** ドラッグを始めた直後は、元の行を消さない（ブラウザがドラッグの絵を取るまで） */
+  let dragHidden = $state(false);
+  /** 落とした直後（並びを入れ替えるまで）は、ずれの動き（transition）を止める */
+  let settling = $state(false);
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+  let listEl: HTMLElement | undefined = $state();
   const BOOKMARK_DRAG = 'application/x-fixplor-bookmark';
 
   const indexOf = (key: string): number => bookmarks.findIndex((b) => b.key === key);
+  const isBookmarkDrag = (ev: DragEvent): boolean => !!ev.dataTransfer?.types.includes(BOOKMARK_DRAG);
+  const isItemDrag = (ev: DragEvent): boolean => !isBookmarkDrag(ev) && !!ev.dataTransfer?.types.includes(EXPLORER_DRAG_TYPE);
+
+  /**
+   * ポインターの y が、何番目の行の「席」の上か。席は、ずらす前の（レイアウトの）位置で決める。
+   * 見た目の位置（ずらしたあと）で決めると、ずれた行が指の下に来て、行き来してしまう
+   */
+  function slotAt(clientY: number, fallback: number): number {
+    const el = listEl;
+    const rows = [...(el?.querySelectorAll<HTMLElement>('[data-row-key]') ?? [])];
+    // 高さが測れない（画面が無い環境）ときは、指の下の行
+    if (!el || rows.length === 0 || rows.every((r) => r.offsetHeight === 0)) return fallback;
+    const top = el.getBoundingClientRect().top;
+    for (let k = 0; k < rows.length; k++) {
+      if (clientY < top + rows[k].offsetTop + rows[k].offsetHeight) return k;
+    }
+    return rows.length - 1;
+  }
+  /** k 番目の行を、動かしている行の空きの分だけずらす量（px） */
+  function shiftOf(k: number): number {
+    if (dragging === null || over === null || dragging === over) return 0;
+    if (dragging < over && k > dragging && k <= over) return -dragShift;
+    if (dragging > over && k >= over && k < dragging) return dragShift;
+    return 0;
+  }
+
   function bookmarkDragStart(ev: DragEvent, e: NavEntry): void {
     if (!ev.dataTransfer) return;
-    dragKey = e.key;
+    dragging = indexOf(e.key);
+    dragShift = (ev.currentTarget as HTMLElement).getBoundingClientRect().height;
+    // ブラウザがドラッグの絵を取るのは、この処理のあと。先に消すと、絵も消えるので、少し待つ
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      hideTimer = null;
+      if (dragging !== null) dragHidden = true;
+    }, 0);
     ev.dataTransfer.effectAllowed = 'move';
     ev.dataTransfer.setData(BOOKMARK_DRAG, e.key);
   }
   function bookmarkDragOver(ev: DragEvent, e: NavEntry): void {
-    if (dragKey === null) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
-    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-    slot = { key: e.key, after: ev.clientY > r.top + r.height / 2 };
+    if (isBookmarkDrag(ev)) {
+      if (dragging === null) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+      over = slotAt(ev.clientY, indexOf(e.key));
+    } else if (isItemDrag(ev)) {
+      // 一覧の項目: そのブックマークのフォルダへ移る（Ctrl を押していればコピー）
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = ev.ctrlKey ? 'copy' : 'move';
+      moveInto = e.key;
+    }
   }
-  function bookmarkDrop(ev: DragEvent): void {
-    if (dragKey === null || slot === null) return;
+  /** 行の並びの空き（行と行のあいだ・末尾）の上: 動かしている行の席を追う */
+  function listDragOver(ev: DragEvent): void {
+    if (!isBookmarkDrag(ev) || dragging === null) return;
     ev.preventDefault();
-    ev.stopPropagation();
-    const from = indexOf(dragKey);
-    const at = indexOf(slot.key) + (slot.after ? 1 : 0);
-    const key = dragKey;
+    over = slotAt(ev.clientY, over ?? dragging);
+  }
+  function bookmarkDragLeave(e: NavEntry): void {
+    if (moveInto === e.key) moveInto = null;
+  }
+  function bookmarkDrop(ev: DragEvent, e: NavEntry): void {
+    if (isBookmarkDrag(ev)) {
+      if (dragging === null) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      commitDrop(slotAt(ev.clientY, indexOf(e.key)));
+    } else if (isItemDrag(ev)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      moveInto = null;
+      onmoveinto(e.key, ev.ctrlKey ? 'copy' : 'move');
+    }
+  }
+  function listDrop(ev: DragEvent): void {
+    if (!isBookmarkDrag(ev) || dragging === null) return;
+    ev.preventDefault();
+    commitDrop(over ?? dragging);
+  }
+  /** 落とす: ずれた見た目の位置から滑らせるため、いまの位置を覚えてから、動きを止めて並べ替える */
+  function commitDrop(to: number): void {
+    const from = dragging;
+    if (from === null || from === to) {
+      bookmarkDragEnd();
+      return;
+    }
+    const key = bookmarks[from]?.key;
+    settling = true;
+    droppedFrom = rowTops();
     bookmarkDragEnd();
-    if (from < 0) return;
-    // 引き抜いたあとの位置
-    const to = from < at ? at - 1 : at;
-    if (to !== from) onmovebookmark(key, to);
+    if (key !== undefined) onmovebookmark(key, to);
   }
   function bookmarkDragEnd(): void {
-    dragKey = null;
-    slot = null;
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = null;
+    dragging = null;
+    over = null;
+    dragHidden = false;
   }
+
+  // ---- 並びが変わったときの動き（FLIP: 変わる前の位置から、新しい位置へ滑らせる） ----
+  const rowTops = (): Map<string, number> => {
+    const m = new Map<string, number>();
+    listEl?.querySelectorAll<HTMLElement>('[data-row-key]').forEach((el) => m.set(el.dataset.rowKey ?? '', el.getBoundingClientRect().top));
+    return m;
+  };
+  const orderKey = (): string => bookmarks.map((b) => b.key).join(',');
+  let before = new Map<string, number>();
+  let droppedFrom: Map<string, number> | null = null;
+  $effect.pre(() => {
+    void orderKey();
+    before = droppedFrom ?? rowTops();
+    droppedFrom = null;
+  });
+  $effect(() => {
+    void orderKey();
+    const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reduced) {
+      listEl?.querySelectorAll<HTMLElement>('[data-row-key]').forEach((el) => {
+        const old = before.get(el.dataset.rowKey ?? '');
+        if (old === undefined || typeof el.animate !== 'function') return;
+        const dy = old - el.getBoundingClientRect().top;
+        if (Math.abs(dy) < 1) return;
+        el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], { duration: 180, easing: 'ease-out' });
+      });
+    }
+    settling = false;
+  });
+
   /** メニューから（メニューを閉じると項目が消えるので、key を先に受け取っておく） */
   function moveFromMenu(key: string, step: -1 | 1): void {
     menu = null;
@@ -132,36 +249,39 @@
   }
 
   const isDirDrag = (ev: DragEvent): boolean => !!ev.dataTransfer?.types.includes(EXPLORER_DRAG_TYPE) && !!ev.dataTransfer.types.includes(EXPLORER_DRAG_DIR_TYPE);
-  function dragOver(ev: DragEvent): void {
+  /** 末尾の「追加」の空き: フォルダをここへ落とすと、ブックマークに足す */
+  function addOver(ev: DragEvent): void {
     if (!isDirDrag(ev)) return;
     ev.preventDefault();
     if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'link';
-    dropping = true;
+    addDropping = true;
   }
-  function dragLeave(ev: DragEvent): void {
+  function addLeave(ev: DragEvent): void {
     if (ev.relatedTarget instanceof Node && (ev.currentTarget as HTMLElement).contains(ev.relatedTarget)) return;
-    dropping = false;
+    addDropping = false;
   }
-  function drop(ev: DragEvent): void {
+  function addDrop(ev: DragEvent): void {
     if (!isDirDrag(ev)) return;
     ev.preventDefault();
-    dropping = false;
+    addDropping = false;
     const dirs = (explorerDragItems() ?? []).filter((i) => i.kind === 'dir').map((i) => i.path);
     if (dirs.length > 0) ondropdirs(dirs);
   }
 </script>
 
-{#snippet row(e: NavEntry, sortable = false)}
+{#snippet row(e: NavEntry, sortable = false, k = -1)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="place-row"
-    class:place-row-dragging={sortable && dragKey === e.key}
-    class:place-row-slot-before={sortable && slot?.key === e.key && !slot.after && dragKey !== e.key}
-    class:place-row-slot-after={sortable && slot?.key === e.key && slot.after && dragKey !== e.key}
+    class:place-row-dragging={sortable && dragging === k && dragHidden}
+    class:place-row-drop={sortable && moveInto === e.key}
+    data-row-key={sortable ? e.key : undefined}
+    style:transform={sortable && shiftOf(k) !== 0 ? `translateY(${shiftOf(k)}px)` : undefined}
     draggable={sortable}
     ondragstart={sortable ? (ev) => bookmarkDragStart(ev, e) : undefined}
     ondragover={sortable ? (ev) => bookmarkDragOver(ev, e) : undefined}
-    ondrop={sortable ? bookmarkDrop : undefined}
+    ondragleave={sortable ? () => bookmarkDragLeave(e) : undefined}
+    ondrop={sortable ? (ev) => bookmarkDrop(ev, e) : undefined}
     ondragend={sortable ? bookmarkDragEnd : undefined}
   >
     <button
@@ -182,17 +302,23 @@
   </div>
 {/snippet}
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<section class="places-section" class:places-section-drop={dropping} aria-label="ブックマーク" ondragover={dragOver} ondragleave={dragLeave} ondrop={drop}>
+<section class="places-section" aria-label="ブックマーク">
   <div class="places-head places-head-first">
     <span class="places-title">ブックマーク</span>
     <IconButton class="places-add" label="いま開いているフォルダをブックマークに追加" title={canAddBookmark ? 'いま開いているフォルダを追加' : 'ここは追加できません（設定の画面・追加済み）'} iconSize={14} disabled={!canAddBookmark} onclick={onaddbookmark}><Plus size={14} /></IconButton>
   </div>
-  {#each bookmarks as e (e.key)}
-    {@render row(e, true)}
-  {:else}
-    <p class="places-empty muted">フォルダをここへドラッグするか、＋で追加します</p>
-  {/each}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="places-list" class:places-list-settling={settling} bind:this={listEl} ondragover={listDragOver} ondrop={listDrop}>
+    {#each bookmarks as e, k (e.key)}
+      {@render row(e, true, k)}
+    {/each}
+  </div>
+  <!-- 末尾の空き: フォルダをここへドラッグして落とすと、ブックマークに足せる -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="places-add-slot" class:places-add-slot-drop={addDropping} ondragover={addOver} ondragleave={addLeave} ondrop={addDrop}>
+    <Plus size={14} />
+    <span class="muted">フォルダをここへドロップして追加</span>
+  </div>
 </section>
 
 <section class="places-section" aria-label="ドライブ">
@@ -232,20 +358,40 @@
     flex: none;
     border-radius: var(--radius-sm);
   }
-  /* ブックマークをドラッグして並べ替えるとき: 動かしている行は薄く、落とす位置は、行の上か下の線で示す */
+  /* ブックマークをドラッグして並べ替えるとき: 動かしている行は消え（空きに、ほかの行がずれて入る）、落とすと滑って収まる */
+  .places-list {
+    position: relative;
+  }
+  .places-list .place-row {
+    transition: transform 0.15s ease;
+  }
+  .places-list-settling .place-row {
+    transition: none;
+  }
   .place-row-dragging {
-    opacity: 0.4;
+    opacity: 0;
   }
-  .place-row-slot-before {
-    box-shadow: 0 -2px 0 0 var(--accent);
-  }
-  .place-row-slot-after {
-    box-shadow: 0 2px 0 0 var(--accent);
-  }
-  /* フォルダをドラッグして、ブックマークの上に来たときの印 */
-  .places-section-drop {
+  /* 一覧の項目をドラッグして、ブックマークの上に来たとき（その中へ移る）の印 */
+  .place-row-drop {
     outline: 1px dashed var(--accent);
     background: var(--accent-soft);
+  }
+  /* 末尾の「追加」の空き（フォルダを落として足せることを示す） */
+  .places-add-slot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-1) var(--space-2) 0;
+    padding: var(--space-1) var(--space-2);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: var(--fs-sm, 0.85em);
+  }
+  .places-add-slot-drop {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
   }
   .places-head {
     display: flex;
@@ -266,10 +412,6 @@
     width: 22px;
     height: 22px;
     padding: 0;
-  }
-  .places-empty {
-    margin: var(--space-1) var(--space-2);
-    font-size: var(--fs-sm, 0.85em);
   }
   .places-section :global(.menu-item) {
     width: 100%;

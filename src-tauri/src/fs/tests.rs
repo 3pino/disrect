@@ -481,3 +481,25 @@ mod search_tests {
         assert_eq!(out.partial, None);
     }
 }
+
+// ---- 依存（外部のコマンド）の有無 ----
+
+mod deps_tests {
+    use super::*;
+
+    #[test]
+    fn which_returns_the_first_candidate_that_runs_with_its_version() {
+        // cargo は、このテストを走らせている環境に必ずある
+        let found = which(&["no-such-command-xyz".to_string(), "cargo".to_string()]).expect("cargo");
+        assert_eq!(found.command, "cargo");
+        assert!(found.version.to_lowercase().contains("cargo"), "{}", found.version);
+    }
+
+    #[test]
+    fn which_is_none_when_nothing_runs_and_refuses_odd_names() {
+        assert_eq!(which(&["no-such-command-xyz".to_string()]), None);
+        assert_eq!(which(&[]), None);
+        // パス・空白・引数を含む名前は、起動しない
+        assert_eq!(which(&["/bin/echo".to_string(), "cargo --list".to_string(), "".to_string(), "a;b".to_string()]), None);
+    }
+}

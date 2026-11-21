@@ -3,6 +3,16 @@
 /* アプリの色味（中立色とアクセントの色相） */
 :root {
   --hue: 104;
+  /* 見た目のルールの、色相から作る色の明るさ（デザインシステムのアクセントの明るさに合わせる。ライトは 0.45、ダーク 0.74） */
+  --rule-l: 0.45;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --rule-l: 0.74;
+  }
+}
+:root[data-theme='dark'] {
+  --rule-l: 0.74;
 }
 
 html,

@@ -76,7 +76,7 @@ describe('エクスプローラーの画面（置き場所と本体は、渡さ�
 });
 
 describe('置き場所ごとの言葉', () => {
-  it('いちばん上の名前は、渡されたものを道筋の先頭に出す', async () => {
+  it('いちばん上の名前は、渡されたものをパスの先頭に出す', async () => {
     const { target } = open();
     await tick();
     expect(target.querySelector('.file-explorer-crumbs button')!.textContent).toBe('いちばん上');

@@ -139,7 +139,9 @@
         if (old === undefined || typeof el.animate !== 'function') return;
         const dx = old - el.getBoundingClientRect().left;
         if (Math.abs(dx) < 1) return;
-        el.animate([{ transform: `translateX(${dx}px)` }, { transform: 'translateX(0)' }], { duration: 180, easing: 'ease-out' });
+        const anim = el.animate([{ transform: `translateX(${dx}px)` }, { transform: 'translateX(0)' }], { duration: 180, easing: 'ease-out' });
+        // 滑らせている間は、ずらした分だけ、はみ出して見える（右の影が付いたままになる）。終わったら測り直す
+        anim.finished?.then(measureScroll, () => {});
       });
     }
     settling = false;
@@ -188,10 +190,27 @@
     return dirs.length === 1 ? first : `${first} ほか ${dirs.length - 1} 件`;
   }
 
+  /**
+   * ポインターの x が、何番目のタブの「席」の上か。席は、ずらす前の（レイアウトの）位置で決める。
+   * 見た目の位置（ずらしたあと）で決めると、ずれたタブが指の下に来て、行き来してしまう
+   */
+  function slotAt(clientX: number, fallback: number): number {
+    const el = scroller;
+    const tabEls = [...(el?.querySelectorAll<HTMLElement>('[data-tab-id]') ?? [])];
+    // 幅が測れない（画面が無い環境）ときは、指の下のタブ
+    if (!el || tabEls.length === 0 || tabEls.every((t) => t.offsetWidth === 0)) return fallback;
+    const base = el.getBoundingClientRect().left - el.scrollLeft - el.offsetLeft;
+    for (let k = 0; k < tabEls.length; k++) {
+      const t = tabEls[k];
+      if (clientX < base + t.offsetLeft + t.offsetWidth) return k;
+    }
+    return tabEls.length - 1;
+  }
+
   function dragOverTab(ev: DragEvent, i: number): void {
     if (isTabDrag(ev)) {
       ev.preventDefault();
-      over = i;
+      over = slotAt(ev.clientX, i);
     } else if (isFolderDrag(ev)) {
       ev.preventDefault();
       ev.stopPropagation();
@@ -229,6 +248,8 @@
       else touchGhost();
     } else if (isTabDrag(ev)) {
       ev.preventDefault();
+      // タブの間・空きの上でも、席を追う
+      over = slotAt(ev.clientX, over ?? 0);
     }
   }
   /** 点線のタブの上。位置は、そのまま */
@@ -252,7 +273,7 @@
   function dropOnTab(ev: DragEvent, i: number): void {
     ev.preventDefault();
     ev.stopPropagation();
-    if (isTabDrag(ev)) commitMove(i);
+    if (isTabDrag(ev)) commitMove(slotAt(ev.clientX, i));
     else dropFolders(ev);
   }
   function dropOnBar(ev: DragEvent): void {
@@ -381,7 +402,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    padding: var(--space-1) var(--space-3) 0;
+    padding: 0 var(--space-3);
     border-bottom: 1px solid var(--border);
     background: var(--surface-2);
     flex: none;
@@ -397,8 +418,9 @@
     position: relative;
     display: flex;
     min-width: 0;
-    /* アクティブなタブの上の線（border-top）が、欄の端で切れないように */
-    padding-top: 1px;
+    /* 上の隙間（タブの欄の上端から離す）。アクティブなタブの上の線（border-top）が、欄の端で切れないように 1px 足す。
+       上に隙間が要るのは、ここと「＋」と空きだけ（ロゴ・ウィンドウの操作は、上端まで使う） */
+    padding-top: calc(var(--space-1) + 1px);
   }
   .tabs {
     display: flex;
@@ -442,6 +464,10 @@
     flex: 1;
     align-self: stretch;
     min-width: 24px;
+    margin-top: var(--space-1);
+  }
+  .tabbar :global(.tab-add) {
+    margin-top: var(--space-1);
   }
   .tab {
     display: flex;

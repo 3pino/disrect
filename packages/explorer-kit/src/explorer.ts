@@ -19,7 +19,7 @@ export type ExplorerCaps = {
 
 /** 置き場所ごとの言葉（画面に出す文字） */
 export type ExplorerLabels = {
-  /** いちばん上の名前（道筋の先頭。例: 「サーバー」「この端末」） */
+  /** いちばん上の名前（パスの先頭。例: 「サーバー」「この端末」） */
   root: string;
   /** 外のファイルを取り込む操作の名前（例: 「アップロード」）。省くと、その操作を出さない */
   upload?: string;
@@ -45,6 +45,13 @@ export type Explorer = {
   search: ExplorerSearch;
   /** 数えたフォルダのサイズの写し（タブを切り替えても、数え直さない） */
   folderSizeCache: FolderSizeCache;
+  /** フォルダごとに、最後に選んだ項目（パス）。戻る・下へ入る・上がるとき、そこを選び直す（アプリを閉じるまで。保存はしない） */
+  lastSelected: Map<string, string>;
+  /**
+   * いまドラッグしている項目（このエクスプローラーの一覧から始めたもの）を、別のフォルダへ移す・コピーする。画面（FileExplorer）が付ける。
+   * 一覧の外のドロップ先（左の欄のブックマークなど）が使う。ドラッグしていないときは、何もしない
+   */
+  dropDragged: ((destDir: string, op: 'move' | 'copy') => Promise<void>) | null;
 };
 
 /** 数えたフォルダのサイズ（パス → 値と、そのときのフォルダの更新日時）。更新日時が同じなら、数え直さない */
@@ -94,7 +101,9 @@ export function createExplorer(options: ExplorerOptions): Explorer {
   const search = new ExplorerSearch(options.api, (e) => options.host.errorText(e), options.searchDelayMs);
   const scope = options.scope ?? FIXED_SCOPE;
   const folderSizeCache: FolderSizeCache = options.folderSizeCache ?? new Map();
+  const lastSelected = new Map<string, string>();
   scope.onChange(() => {
+    lastSelected.clear();
     folderSizeCache.clear();
     own?.clear();
     nav.reset();
@@ -117,5 +126,7 @@ export function createExplorer(options: ExplorerOptions): Explorer {
     view,
     search,
     folderSizeCache,
+    lastSelected,
+    dropDragged: null,
   };
 }

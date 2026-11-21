@@ -166,6 +166,12 @@ fn fs_search_cancel(searches: tauri::State<'_, Searches>, job: String) -> bool {
     }
 }
 
+/// 外部のコマンド（依存）が入っているか。候補の名前を順に試して、最初に呼べたもの（名前と版）を返す。無ければ null
+#[tauri::command]
+async fn fs_which(candidates: Vec<String>) -> FsResult<Option<fs::Found>> {
+    blocking("fs_which", move || Ok(fs::which(&candidates))).await
+}
+
 #[tauri::command]
 async fn fs_places() -> FsResult<Vec<Place>> {
     blocking("fs_places", || Ok(fs::places())).await
@@ -253,6 +259,7 @@ pub fn run() {
             fs_size,
             fs_search,
             fs_search_cancel,
+            fs_which,
             fs_places,
             fs_start_dir,
             fs_open,

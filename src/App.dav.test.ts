@@ -130,7 +130,7 @@ describe('ネットワークの場所（WebDAV）', () => {
     app = mount(App, { target });
     await settle();
     await addPlace();
-    expect(sideNames()).toEqual(['ホーム', '自宅']);
+    expect(sideNames()).toEqual(['me', '自宅']);
     expect(called('dav_list')).toEqual([{ place: places.list[0].id, base: 'https://nas.example/dav/', path: '' }]);
     expect(called('dav_cred_set')).toEqual([]);
     expect(names()).toEqual(['docs', 'a.txt']);
@@ -155,7 +155,7 @@ describe('ネットワークの場所（WebDAV）', () => {
     places.add('職場', 'https://work.example/webdav/');
     app = mount(App, { target });
     await settle();
-    expect(sideNames()).toEqual(['ホーム', '職場']);
+    expect(sideNames()).toEqual(['me', '職場']);
     expect(called('dav_list')).toEqual([]);
     button('職場').click();
     await settle();
@@ -173,7 +173,7 @@ describe('ネットワークの場所（WebDAV）', () => {
     target.querySelector<HTMLElement>('.file-explorer-row')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await settle();
     expect(names()).toEqual(['in.txt']);
-    button('ホーム').click();
+    button('me').click();
     await settle();
     expect(names()).toEqual(['local.txt']);
     button('自宅').click();
@@ -235,7 +235,7 @@ describe('ネットワークの場所（WebDAV）', () => {
     type('place-url', 'https://old.example/dav');
     submit();
     await settle();
-    expect(sideNames()).toEqual(['ホーム', '実家']);
+    expect(sideNames()).toEqual(['me', '実家']);
     expect(called('dav_list').at(-1)).toEqual({ place: expect.any(String), base: 'https://old.example/dav/', path: '' });
 
     button('「実家」を直す').click();
@@ -245,7 +245,7 @@ describe('ネットワークの場所（WebDAV）', () => {
     expect(document.querySelector('.modal')!.textContent).toContain('サーバーのファイルは消えません');
     button('外す').click();
     await settle();
-    expect(sideNames()).toEqual(['ホーム']);
+    expect(sideNames()).toEqual(['me']);
     expect(places.list).toEqual([]);
     expect(names()).toEqual(['local.txt']);
     expect(called('dav_remove')).toEqual([]);
@@ -284,7 +284,7 @@ describe('認証（Basic・OS のキーチェーン）', () => {
     expect(credSets()).toEqual([{ place: places.list[0].id, base: 'https://nas.example/dav/', user: 'taro', password: 's3cret' }]);
     expect(localStorage.getItem('fixplor.places')).not.toMatch(/s3cret|taro/);
     expect(JSON.stringify(Object.fromEntries(Object.entries(localStorage)))).not.toContain('s3cret');
-    expect(sideNames()).toEqual(['ホーム', '自宅']);
+    expect(sideNames()).toEqual(['me', '自宅']);
     // 入力欄は伏せ字
     button('「自宅」を直す').click();
     await settle();

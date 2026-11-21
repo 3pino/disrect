@@ -174,7 +174,7 @@ describe('置き場所の書き込み', () => {
     expect(h.write).not.toHaveBeenCalled();
   });
 
-  it('上端は共通の見出し（PanelBar = .top-bar）の 1 行: 道筋の欄と、右の操作（検索・メニュー）。件数と選んだ項目の操作は下端', async () => {
+  it('上端は共通の見出し（PanelBar = .top-bar）の 1 行: パス欄と、右の操作（検索・メニュー）。件数と選んだ項目の操作は下端', async () => {
     const el = await render();
     expect(el.querySelectorAll('header')).toHaveLength(1);
     const bar = el.querySelector('.panel-bar');
@@ -2410,6 +2410,54 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     expect(ctxItems()).toEqual(['コピー', '切り取り', '削除']);
   });
 
+  async function renderWith(extra: Record<string, unknown>): Promise<HTMLElement> {
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    instance = mount(FileExplorer, { target, props: { explorer, ...extra } });
+    flushSync();
+    await vi.waitFor(() => expect(target!.querySelector('.file-explorer-list')).not.toBeNull());
+    return target;
+  }
+
+  it('menuLayout: 項目のメニューの順番と、出さない項目を決められる。決めていない項目は、既定の順で後ろに続く', async () => {
+    const el = await renderWith({ menuLayout: { entry: { order: ['properties', 'delete'], hidden: ['cut'] } } });
+    rightClick(el, 'a.txt');
+    expect(ctxItems()).toEqual(['プロパティ', '削除', 'コピー', '名前の変更']);
+  });
+
+  it('menuLayout: 空きのメニューも決められる。全部を出さなければ、メニューは出ない', async () => {
+    h.clip.text = 'hello';
+    let el = await renderWith({ menuLayout: { space: { order: ['paste', 'newFile'], hidden: ['upload'] } } });
+    el.querySelector<HTMLElement>('.file-explorer-body')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 50, clientY: 600 }));
+    await vi.waitFor(() => expect(ctxItems()).toEqual(['貼り付け', '新しいファイル']));
+    await unmount(instance!);
+    instance = undefined;
+    target?.remove();
+    document.body.replaceChildren();
+    el = await renderWith({ menuLayout: { space: { hidden: ['upload', 'newFile', 'paste'] } } });
+    el.querySelector<HTMLElement>('.file-explorer-body')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 50, clientY: 600 }));
+    flushSync();
+    expect(document.querySelector('.file-explorer-context .menu')).toBeNull();
+  });
+
+  it('entryStyle: 条件に合う項目に、アイコン（部品・画像）・色・不透明度を与える。詳細でも、アイコン表示でも。合わない項目は既定のまま', async () => {
+    const entryStyle = (e: { name: string }) =>
+      e.name === 'a.txt' ? { icon: { src: '/icon.svg' }, color: 'rgb(1, 2, 3)', opacity: 0.5 } : e.name === 'docs' ? { color: 'red' } : null;
+    const el = await renderWith({ entryStyle });
+    const a = rowOf(el, 'a.txt');
+    expect(a.querySelector('.file-explorer-icon img.file-explorer-glyph-img')!.getAttribute('src')).toBe('/icon.svg');
+    expect(a.style.getPropertyValue('--entry-color')).toBe('rgb(1, 2, 3)');
+    expect(a.style.opacity).toBe('0.5');
+    expect(rowOf(el, 'docs').style.getPropertyValue('--entry-color')).toBe('red');
+    expect(rowOf(el, 'docs').querySelector('.file-explorer-icon svg')).not.toBeNull(); // アイコンは既定のフォルダ
+    const pic = rowOf(el, 'pic.png');
+    expect(pic.style.getPropertyValue('--entry-color')).toBe('');
+    expect(pic.style.opacity).toBe('');
+    explorerView.setView('', 'grid');
+    flushSync();
+    expect(rowOf(el, 'a.txt').querySelector('.file-explorer-thumb img.file-explorer-glyph-img')).not.toBeNull();
+  });
+
   it('メニューの「削除」は、確認なしでゴミ箱へ移す', async () => {
     const el = await render();
     rightClick(el, 'a.txt');
@@ -2714,6 +2762,41 @@ describe('キーボードの操作（PC）: 矢印で項目を移る・ホット
     expect(h.trash).not.toHaveBeenCalled();
   });
 
+  it('ゴミ箱へ移せない項目（api.trashable が偽。WSL の中など）は、Delete でも、確認のうえ完全に削除する（元に戻せない）', async () => {
+    await render();
+    explorer.api.trashable = (p) => p !== 'a.txt';
+    try {
+      explorerSelection.replace(['pic.png']);
+      press('Delete');
+      await vi.waitFor(() => expect(h.trash).toHaveBeenCalledWith('pic.png')); // 移せるものは、確認なしでゴミ箱へ
+      expect(ui.confirmReq).toBeNull();
+      await new Promise((r) => setTimeout(r, 50)); // 1 つ目の削除が終わるのを待つ
+      explorerSelection.replace(['a.txt']);
+      press('Delete');
+      await vi.waitFor(() => expect(ui.confirmReq).not.toBeNull());
+      expect(ui.confirmReq!.body).toContain('元に戻せません');
+      expect(h.trash).toHaveBeenCalledTimes(1);
+      ui.confirmReq!.resolve(true);
+      await vi.waitFor(() => expect(h.remove).toHaveBeenCalledWith('a.txt'));
+    } finally {
+      delete explorer.api.trashable;
+    }
+  });
+
+  it('矢印: Shift を押しながらの矢印は、選びに足す操作（extendUp など）。keymap で外せば、足さない', async () => {
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    instance = mount(FileExplorer, { target, props: { explorer, keymap: { extendDown: [] } } });
+    flushSync();
+    await vi.waitFor(() => expect(target!.querySelector('.file-explorer-list')).not.toBeNull());
+    press('ArrowDown');
+    expect(selected()).toEqual(['docs']);
+    press('ArrowDown', { shiftKey: true }); // 外したので、何も起きない
+    expect(selected()).toEqual(['docs']);
+    press('ArrowUp', { shiftKey: true }); // extendUp は既定のまま（先頭では動かないが、足す側の操作として働く）
+    expect(selected()).toEqual(['docs']);
+  });
+
   it('入力欄・名前の書き換え・開いているダイアログの中では、効かない', async () => {
     const el = await render();
     explorerSelection.replace(['a.txt']);
@@ -2825,7 +2908,7 @@ describe('作成日時・フォルダのサイズの写し・貼り付けの予�
   });
 });
 
-describe('道筋の欄・同じフォルダへの貼り付け', () => {
+describe('パス欄・同じフォルダへの貼り付け', () => {
   beforeEach(() => {
     dsk.desktop = true;
     explorerSelection.desktop = true;
@@ -2839,7 +2922,7 @@ describe('道筋の欄・同じフォルダへの貼り付け', () => {
   const field = (el: HTMLElement) => el.querySelector<HTMLElement>('.file-explorer-path')!;
   const input = (el: HTMLElement) => el.querySelector<HTMLInputElement>('.file-explorer-path-input');
 
-  it('道筋の欄の、パンくずでないところを押すと、道筋の文字を書き換えられる。Enter で移り、Esc でやめる', async () => {
+  it('パス欄の、パンくずでないところを押すと、パスの文字を書き換えられる。Enter で移り、Esc でやめる', async () => {
     const el = await render();
     expect(input(el)).toBeNull();
     field(el).click();
@@ -2852,7 +2935,7 @@ describe('道筋の欄・同じフォルダへの貼り付け', () => {
     flushSync();
     expect(input(el)).toBeNull();
     expect(explorerSelection.paths()).toEqual(['a.txt']);
-    // 書いて、Enter: その道筋へ移る
+    // 書いて、Enter: そのパスへ移る
     field(el).click();
     flushSync();
     await vi.waitFor(() => expect(input(el)).not.toBeNull());
@@ -2863,7 +2946,7 @@ describe('道筋の欄・同じフォルダへの貼り付け', () => {
     expect(input(el)).toBeNull();
   });
 
-  it('開けない道筋（読めない）なら、理由を出して、書き換えを続ける', async () => {
+  it('開けないパス（読めない）なら、理由を出して、書き換えを続ける', async () => {
     const el = await render();
     field(el).click();
     flushSync();
@@ -3048,6 +3131,24 @@ describe('列の幅・待つカーソル・戻ったときのフォーカス・�
     fileExplorer.up();
     await vi.waitFor(() => expect(explorerSelection.paths()).toEqual(['docs']));
     expect(document.activeElement?.closest('.file-explorer-item')?.getAttribute('data-path')).toBe('docs');
+  });
+
+  it('フォルダごとに、最後に選んだ項目を覚える。そのフォルダへ入る・戻るとき、そこを選び直す（上がったときは、いたフォルダ）', async () => {
+    const el = await render();
+    await vi.waitFor(() => expect(el.querySelector('.file-explorer-item')).not.toBeNull());
+    // docs へ入る（覚えが無いので、何も選ばない）。そこで pic.png を選んで、上へ上がる（いたフォルダ docs が選ばれる）
+    fileExplorer.open('docs');
+    await vi.waitFor(() => expect(h.list).toHaveBeenCalledWith('docs'));
+    await vi.waitFor(() => expect(el.querySelector('.file-explorer-item')).not.toBeNull());
+    expect(explorerSelection.paths()).toEqual([]);
+    explorerSelection.replace(['pic.png']);
+    await vi.waitFor(() => expect(explorer.lastSelected.get('docs')).toBe('pic.png'));
+    fileExplorer.up();
+    await vi.waitFor(() => expect(explorerSelection.paths()).toEqual(['docs']));
+    // もう一度 docs へ入ると、docs で最後に選んだ pic.png が選ばれる
+    fileExplorer.open('docs');
+    await vi.waitFor(() => expect(explorerSelection.paths()).toEqual(['pic.png']));
+    expect(document.activeElement?.closest('.file-explorer-item')?.getAttribute('data-path')).toBe('pic.png');
   });
 
   it('数えたフォルダのサイズは、タブを切り替えて（画面を作り直して）も数え直さない。数え待ちのフォルダは、みな「…」を出す', async () => {

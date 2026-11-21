@@ -67,9 +67,12 @@ export class ExplorerNav {
   /** 再読み込みを頼まれた回数（フォルダのサイズの写しを捨てる合図に使う） */
   reloads = $state(0);
 
-  /** 読み直す（失敗の「再読み込み」・F5） */
-  reload(): void {
-    this.reloads++;
+  /**
+   * 読み直す（失敗の「再読み込み」・F5）。`keepSizes` のときは、数えたフォルダのサイズを捨てない
+   * （隠しファイルの表示を切り替えただけのときなど。フォルダの大きさは変わらない）
+   */
+  reload(keepSizes = false): void {
+    if (!keepSizes) this.reloads++;
     this.index.invalidate(this.dir);
     this.index.ensure(this.dir);
   }

@@ -37,6 +37,7 @@
   import type { Sources } from './lib/fs/sources';
   import { HostState, createHost, externalOpener, failureText } from './lib/host.svelte';
   import { placeLabel } from './lib/labels';
+  import { entryStyleOf } from './lib/ruleStyle';
   import { allFilesGranted, openAllFilesSettings } from './lib/allFiles';
   import { startBackNav, type BackNav } from '@3pino/app-kit-web/core/backNav';
   import { places as saved, type DavPlace } from './lib/places.svelte';
@@ -436,15 +437,15 @@
   }
 
   /**
-   * 場所（置き場所 + フォルダ）を開く。here: このタブで（フォルダを省くと、その置き場所で最後に見ていたところ）/ tab: 新しいタブで / window: 新しいウィンドウで
+   * 場所（置き場所 + フォルダ）を開く。here: このタブで（フォルダを省くと、その置き場所で最後に見ていたところ）/ tab: 新しいタブで開いて移る / tabStay: 新しいタブで開く（このタブに残る）/ window: 新しいウィンドウで
    * （ウィンドウの操作が無い環境では、新しいタブ）。設定のタブを見ているときは、設定を残して、新しいタブで開く
    */
-  function openAt(place: string, dir?: string, how: 'here' | 'tab' | 'window' = 'here'): void {
+  function openAt(place: string, dir?: string, how: 'here' | 'tab' | 'tabStay' | 'window' = 'here'): void {
     if (how === 'window' && windowControls) {
       void openTabInNewWindow({ place, dir: dir ?? startDir(place) }).catch((e) => host.toast(`別のウィンドウで開けませんでした: ${failureText(e)}`, 'error'));
       return;
     }
-    if (how !== 'here' || activeTab().settings) return addTab({ place, dir: dir ?? startDir(place) });
+    if (how !== 'here' || activeTab().settings) return addTab({ place, dir: dir ?? startDir(place), focus: how !== 'tabStay' });
     const b = bundleIn(activeTab(), place);
     if (!b) return;
     setCurrent(b);
@@ -497,6 +498,7 @@
         current: !activeSettings && current?.id === b.place && explorer?.nav.dir === b.dir,
         open: () => openAt(b.place, b.dir),
         openTab: () => openAt(b.place, b.dir, 'tab'),
+        openTabStay: () => openAt(b.place, b.dir, 'tabStay'),
         openWindow: () => openAt(b.place, b.dir, 'window'),
         remove: () => bookmarks.remove(b.id),
       })),
@@ -506,6 +508,17 @@
   function moveBookmark(key: string, toIndex: number): void {
     const target = bookmarkEntries[toIndex];
     if (target) bookmarks.moveTo(key, target.key);
+  }
+
+  /** 一覧の項目を、ブックマークの上へドラッグして落とした: そのブックマークのフォルダへ移す（Ctrl を押していればコピー）。見ている置き場所のブックマークだけ */
+  function moveIntoBookmark(key: string, op: 'move' | 'copy'): void {
+    const b = bookmarks.list.find((x) => x.id === key);
+    if (!b) return;
+    if (!explorer || activeSettings || current?.id !== b.place) {
+      host.toast('別の置き場所のブックマークへは、移せません', 'error');
+      return;
+    }
+    void explorer.dropDragged?.(b.dir, op);
   }
 
   const driveEntries = $derived<NavEntry[]>([
@@ -691,8 +704,8 @@
 
   function toggleHidden(): void {
     settings.showHidden = !settings.showHidden;
-    // 一覧の写しは、隠しファイルを除いたもの。読み直す
-    explorer?.nav.reload();
+    // 一覧の写しは、隠しファイルを除いたもの。読み直す（フォルダのサイズは、数え直さない）
+    explorer?.nav.reload(true);
   }
 
   /** 選んでいる項目のうち、フォルダのパス（このフォルダの一覧で見つかるものだけ） */
@@ -949,6 +962,7 @@
           onaddnetwork={() => void openDialog()}
           ondropdirs={(paths) => addBookmarks(paths)}
           onmovebookmark={moveBookmark}
+          onmoveinto={moveIntoBookmark}
         />
         <!-- 版と、アプリの更新（新しい版があるときは点）。押すと「設定」のタブ -->
         <button class="about-row" type="button" onclick={openSettings}>
@@ -1005,7 +1019,7 @@
           </p>
         {/if}
         {#key current}
-          <FileExplorer {explorer} keymap={hotkeys.keymap} columnWidths={settings.columns} oncolumnwidths={(w) => (settings.columns = w)}>
+          <FileExplorer {explorer} keymap={hotkeys.keymap} columnWidths={settings.columns} oncolumnwidths={(w) => (settings.columns = w)} menuLayout={settings.menus} entryStyle={(e) => entryStyleOf(e, settings.rules)}>
             {#snippet lead()}
               <IconButton label="戻る" title="戻る" disabled={!host.canBack} onclick={() => host.back()}><ArrowLeft size={16} /></IconButton>
               <IconButton label="進む" title="進む" disabled={explorer.nav.future.length === 0} onclick={() => explorer?.nav.forward()}><ArrowRight size={16} /></IconButton>
@@ -1192,7 +1206,7 @@
   }
 </style>
 {#if bookmarkSearchOpen}
-  <BookmarkSearch entries={bookmarkEntries} onclose={() => (bookmarkSearchOpen = false)} />
+  <BookmarkSearch entries={bookmarkEntries} canWindow={windowControls} onclose={() => (bookmarkSearchOpen = false)} />
 {/if}
 {#if certDialog}
   <CertDialog place={certDialog.place} previous={certDialog.previous} probe={(base) => pins.probe(base)} ontrust={(fp) => trustCert(certDialog!.place, fp)} onclose={() => (certDialog = null)} />

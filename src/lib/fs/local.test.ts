@@ -131,6 +131,19 @@ describe('この端末の置き場所（Windows）', () => {
   });
 });
 
+describe('WSL の中は、ゴミ箱へ移せない（確認のうえ完全に削除する）', () => {
+  it('Windows の \\\\wsl$\\…・\\\\wsl.localhost\\… だけ。ふつうのドライブ・Linux では移せる', async () => {
+    const win = await createLocalFs({ call: fake({ fs_places: [{ kind: 'home', path: 'C:\\Users\\me', name: '' }] }, 'C:\\Users\\me').call });
+    const wsl = win.fromOsPath('\\\\wsl$\\Ubuntu\\home\\me\\a.txt');
+    expect(win.osPath(wsl)).toBe('\\\\wsl$\\Ubuntu\\home\\me\\a.txt');
+    expect(win.api.trashable?.(wsl)).toBe(false);
+    expect(win.api.trashable?.(win.fromOsPath('\\\\wsl.localhost\\Ubuntu\\x'))).toBe(false);
+    expect(win.api.trashable?.('C:/Users/me/a.txt')).toBe(true);
+    const lin = await createLocalFs({ call: fake({}).call });
+    expect(lin.api.trashable?.('home/me/a.txt')).toBe(true);
+  });
+});
+
 describe('既定のアプリで開くための URL', () => {
   it('パスを往復できる。ほかの URL は受けない', () => {
     expect(pathOfOpenHref(openHref('home/me/a b#1.txt'))).toBe('home/me/a b#1.txt');

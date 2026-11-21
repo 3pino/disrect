@@ -211,6 +211,8 @@ export async function createLocalFs(options: LocalOptions = {}): Promise<LocalFs
     async remove(path) {
       await run<void>('fs_remove', { path: os(path) });
     },
+    // Windows の WSL の中（\\wsl$\…・\\wsl.localhost\…）は、OS のゴミ箱に入らず、そのまま消えてしまう。確認のうえ完全に削除する
+    trashable: (path) => !(windows && /^\\\\wsl(\$|\.localhost)\\/i.test(toOsPath(path) ?? '')),
     // 元の場所へ戻す（同名・親の無さは Rust が断る）。Android のアプリの中のゴミ箱と、デスクトップの OS のゴミ箱（Windows・Linux。Ctrl+Z、「取り消す」）
     restore: async (id) => {
       if (!internal) {

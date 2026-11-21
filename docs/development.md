@@ -54,7 +54,7 @@ GitHub Actions: `CI`（型・試験・ビルド。Rust は Linux と Windows。A
 | `src/lib/fs/search.ts`・`src-tauri/src/fs/search.rs` | 検索（ネットワークの場所は手元で上限つき、この端末は Rust で流して返す） |
 | `src/lib/updateBackend.ts`・`updateWatch.ts`・`stores/updater.svelte.ts` | アプリの更新（土台 `@3pino/app-kit-web` の Updater）。Android は `src-tauri/gen/android` と、アプリの中のプラグイン（Kotlin）で APK を取って渡す |
 | `plugins/fixplor/` | Disnans のプラグイン（`plugins/fixplor/README.md`） |
-| `src/App.svelte` | 外枠（タブの欄（タイトルバーを兼ねる）・左の場所の一覧（幅は、つまみで変えられる。Android の狭い画面は引き出し））。戻る・進む・上へ・道筋は一覧の上端（header）、再読み込みは F5、隠しファイルは ≡ のメニュー。見た目は仮 |
+| `src/App.svelte` | 外枠（タブの欄（タイトルバーを兼ねる）・左の場所の一覧（幅は、つまみで変えられる。Android の狭い画面は引き出し））。戻る・進む・上へ・パスは一覧の上端（header）、再読み込みは F5、隠しファイルは ≡ のメニュー。見た目は仮 |
 
 ### リリース
 

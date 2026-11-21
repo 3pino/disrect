@@ -86,14 +86,14 @@ const row = (name: string): HTMLElement => {
 };
 
 describe('fixplor の画面（この端末のファイル）', () => {
-  it('ホームを開いて並べる。隠しファイルは出さない。道筋は、いちばん上からのフォルダの名前', async () => {
+  it('ホームを開いて並べる。隠しファイルは出さない。パスは、いちばん上からのフォルダの名前', async () => {
     app = mount(App, { target });
     await settle();
     expect(called('fs_list')).toEqual([{ path: '/home/me' }]);
     expect(names()).toEqual(['docs', 'a.txt']);
     expect([...target.querySelectorAll('.file-explorer-crumb')].map((c) => c.textContent)).toEqual(['コンピューター', 'home', 'me']);
     expect(target.querySelector('input[aria-label="場所"]')).toBeNull();
-    expect([...target.querySelectorAll('.places .menu-item')].map((b) => b.textContent)).toEqual(['ホーム', 'コンピューター']);
+    expect([...target.querySelectorAll('.places .menu-item')].map((b) => b.textContent)).toEqual(['me', 'コンピューター']);
   });
 
   it('隠しファイルの切り替えは、読み直して反映し、次に開いたときも覚えている', async () => {

@@ -102,9 +102,11 @@ const key = async (k: string, init: KeyboardEventInit = { ctrlKey: true }): Prom
   await settle();
   return ev;
 };
-/** 記録したキーは、連続のキーの次を待つあと（0.7 秒）に確定する */
+/** キーの記録は、ダイアログの「記録終了」を押して確定する */
+const dialogText = (): string => document.querySelector('[role="dialog"]')?.textContent ?? '';
 const commitKey = async (): Promise<void> => {
-  await new Promise((r) => setTimeout(r, 760));
+  const done = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent?.trim() === '記録終了');
+  done?.click();
   await settle();
 };
 /** 設定の「ホットキー」の画面を開き、節（既定は「タブ」）を開く */
@@ -115,7 +117,7 @@ const openHotkeys = async (...groups: string[]): Promise<void> => {
     if (t?.getAttribute('aria-expanded') !== 'true') await click(t!);
   }
 };
-/** 道筋（パンくず）のいちばん上から、フォルダを順に開いて行く（場所の欄は無い） */
+/** パス（パンくず）のいちばん上から、フォルダを順に開いて行く（場所の欄は無い） */
 const goTo = async (path: string): Promise<void> => {
   target.querySelector<HTMLElement>('.file-explorer-crumb')!.click();
   await settle();
@@ -499,11 +501,11 @@ describe('タブ', () => {
     // 新しいタブに、Ctrl+Y を足す（記録）
     (row('tab.new').querySelector('button[aria-label="新しいタブのキーを追加"]') as HTMLElement).click();
     await settle();
-    expect(row('tab.new').textContent).toContain('キーを押してください');
+    expect(dialogText()).toContain('キーを押してください');
     // 記録の間は、ほかの操作は働かない（Ctrl+T も、タブを作らずに記録される）
     const before = tabLabels().length;
     await key('Control', { ctrlKey: true }); // 修飾キーだけは、続きを待つ
-    expect(row('tab.new').textContent).toContain('キーを押してください');
+    expect(dialogText()).toContain('キーを押してください');
     await key('y');
     expect(tabLabels()).toHaveLength(before);
     await commitKey();
@@ -529,7 +531,7 @@ describe('タブ', () => {
   it('記録は、もう一度「＋」を押すと取り消す。Esc も、記録できる。ほかの操作と同じキーを足すと、警告を出す', async () => {
     await start();
     await click(target.querySelector('.about-row')!);
-    await openHotkeys('タブ', '選択・編集');
+    await openHotkeys('タブ', '選択');
     const row = (id: string): HTMLElement => target.querySelector<HTMLElement>(`[data-command="${id}"]`)!;
     (row('tab.prev').querySelector('button[aria-label="前のタブのキーを追加"]') as HTMLElement).click();
     await settle();
@@ -549,6 +551,8 @@ describe('タブ', () => {
     (row('tab.next').querySelector('button[aria-label="次のタブのキーを追加"]') as HTMLElement).click();
     await settle();
     await key('Escape', {});
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', bubbles: true, cancelable: true })); // 短く押す（長押しではキャンセル）
+    await settle();
     await commitKey();
     expect(row('tab.next').textContent).toContain('Esc');
     expect(row('tab.next').textContent).toContain('選択解除');
@@ -699,9 +703,9 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     places.add('自宅', 'https://nas.example/dav/');
     await start();
     expect([...target.querySelectorAll('.places-title')].map((t) => t.textContent)).toEqual(['ブックマーク', 'ドライブ']);
-    expect(marks()).toEqual(['ホーム']);
+    expect(marks()).toEqual(['me']);
     expect(drives()).toEqual(['自宅']);
-    expect(JSON.parse(localStorage.getItem('fixplor.bookmarks')!).map((b: { name: string }) => b.name)).toEqual(['ホーム']);
+    expect(JSON.parse(localStorage.getItem('fixplor.bookmarks')!).map((b: { name: string }) => b.name)).toEqual(['me']);
   });
 
   it('＋で、いま開いているフォルダを足す（足したものは、もう足せない）。右クリック（長押し）のメニューから、新しいタブで開く・ブックマークから削除', async () => {
@@ -710,7 +714,7 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     const add = target.querySelector<HTMLButtonElement>('button[aria-label="いま開いているフォルダをブックマークに追加"]')!;
     expect(add.disabled).toBe(false);
     await click(add);
-    expect(marks()).toEqual(['ホーム', 'docs']);
+    expect(marks()).toEqual(['me', 'docs']);
     expect(add.disabled).toBe(true);
     // 押すと、そのフォルダへ
     await click(target.querySelector('section[aria-label="ブックマーク"] .place-open')!);
@@ -724,13 +728,14 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     expect(tabLabels()).toEqual(['docs', 'docs']);
     await rightClick([...target.querySelectorAll('section[aria-label="ブックマーク"] .place-open')][1]);
     await menuClick('.places-menu-anchor', 'ブックマークから削除');
-    expect(marks()).toEqual(['ホーム']);
+    expect(marks()).toEqual(['me']);
     expect(document.querySelector('.places-menu-anchor')).toBeNull();
     // 全部消しても、入れ直さない
     await rightClick(target.querySelector('section[aria-label="ブックマーク"] .place-open')!);
     await menuClick('.places-menu-anchor', 'ブックマークから削除');
     expect(marks()).toEqual([]);
-    expect(target.querySelector('.places-empty')).not.toBeNull();
+    expect(target.querySelectorAll('section[aria-label="ブックマーク"] .place-row')).toHaveLength(0);
+    expect(target.querySelector('.places-add-slot')).not.toBeNull(); // 追加できる空きは、いつも出ている
   });
 
   it('ホットキー（設定で付ける）: ブックマークの n 番目を開く。ブックマークから検索（絞り込み・Enter で開く・Ctrl+Enter で新しいタブ・Esc で閉じる）', async () => {
@@ -739,7 +744,7 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     await click(target.querySelector('button[aria-label="いま開いているフォルダをブックマークに追加"]')!);
     await goTo('/home/me/pics');
     await click(target.querySelector('button[aria-label="いま開いているフォルダをブックマークに追加"]')!);
-    expect(marks()).toEqual(['ホーム', 'docs', 'pics']);
+    expect(marks()).toEqual(['me', 'docs', 'pics']);
     hotkeys.set('bookmark.goto2', ['Alt+2']);
     hotkeys.set('bookmark.goto9', ['Alt+9']);
     hotkeys.set('bookmark.search', ['Ctrl+P']);
@@ -753,7 +758,7 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     const input = (): HTMLInputElement => document.querySelector<HTMLInputElement>('[role="dialog"] input')!;
     expect(document.querySelector('[role="dialog"]')!.getAttribute('aria-label')).toBe('ブックマークから検索');
     const options = (): string[] => [...document.querySelectorAll('[role="dialog"] [role="option"]')].map((o) => o.querySelector('.bookmark-search-name')?.textContent ?? '');
-    expect(options()).toEqual(['ホーム', 'docs', 'pics']);
+    expect(options()).toEqual(['me', 'docs', 'pics']);
     input().value = 'pi';
     input().dispatchEvent(new Event('input', { bubbles: true }));
     await settle();
@@ -764,6 +769,9 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     expect(here()).toBe('コンピューター/home/me/pics');
     // Ctrl+Enter: 新しいタブ。Esc: 閉じる
     await key('p');
+    // 下に、開き方のキーを小さく出す（「フォルダを」は付けない。キーが無いものは出さない）
+    expect([...document.querySelectorAll('.bookmark-search-hint')].map((h) => h.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['開く Enter', '新しいタブで開いて移る Ctrl+Enter']);
+    expect(document.querySelector('[role="dialog"] input')!.getAttribute('placeholder')).toBeNull();
     input().value = 'doc';
     input().dispatchEvent(new Event('input', { bubbles: true }));
     await settle();
@@ -782,19 +790,19 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     await click(target.querySelector('button[aria-label="いま開いているフォルダをブックマークに追加"]')!);
     await goTo('/home/me/pics');
     await click(target.querySelector('button[aria-label="いま開いているフォルダをブックマークに追加"]')!);
-    expect(marks()).toEqual(['ホーム', 'docs', 'pics']);
+    expect(marks()).toEqual(['me', 'docs', 'pics']);
     const btn = (i: number): HTMLElement => [...target.querySelectorAll<HTMLElement>('section[aria-label="ブックマーク"] .place-open')][i];
     // メニュー: 下へ・上へ（端では押せない）
     await rightClick(btn(0));
     expect([...document.querySelectorAll('.places-menu-anchor .menu-item')].find((b) => b.textContent?.includes('上へ'))!.hasAttribute('disabled')).toBe(true);
     await menuClick('.places-menu-anchor', '下へ移動');
-    expect(marks()).toEqual(['docs', 'ホーム', 'pics']);
+    expect(marks()).toEqual(['docs', 'me', 'pics']);
     // Alt+↓（フォーカスは、動かしたブックマークに残る）
     btn(1).focus();
     btn(1).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }));
     await settle();
-    expect(marks()).toEqual(['docs', 'pics', 'ホーム']);
-    expect(document.activeElement?.textContent?.trim()).toBe('ホーム');
+    expect(marks()).toEqual(['docs', 'pics', 'me']);
+    expect(document.activeElement?.textContent?.trim()).toBe('me');
     // ドラッグ: ホームをいちばん上へ（最初の行の上半分へ落とす）
     const rowEl = (i: number): HTMLElement => btn(i).closest<HTMLElement>('.place-row')!;
     // jsdom には DragEvent・DataTransfer が無い
@@ -805,16 +813,68 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
       Object.defineProperty(e, 'dataTransfer', { value: { types: Object.keys(data), effectAllowed: '', dropEffect: '', setData: (k: string, v: string) => (data[k] = v), getData: (k: string) => data[k] ?? '' } });
       return e;
     };
-    rowEl(0).getBoundingClientRect = () => ({ top: 100, bottom: 130, height: 30, left: 0, right: 100, width: 100, x: 0, y: 100, toJSON() {} });
+    rowEl(2).getBoundingClientRect = () => ({ top: 160, bottom: 190, height: 30, left: 0, right: 100, width: 100, x: 0, y: 160, toJSON() {} });
     rowEl(2).dispatchEvent(ev('dragstart'));
     rowEl(0).dispatchEvent(ev('dragover', 105));
     await settle();
-    expect(rowEl(0).classList.contains('place-row-slot-before')).toBe(true);
+    // 動かしている行が空けた席へ、ほかの行がずれる（ホームの席へ入るので、docs・pics が 1 行ぶん下へ）
+    expect(rowEl(0).style.transform).toContain('translateY');
+    expect(rowEl(1).style.transform).toContain('translateY');
     rowEl(0).dispatchEvent(ev('drop', 105));
     await settle();
-    expect(marks()).toEqual(['ホーム', 'docs', 'pics']);
-    expect(rowEl(0).classList.contains('place-row-slot-before')).toBe(false);
-    expect(JSON.parse(localStorage.getItem('fixplor.bookmarks')!).map((b: { name: string }) => b.name)).toEqual(['ホーム', 'docs', 'pics']);
+    expect(marks()).toEqual(['me', 'docs', 'pics']);
+    expect(rowEl(0).style.transform).toBe('');
+    expect(JSON.parse(localStorage.getItem('fixplor.bookmarks')!).map((b: { name: string }) => b.name)).toEqual(['me', 'docs', 'pics']);
+  });
+
+  it('一覧のフォルダを左の欄の末尾の空きへ落とすと、ブックマークに足せる。ブックマークの上へ落とすと、その中へ移す（Ctrl でコピー）', async () => {
+    await start();
+    const types = ['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir'];
+    const slot = target.querySelector<HTMLElement>('.places-add-slot')!;
+    expect(marks()).toEqual(['me']);
+    // フォルダのドラッグ（ドラッグしている項目は、一覧の dragstart が覚える）
+    const folder = target.querySelector<HTMLElement>('.file-explorer-item[data-path="home/me/docs"]')!;
+    folder.dispatchEvent(drag('dragstart', [], {}));
+    slot.dispatchEvent(drag('dragover', types));
+    await settle();
+    expect(slot.classList.contains('places-add-slot-drop')).toBe(true);
+    slot.dispatchEvent(drag('drop', types));
+    await settle();
+    expect(marks()).toEqual(['me', 'docs']);
+    folder.dispatchEvent(drag('dragend', []));
+    // 項目のドラッグ（ファイルでもよい）を、ブックマークの上へ: その中へ移す。ドロップの前から、その行に印が付く
+    const file = target.querySelector<HTMLElement>('.file-explorer-item[data-path="home/me/a.txt"]')!;
+    file.dispatchEvent(drag('dragstart', []));
+    const row = target.querySelectorAll<HTMLElement>('section[aria-label="ブックマーク"] .place-row')[1];
+    row.dispatchEvent(drag('dragover', ['application/x-explorer-kit-items']));
+    await settle();
+    expect(row.classList.contains('place-row-drop')).toBe(true);
+    fake.calls.length = 0;
+    row.dispatchEvent(drag('drop', ['application/x-explorer-kit-items']));
+    await settle();
+    await vi.waitFor(() => expect(fake.calls.some((c) => c[0] === 'fs_move' && (c[1] as { to: string }).to === '/home/me/docs/a.txt')).toBe(true));
+  });
+
+  it('見た目のルールは一覧に効き、右クリックのメニューの並びは設定のとおりになる（設定の画面にも入口がある）', async () => {
+    settings.rules = [{ id: 'r', name: 'txt', enabled: true, conditions: [{ field: 'ext', op: 'is', value: 'txt' }], look: { icon: 'star', color: 'red', opacity: 0.5 } }];
+    settings.menus = { entry: { order: ['properties'], hidden: ['cut'] } };
+    try {
+      await start();
+      const row = target.querySelector<HTMLElement>('.file-explorer-item[data-path="home/me/a.txt"]')!;
+      expect(row.style.getPropertyValue('--entry-color')).toBe('red');
+      expect(row.style.opacity).toBe('0.5');
+      expect(target.querySelector<HTMLElement>('.file-explorer-item[data-path="home/me/docs"]')!.style.getPropertyValue('--entry-color')).toBe('');
+      await rightClick(row.querySelector('.file-explorer-row')!);
+      expect(menuItems('.file-explorer-context')).toEqual(['プロパティ', 'コピー', '名前の変更', '削除']); // 切り取りは出さない。ブックマークはフォルダだけ
+      // 設定の画面に、入口がある
+      await click(target.querySelector('.about-row')!);
+      expect(target.querySelector('.settings-link-menus')).not.toBeNull();
+      await click(target.querySelector('.settings-link-rules')!);
+      expect(target.querySelector('.rule-editor, .rules-list')).not.toBeNull();
+    } finally {
+      settings.rules = [];
+      settings.menus = {};
+    }
   });
 
   it('メニューは、外側を押す幕より手前に出る（position を持つ）。新しいウィンドウは、ウィンドウの操作がある環境だけ', async () => {
@@ -838,11 +898,11 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     await rightClick(row());
     expect(menuItems('.file-explorer-context')).toContain('ブックマークに追加');
     await menuClick('.file-explorer-context', 'ブックマークに追加');
-    expect(marks()).toEqual(['ホーム', 'docs']);
+    expect(marks()).toEqual(['me', 'docs']);
     await rightClick(row());
     expect(menuItems('.file-explorer-context')).toContain('ブックマークから削除');
     await menuClick('.file-explorer-context', 'ブックマークから削除');
-    expect(marks()).toEqual(['ホーム']);
+    expect(marks()).toEqual(['me']);
     // ファイルには出さない
     await rightClick([...target.querySelectorAll('.file-explorer-item')].find((li) => (li as HTMLElement).dataset.path === 'home/me/a.txt')!);
     expect(menuItems('.file-explorer-context').join()).not.toContain('ブックマーク');
@@ -855,7 +915,7 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     await click(button('自宅'));
     await goTo('/movies');
     await click(target.querySelector<HTMLButtonElement>('button[aria-label="いま開いているフォルダをブックマークに追加"]')!);
-    expect(marks()).toEqual(['ホーム', 'movies']);
+    expect(marks()).toEqual(['me', 'movies']);
     // 別の置き場所（この端末）にいても、押すと、その場所のフォルダを開く
     await click(target.querySelector('section[aria-label="ブックマーク"] .place-open')!);
     expect(activeLabel()).toBe('me');
@@ -866,7 +926,7 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     expect(menuItems('.places-menu-anchor')).toEqual(['新しいタブで開く', '直す・外す']);
     bookmarks.removePlace(p.place.id);
     await settle();
-    expect(marks()).toEqual(['ホーム']);
+    expect(marks()).toEqual(['me']);
   });
 
   it('戻る（Alt+←）・進む（Alt+→）。マウスの戻る・進むのボタンも同じ。上の階層へは Alt+↑ でも', async () => {
@@ -903,7 +963,7 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     await click(target.querySelector('.settings-link-hotkeys')!);
     expect(target.querySelectorAll('[data-command]')).toHaveLength(0);
     const toggles = [...target.querySelectorAll<HTMLElement>('.hotkey-group-toggle')];
-    expect(toggles.map((t) => t.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false', 'false', 'false', 'false']);
+    expect(toggles.map((t) => t.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false', 'false', 'false', 'false', 'false']);
     await click(toggles[1]);
     expect(target.querySelectorAll('[data-command]').length).toBeGreaterThan(5);
     await click(toggles[1]);
@@ -923,6 +983,8 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     window.dispatchEvent(ev);
     await settle();
     expect(ev.defaultPrevented).toBe(true);
+    expect(dialogText()).toContain('マウス進む');
+    await commitKey();
     expect(row('tab.new').textContent).toContain('マウス進む');
     expect(JSON.parse(localStorage.getItem('fixplor.hotkeys')!)).toEqual({ 'tab.new': ['Ctrl+T', 'Mouse5'] });
     // 設定のタブではない見ているタブで、そのボタンが効く

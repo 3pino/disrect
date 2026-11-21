@@ -80,7 +80,7 @@ describe('sortEntries（作成日時）', () => {
   });
 });
 
-describe('道筋の欄の文字（pathToText・textToPath）', () => {
+describe('パス欄の文字（pathToText・textToPath）', () => {
   it('表示は、先頭に / を付ける。ドライブ（C:）・ネットワーク（\\\\nas\\share）は、そのまま', () => {
     expect(listing.pathToText('')).toBe('/');
     expect(listing.pathToText('home/me')).toBe('/home/me');

@@ -48,5 +48,8 @@ describe('ExplorerNav（戻る・進む）', () => {
     nav.reload();
     nav.reload();
     expect(nav.reloads).toBe(2);
+    // サイズを残す読み直し（隠しファイルの表示の切り替え）は、数えない
+    nav.reload(true);
+    expect(nav.reloads).toBe(2);
   });
 });

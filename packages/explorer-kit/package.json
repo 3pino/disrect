@@ -15,8 +15,8 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@3pino/app-kit-web": ">=0.5.0",
-    "@3pino/ui-kit-web": ">=0.3.1",
+    "@3pino/app-kit-web": ">=0.6.0",
+    "@3pino/ui-kit-web": ">=0.3.2",
     "@lucide/svelte": "^1.53.0",
     "svelte": "^5.57.0"
   }

@@ -1,10 +1,11 @@
 import { getItem, setItem } from '@3pino/app-kit-web/core/storage';
-import type { ColumnWidths } from '@3pino/explorer-kit';
+import { parseMenuLayouts, type ColumnWidths, type MenuLayouts } from '@3pino/explorer-kit';
+import { parseRules, type AppearanceRule } from './rules';
 
 // 各デバイスに保存する設定（localStorage）。隠しファイルを出すか・フォルダごとの表示方法と並び順。
 // 使うキーは localKeys.ts に登録する（試験が止める）。
 
-const KEYS = { showHidden: 'fixplor.showHidden', dirs: 'fixplor.dirs', columns: 'fixplor.columns' } as const;
+const KEYS = { showHidden: 'fixplor.showHidden', dirs: 'fixplor.dirs', columns: 'fixplor.columns', menus: 'fixplor.menus', rules: 'fixplor.rules' } as const;
 
 /** 読む・書く（localStorage を直接は使わず、土台のストレージを通す。使えない環境や容量不足でも落ちない） */
 export const read = (key: string): string | null => getItem(key);
@@ -37,6 +38,8 @@ class Settings {
   #dirs = $state.raw<unknown>(parse(read(KEYS.dirs)));
 
   #columns = $state.raw<ColumnWidths>(parseColumns(read(KEYS.columns)));
+  #menus = $state.raw<MenuLayouts>(parseMenuLayouts(read(KEYS.menus)));
+  #rules = $state.raw<AppearanceRule[]>(parseRules(read(KEYS.rules)));
 
   get showHidden(): boolean {
     return this.#showHidden;
@@ -53,6 +56,24 @@ class Settings {
   set columns(widths: ColumnWidths) {
     this.#columns = widths;
     write(KEYS.columns, JSON.stringify(widths));
+  }
+
+  /** 右クリックのメニューの並びと、出さない項目 */
+  get menus(): MenuLayouts {
+    return this.#menus;
+  }
+  set menus(layouts: MenuLayouts) {
+    this.#menus = layouts;
+    write(KEYS.menus, JSON.stringify(layouts));
+  }
+
+  /** 見た目のルール（上のものほど優先） */
+  get rules(): AppearanceRule[] {
+    return this.#rules;
+  }
+  set rules(list: AppearanceRule[]) {
+    this.#rules = list;
+    write(KEYS.rules, JSON.stringify(list));
   }
 
   get dirs(): unknown {

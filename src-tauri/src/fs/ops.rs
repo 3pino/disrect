@@ -164,7 +164,8 @@ pub fn size_within(path: &Path, limit: u64) -> FsResult<Size> {
                 total.partial = true;
                 continue;
             };
-            let Ok(meta) = fs::symlink_metadata(item.path()) else {
+            // DirEntry の metadata は、リンクを辿らない。Windows では、一覧を読んだときの値をそのまま使える（項目ごとに調べ直さないので、速い）
+            let Ok(meta) = item.metadata() else {
                 total.partial = true;
                 continue;
             };

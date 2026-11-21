@@ -63,6 +63,11 @@ export interface ExplorerApi {
    * caps.trash が偽なら、部品は trash の代わりにこれを呼ぶ。
    */
   remove?(path: string): Promise<void>;
+  /**
+   * そのパスの項目を、ゴミ箱へ移せるか（任意。省くと移せる）。偽のとき（例: WSL の中は、OS のゴミ箱に入らず消えてしまう）は、
+   * 部品は確認を取って、`remove` で完全に削除する（元に戻せない）
+   */
+  trashable?(path: string): boolean;
   size(path: string): Promise<Size>;
   /**
    * 一覧の「サイズ」の列に出す、フォルダの大きさ（任意。持たない置き場所は、フォルダの欄を空にする）。
@@ -236,6 +241,18 @@ export interface DirIndexLike {
 
 /** フォルダごとの表示方法を保存する先（本体の設定） */
 /** 詳細の列の幅（px）。省いた列は既定の幅。名前の列は、残りの幅 */
+/** 項目のアイコン。アイコンの部品か、画像（アプリのロゴなど）の URL */
+export type EntryIcon = Component<{ size?: number | string }> | { src: string };
+
+/** 項目の見た目（本体が、条件に合う項目に与える）。省いたものは、既定のまま */
+export type EntryStyle = {
+  icon?: EntryIcon;
+  /** アイコンと名前の色（CSS の色） */
+  color?: string;
+  /** 行全体の不透明度（0〜1） */
+  opacity?: number;
+};
+
 export type ColumnWidths = Partial<Record<'kind' | 'size' | 'modified' | 'created', number>>;
 
 export type ViewStore = {

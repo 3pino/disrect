@@ -1,6 +1,6 @@
-import { matchesHotkey, matchesMouse } from '@3pino/app-kit-web/core/hotkeys';
+import { matchesHotkey, matchesMouse, registerHotkeySequences } from '@3pino/app-kit-web/core/hotkeys';
 import { read, write } from './settings.svelte';
-import { addKey, effectiveKeys, explorerKeymap, findConflicts, overrideOf, parseOverrides, removeKey, type CommandId, type Overrides } from './hotkeys';
+import { addKey, COMMANDS, effectiveKeys, explorerKeymap, findConflicts, overrideOf, parseOverrides, removeKey, type CommandId, type Overrides } from './hotkeys';
 
 // ホットキーの設定（各デバイスに保存する）。変えた分だけを保存する（lib/hotkeys.ts）。
 
@@ -11,9 +11,17 @@ class Hotkeys {
   /** 設定で、新しいホットキーを記録しているあいだは、ほかの操作を働かせない */
   recording = $state(false);
 
+  constructor() {
+    this.#syncSequences();
+  }
+  /** 連続のキー（`G H`）を、土台に登録する（1 回のキー `H` より先に当てるため。設定が変わるたびに） */
+  #syncSequences(): void {
+    registerHotkeySequences(COMMANDS.flatMap((c) => effectiveKeys(c.id, this.#over)));
+  }
   /** 保存した値を読み直す（試験で、保存を差し替えたあと） */
   reload(): void {
     this.#over = parseOverrides(read(KEY));
+    this.#syncSequences();
   }
   keys(id: CommandId): readonly string[] {
     return effectiveKeys(id, this.#over);
@@ -42,6 +50,7 @@ class Hotkeys {
     const o = overrideOf(id, list);
     this.#over = o === null ? rest : { ...rest, [id]: o };
     write(KEY, JSON.stringify(this.#over));
+    this.#syncSequences();
   }
   add(id: CommandId, key: string): void {
     this.set(id, addKey(this.keys(id), key));
@@ -53,6 +62,7 @@ class Hotkeys {
     const { [id]: _old, ...rest } = this.#over;
     this.#over = rest;
     write(KEY, JSON.stringify(this.#over));
+    this.#syncSequences();
   }
 }
 

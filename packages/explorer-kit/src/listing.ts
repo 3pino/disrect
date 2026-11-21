@@ -1,4 +1,4 @@
-// 一覧の決まり（並び順・種類の文字・道筋・押したときの動き）。見た目は持たない。
+// 一覧の決まり（並び順・種類の文字・パス・押したときの動き）。見た目は持たない。
 
 import type { Entry } from './types';
 
@@ -42,13 +42,13 @@ export function breadcrumbs(dir: string): { name: string; path: string }[] {
   return out;
 }
 
-/** 道筋の欄に出す文字。ドライブ（`C:`）・ネットワーク（`\\nas\share`）のほかは、先頭に `/` を付ける */
+/** パス欄に出す文字。ドライブ（`C:`）・ネットワーク（`\\nas\share`）のほかは、先頭に `/` を付ける */
 export function pathToText(dir: string): string {
   return /^[A-Za-z]:|^\\\\/.test(dir) ? dir : `/${dir}`;
 }
 
 /**
- * 道筋の欄に打った文字を、画面のパスにする（`/home/me/../you/` → `home/you`）。
+ * パス欄に打った文字を、画面のパスにする（`/home/me/../you/` → `home/you`）。
  * 区切りは `/` も `\` も受ける。`.` は無視し、`..` は 1 つ上へ。先頭の `\\server\share` は、いちばん上の 1 段のまま
  */
 export function textToPath(text: string): string {

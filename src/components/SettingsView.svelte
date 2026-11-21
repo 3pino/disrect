@@ -3,6 +3,9 @@
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Keyboard from '@lucide/svelte/icons/keyboard';
+  import Palette from '@lucide/svelte/icons/palette';
+  import SquareMenu from '@lucide/svelte/icons/square-menu';
+  import Package from '@lucide/svelte/icons/package';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import Button from '@3pino/ui-kit-web/Button.svelte';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
@@ -11,6 +14,11 @@
   import SettingRow from '@3pino/ui-kit-web/SettingRow.svelte';
   import StatusLine from '@3pino/ui-kit-web/StatusLine.svelte';
   import type { UpdateState } from '@3pino/app-kit-web/updater';
+  import { isDesktopWindowsOrLinuxTauri, osName } from '@3pino/app-kit-web/core/platform';
+  import { desktopOs } from '../lib/dependencies';
+  import DependencySettings from './DependencySettings.svelte';
+  import MenuSettings from './MenuSettings.svelte';
+  import RuleSettings from './RuleSettings.svelte';
   import HotkeySettings from './HotkeySettings.svelte';
 
   // 設定（タブの 1 つ）: 「操作」の「ホットキー」（押すと、操作ごとにキーを変えられる画面が開く）と、バージョン（いまの版と、アプリの更新の確認・入れ替え）。
@@ -40,7 +48,9 @@
   const st = $derived(updater.state);
   const busy = $derived(st.kind === 'checking' || st.kind === 'downloading' || st.kind === 'installing');
   /** 開いているサブページ（無ければ、設定のいちばん上） */
-  let sub = $state<'hotkeys' | null>(null);
+  let sub = $state<'hotkeys' | 'menus' | 'rules' | 'dependencies' | null>(null);
+  /** 外部のコマンドの「依存」は、デスクトップだけ（Android・ブラウザーでは、出さない） */
+  const depOs = isDesktopWindowsOrLinuxTauri() ? desktopOs(osName()) : null;
   const mb = (n: number): string => (n / 1024 / 1024).toFixed(1);
 
   onMount(() => void updater.loadVersion());
@@ -57,12 +67,18 @@
     {#if sub}
       <IconButton label="設定へ戻る" title="戻る" onclick={() => (sub = null)}><ArrowLeft size={18} /></IconButton>
     {/if}
-    <span class="settings-title">{sub === 'hotkeys' ? 'ホットキー' : '設定'}</span>
+    <span class="settings-title">{sub === 'hotkeys' ? 'ホットキー' : sub === 'menus' ? '右クリックのメニュー' : sub === 'rules' ? '見た目のルール' : sub === 'dependencies' ? '依存' : '設定'}</span>
   </PanelBar>
   <div class="scroll settings-body">
     <div class="settings-content">
       {#if sub === 'hotkeys'}
         <HotkeySettings />
+      {:else if sub === 'menus'}
+        <MenuSettings />
+      {:else if sub === 'rules'}
+        <RuleSettings />
+      {:else if sub === 'dependencies' && depOs}
+        <DependencySettings os={depOs} />
       {:else}
         <Section title="操作" class="settings-operations">
           <SettingRow name="ホットキー" class="settings-operation-row settings-link-hotkeys" onclick={() => (sub = 'hotkeys')}>
@@ -70,6 +86,23 @@
               <span class="settings-operation-icon" aria-hidden="true"><Keyboard size={16} /><ChevronRight size={18} /></span>
             {/snippet}
           </SettingRow>
+          <SettingRow name="右クリックのメニュー" description="出す項目と、その順番" class="settings-operation-row settings-link-menus" onclick={() => (sub = 'menus')}>
+            {#snippet control()}
+              <span class="settings-operation-icon" aria-hidden="true"><SquareMenu size={16} /><ChevronRight size={18} /></span>
+            {/snippet}
+          </SettingRow>
+          <SettingRow name="見た目のルール" description="条件に合うファイル・フォルダのアイコンと色" class="settings-operation-row settings-link-rules" onclick={() => (sub = 'rules')}>
+            {#snippet control()}
+              <span class="settings-operation-icon" aria-hidden="true"><Palette size={16} /><ChevronRight size={18} /></span>
+            {/snippet}
+          </SettingRow>
+          {#if depOs}
+            <SettingRow name="依存" description="入れておくと便利な外部のコマンド（fd など）" class="settings-operation-row settings-link-dependencies" onclick={() => (sub = 'dependencies')}>
+              {#snippet control()}
+                <span class="settings-operation-icon" aria-hidden="true"><Package size={16} /><ChevronRight size={18} /></span>
+              {/snippet}
+            </SettingRow>
+          {/if}
         </Section>
 
         <Section title="バージョン">
@@ -172,6 +205,8 @@
   }
   .about-progress {
     width: 100%;
+    /* ブラウザの既定の色（青・緑）にせず、アプリのアクセントの色（--hue）にする */
+    accent-color: var(--accent);
   }
   .about-actions {
     display: flex;
