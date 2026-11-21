@@ -150,8 +150,9 @@ export function parseRules(raw: string | null): AppearanceRule[] {
 }
 
 /**
- * 初めから入っているルール（「デフォルトに戻す」でこの状態になる）。上のものほど優先: よくあるフォルダのアイコン → 隠しファイルを薄く → フォルダは白い folder → 画像・PDF・そのほかのファイルのアイコン（表示はこの設定に任せる）
- * （見た目の項目ごとに最初に当たったものを使うので、Desktop は「monitor で、白」になる）
+ * 初めから入っているルール（「デフォルトに戻す」でこの状態になる）。上のものほど優先:
+ * よくあるフォルダ・.git・.github のアイコン → 隠しファイルを薄く → フォルダ全般（folder、色相 104） → ファイルの種類（名前で決まるもの → 拡張子で決まるもの） → 画像・PDF・そのほかのファイル（表示はこの設定に任せる）。
+ * 見た目の項目ごとに最初に当たったものを使うので、Desktop は「monitor で、色相 104」になる
  */
 export function defaultRules(): AppearanceRule[] {
   const dir = (stem: string): RuleCondition[] => [
@@ -159,16 +160,48 @@ export function defaultRules(): AppearanceRule[] {
     { field: 'stem', op: 'is', value: stem },
   ];
   const named = (name: string, stem: string, icon: string): AppearanceRule => ({ id: `default-${stem}`, name, enabled: true, conditions: dir(stem), look: { icon } });
+  /** 名前（拡張子を含む）が、一覧のどれかで終わる（`.bashrc`・`foo.yml`。ドットは文字のドットとして扱う） */
+  const endsWith = (list: string[]): RuleCondition[] => [{ field: 'basename', op: 'regex', value: `(^|\\.)(${list.map((s) => s.replace(/\./g, '\\.')).join('|')})$` }];
+  /** 拡張子が、一覧のどれか */
+  const ext = (list: string[]): RuleCondition[] => [{ field: 'ext', op: 'regex', value: `^(${list.join('|')})$` }];
+  /** 名前（拡張子を含む）が、一覧のどれかと完全に一致 */
+  const exactly = (list: string[]): RuleCondition[] => [{ field: 'basename', op: 'regex', value: `^(${list.map((s) => s.replace(/\./g, '\\.')).join('|')})$` }];
+  const kind = (id: string, name: string, conditions: RuleCondition[], look: RuleLook): AppearanceRule => ({ id: `default-${id}`, name, enabled: true, conditions, look });
   return [
     named('Desktop', 'desktop', 'monitor'),
-    named('Downloads', 'downloads', 'download'),
+    named('Downloads', 'downloads', 'folder-down'),
     named('Documents', 'documents', 'file-text'),
     named('Pictures', 'pictures', 'image'),
-    named('Music', 'music', 'music'),
+    named('Music', 'music', 'headphones'),
     named('Videos', 'videos', 'video'),
+    named('Library', 'library', 'book'),
+    named('Public', 'public', 'building'),
+    kind('git-dir', '.git', dir('.git'), { icon: 'brand-git' }),
+    kind('github-dir', '.github', dir('.github'), { icon: 'brand-github' }),
     { id: 'default-hidden', name: '隠しファイル', enabled: true, conditions: [{ field: 'basename', op: 'startsWith', value: '.' }], look: { opacity: 0.55 } },
-    { id: 'default-folder', name: 'フォルダ', enabled: true, conditions: [{ field: 'kind', op: 'is', value: 'dir' }], look: { icon: 'folder', color: 'var(--text)' } },
-    { id: 'default-image', name: '画像', enabled: true, conditions: [{ field: 'ext', op: 'regex', value: '^(png|jpe?g|gif|webp|svg|bmp|avif|ico)$' }], look: { icon: 'image' } },
+    // フォルダ全般（色相 104 は、アプリの色）。下のファイルのルールより前にあるので、フォルダはどれも folder になる
+    kind('folder', 'フォルダ', [{ field: 'kind', op: 'is', value: 'dir' }], { icon: 'folder', hue: 104 }),
+    // ファイルの種類。名前で決まるもの（AI の指示・Playwright）を、拡張子で決まるものより前におく
+    kind('agents', 'AI エージェントの指示', exactly(['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'copilot-instructions.md', 'QWEN.md', 'CONVENTIONS.md']), { icon: 'bot' }),
+    kind('playwright', 'Playwright の設定', [{ field: 'basename', op: 'startsWith', value: 'playwright.config.' }], { icon: 'brand-playwright', hue: 143 }),
+    kind('markdown', 'Markdown', ext(['md', 'mdx']), { icon: 'brand-markdown', color: 'var(--text)' }),
+    kind('python', 'Python', endsWith(['py.typed', 'py', 'pyc', 'pyd', 'pyi', 'pyo', 'pyw', 'pyx']), { icon: 'brand-python', hue: 82 }),
+    kind('docker', 'Docker', endsWith(['dockerfile', 'dockerignore']), { icon: 'brand-docker', hue: 254 }),
+    kind(
+      'settings',
+      '設定ファイル',
+      endsWith(['bash_profile', 'bashrc', 'clang-format', 'clang-tidy', 'ds_store', 'gitconfig', 'luacheckrc', 'luaurc', 'pylintrc', 'zprofile', 'zshenv', 'zshrc', 'config', 'Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props', 'bat', 'cfg', 'conf', 'ini', 'yaml', 'yml']),
+      { icon: 'settings' },
+    ),
+    kind('video', '動画', ext(['3gp', 'cast', 'm4v', 'mkv', 'mov', 'mp4', 'ogv', 'ogx', 'webm', 'wmv']), { icon: 'film', hue: 62 }),
+    kind('audio', '音声', ext(['aac', 'aif', 'aiff', 'ape', 'flac', 'm4a', 'mp3', 'oga', 'ogg', 'opus', 'pcm', 'spx', 'wav', 'wma', 'wv', 'wvc']), { icon: 'eighth-notes', hue: 240 }),
+    kind('archive', 'アーカイブ', ext(['7z', 'bz', 'bz2', 'bz3', 'gz', 'rar', 'tgz', 'txz', 'xz', 'zip', 'zst']), { icon: 'folder-archive', hue: 76 }),
+    kind('database', 'データベース', ext(['sql', 'sqlite', 'sqlite3']), { icon: 'database' }),
+    kind('spreadsheet', '表計算', ext(['xls', 'xlsx']), { icon: 'file-spreadsheet', hue: 155 }),
+    kind('table', '表（CSV・TSV）', ext(['csv', 'tsv']), { icon: 'table', hue: 145 }),
+    kind('json', 'JSON', ext(['cson', 'json', 'jsonc', 'jsonl']), { icon: 'braces', hue: 109 }),
+    kind('ebook', '電子書籍', ext(['ebook', 'epub', 'mobi']), { icon: 'book-open', hue: 70 }),
+    { id: 'default-image', name: '画像', enabled: true, conditions: ext(['png', 'jpe?g', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico']), look: { icon: 'image' } },
     { id: 'default-pdf', name: 'PDF', enabled: true, conditions: [{ field: 'ext', op: 'is', value: 'pdf' }], look: { icon: 'file-text' } },
     { id: 'default-file', name: 'ファイル', enabled: true, conditions: [{ field: 'kind', op: 'is', value: 'file' }], look: { icon: 'file' } },
   ];

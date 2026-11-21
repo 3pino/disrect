@@ -1,26 +1,33 @@
+import { BRAND_ICONS } from '@3pino/ui-kit-web/brandIcons';
 import type { EntryIcon } from '@3pino/explorer-kit';
-import { lucideIcon, searchLucide } from './lucideIcons.svelte';
+import { isLucideName, lucideCanonical, searchLucide } from './lucideIcons';
 
-// 見た目のルールで使うアイコン: lucide のすべて（lucideIcons.svelte.ts。名前は lucide のもの）と、アプリのロゴ（`fixplor`）。
-// ロゴも、lucide のアイコンと同じように、名前で探して選ぶ。保存するのは名前だけ。
+// 見た目のルールで使うアイコン: 共通の登録簿（@3pino/ui-kit-web/icons）の名前。lucide のすべて（名前は lucide のもの）と、
+// 共通の独自アイコン（アプリのロゴ `fixplor-logo`・`disnans-logo` など。ui-kit-web の BRAND_ICONS）。保存するのは名前だけ。
 
-/** アプリのロゴの名前（以前の版は `logo` で保存した。それも読める） */
-export const LOGO_ICON = 'fixplor';
-const isLogo = (name: string): boolean => name === LOGO_ICON || name === 'logo';
+/** アプリのロゴの名前（以前の版は `logo`・`fixplor` で保存した。どちらも読める） */
+export const LOGO_ICON = 'fixplor-logo';
+const OLD_LOGO = new Set(['logo', 'fixplor']);
 
 /** 新しく「アイコンを設定する」にしたときの、アイコンの名前 */
 export const DEFAULT_ICON = 'file';
 
-/** 保存した名前から、表示するアイコンにする。読み込み中・知らない名前は、undefined（既定のアイコンのまま） */
+/** 保存した名前を、登録簿の名前にする（昔のロゴの名前・lucide の別名は、今の名前へ） */
+export const iconName = (name: string): string => (OLD_LOGO.has(name) ? LOGO_ICON : name in BRAND_ICONS ? name : lucideCanonical(name));
+
+/** 保存した名前から、表示するアイコンにする。知らない名前は、undefined（既定のアイコンのまま） */
 export function iconOf(name: string | undefined): EntryIcon | undefined {
   if (!name) return undefined;
-  if (isLogo(name)) return { src: '/icon.svg' };
-  return lucideIcon(name);
+  const n = iconName(name);
+  return n in BRAND_ICONS || isLucideName(n) ? { iconName: n } : undefined;
 }
 
-/** アイコンを、名前で絞り込む（lucide の別名でも探せる。ロゴは `fixplor`。合うロゴは先頭） */
+/** 一覧に出す、共通の独自アイコンの名前 */
+const BRAND_NAMES = Object.keys(BRAND_ICONS).sort();
+
+/** アイコンを、名前で絞り込む（lucide の別名でも探せる。共通の独自アイコン（ロゴなど）は、名前が合えば先頭） */
 export function searchIcons(query: string): string[] {
   const terms = query.toLowerCase().split(/[\s-]+/).filter(Boolean);
-  const logo = terms.every((t) => LOGO_ICON.includes(t)) ? [LOGO_ICON] : [];
-  return [...logo, ...searchLucide(query)];
+  const brand = BRAND_NAMES.filter((n) => terms.every((t) => n.includes(t) || n.replace(/-/g, '').includes(t)));
+  return [...brand, ...searchLucide(query)];
 }

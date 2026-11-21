@@ -1,7 +1,8 @@
 <script lang="ts">
   import TextInput from '@3pino/ui-kit-web/TextInput.svelte';
-  import { lucideIcon, lucideAliases } from '../lib/lucideIcons.svelte';
-  import { DEFAULT_ICON, iconOf, LOGO_ICON, searchIcons } from '../lib/ruleIcons';
+  import Icon from '@3pino/ui-kit-web/Icon.svelte';
+  import { lucideAliases } from '../lib/lucideIcons';
+  import { DEFAULT_ICON, iconName, searchIcons } from '../lib/ruleIcons';
 
   // アイコンの選び方: 「アイコンを設定する」にすると、今のアイコン（初めは lucide の file）が出る。それを押すと、
   // lucide（別名でも探せる）とアプリのロゴ（`fixplor`）を、名前で絞り込んで選ぶ一覧が開く。選ぶと閉じる。
@@ -13,7 +14,8 @@
   let query = $state('');
   const hits = $derived(open ? searchIcons(query) : []);
   const shown = $derived(hits.slice(0, MAX));
-  const current = $derived(iconOf(value));
+  /** 保存した名前を、今の名前にしたもの（昔のロゴの名前・別名は直す） */
+  const current = $derived(value === undefined ? undefined : iconName(value));
 
   function toggleOn(on: boolean): void {
     open = false;
@@ -26,17 +28,13 @@
   }
 </script>
 
-{#snippet glyph(icon: ReturnType<typeof iconOf>, size: number)}
-  {#if icon && typeof icon === 'function'}{@const Icon = icon}<Icon {size} />{:else if icon}<img src={icon.src} alt="" width={size} height={size} />{/if}
-{/snippet}
-
 <div class="icon-picker">
   <div class="icon-picker-line">
     <label class="icon-picker-on"><input type="checkbox" checked={value !== undefined} onchange={(ev) => toggleOn(ev.currentTarget.checked)} /> アイコンを設定する</label>
     {#if value !== undefined}
-      <button type="button" class="icon-picker-sample" aria-expanded={open} aria-label={`アイコン: ${value}。押して変える`} onclick={() => (open = !open)}>
-        <span class="icon-picker-glyph" aria-hidden="true">{@render glyph(current, 20)}</span>
-        <span class="icon-picker-name">{value === 'logo' ? LOGO_ICON : value}</span>
+      <button type="button" class="icon-picker-sample" aria-expanded={open} aria-label={`アイコン: ${current}。押して変える`} onclick={() => (open = !open)}>
+        <span class="icon-picker-glyph" aria-hidden="true">{#if current}<Icon icon={current} size={20} />{/if}</span>
+        <span class="icon-picker-name">{current}</span>
       </button>
     {/if}
   </div>
@@ -46,7 +44,7 @@
       {#each shown as name (name)}
         {@const aliases = lucideAliases(name)}
         <button type="button" class="icon-picker-item" class:icon-picker-item-on={name === value} role="option" aria-selected={name === value} aria-label={name} title={aliases.length > 0 ? `${name}（別名: ${aliases.join('・')}）` : name} onclick={() => pick(name)}>
-          {@render glyph(name === LOGO_ICON ? iconOf(name) : lucideIcon(name), 20)}
+          <Icon icon={name} size={20} />
         </button>
       {:else}
         <p class="muted icon-picker-none">「{query}」に合うアイコンはありません</p>

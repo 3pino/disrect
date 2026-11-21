@@ -4,6 +4,10 @@ import { flushSync, mount, unmount } from 'svelte';
 import RuleSettings from './RuleSettings.svelte';
 import { settings } from '../lib/settings.svelte';
 import { defaultRules } from '../lib/rules';
+import { defineBrandIcons } from '@3pino/ui-kit-web/brandIcons';
+
+// 共通の独自アイコン（ロゴ）は、アプリの起動時（main.ts）に定義する
+defineBrandIcons();
 
 let app: ReturnType<typeof mount> | undefined;
 const settle = async (): Promise<void> => {
@@ -167,11 +171,11 @@ describe('設定の「見た目のルール」', () => {
     search.value = 'fixplor'; // ロゴも、名前で探せる
     search.dispatchEvent(new Event('input', { bubbles: true }));
     await settle();
-    expect(names()[0]).toBe('fixplor');
+    expect(names()[0]).toBe('fixplor-logo');
     q('.icon-picker-item').click();
     await settle();
     expect(document.querySelector('.icon-picker-search')).toBeNull(); // 選ぶと閉じる
-    expect(q('.icon-picker-sample').textContent).toContain('fixplor');
+    expect(q('.icon-picker-sample').textContent).toContain('fixplor-logo');
     q<HTMLInputElement>('.icon-picker-on input').click();
     await settle();
     expect(document.querySelector('.icon-picker-sample')).toBeNull();

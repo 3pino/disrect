@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
 import { LONG_PRESS_MS } from '@3pino/ui-kit-web/sortable';
+import { defineBuiltinIcon } from '@3pino/ui-kit-web/icons';
 import FileExplorer from './FileExplorer.svelte';
 import { DOUBLE_CLICK_MS, EXPLORER_DRAG_TYPE } from './ops';
 import type { Entry } from './types';
@@ -2456,6 +2457,15 @@ describe('PC の操作（右クリックのメニュー・名前を押して書�
     explorerView.setView('', 'grid');
     flushSync();
     expect(rowOf(el, 'a.txt').querySelector('.file-explorer-thumb img.file-explorer-glyph-img')).not.toBeNull();
+  });
+
+  it('entryStyle: アイコンは、共通の登録簿の名前（{ iconName }）でも渡せる。登録した独自アイコンは、その形で描く', async () => {
+    defineBuiltinIcon('test-logo', { body: '<path d="M1 1"/>', attrs: {} });
+    const el = await renderWith({ entryStyle: (e: { name: string }) => (e.name === 'a.txt' ? { icon: { iconName: 'test-logo' } } : null) });
+    const svg = rowOf(el, 'a.txt').querySelector('.file-explorer-icon svg[data-icon="test-logo"]');
+    expect(svg).not.toBeNull();
+    expect(svg!.innerHTML).toContain('M1 1');
+    expect(rowOf(el, 'a.txt').querySelector('.file-explorer-icon img')).toBeNull();
   });
 
   it('メニューの「削除」は、確認なしでゴミ箱へ移す', async () => {

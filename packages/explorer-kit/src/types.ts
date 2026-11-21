@@ -243,8 +243,8 @@ export interface DirIndexLike {
 
 /** フォルダごとの表示方法を保存する先（本体の設定） */
 /** 詳細の列の幅（px）。省いた列は既定の幅。名前の列は、残りの幅 */
-/** 項目のアイコン。アイコンの部品か、画像（アプリのロゴなど）の URL */
-export type EntryIcon = Component<{ size?: number | string }> | { src: string };
+/** 項目のアイコン。アイコンの部品か、共通の登録簿（@3pino/ui-kit-web/icons）の名前（lucide・アプリのロゴなど）か、画像の URL */
+export type EntryIcon = Component<{ size?: number | string }> | { iconName: string } | { src: string };
 
 /** 項目の見た目（本体が、条件に合う項目に与える）。省いたものは、既定のまま */
 export type EntryStyle = {

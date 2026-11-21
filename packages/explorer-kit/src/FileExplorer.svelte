@@ -17,6 +17,7 @@
   import Info from '@lucide/svelte/icons/info';
   import Pencil from '@lucide/svelte/icons/pencil';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
+  import NamedIcon from '@3pino/ui-kit-web/Icon.svelte';
   import PanelBar from '@3pino/ui-kit-web/PanelBar.svelte';
   import Button from '@3pino/ui-kit-web/Button.svelte';
   import Modal from '@3pino/ui-kit-web/Modal.svelte';
@@ -2545,6 +2546,8 @@
   {#if custom && typeof custom === 'function'}
     {@const Custom = custom}
     <Custom {size} />
+  {:else if custom && 'iconName' in custom}
+    <NamedIcon icon={custom.iconName} {size} />
   {:else if custom}
     <img class="file-explorer-glyph-img" src={custom.src} alt="" width={size} height={size} />
   {:else if kind === 'enter'}<Folder {size} />{:else if kind === 'image'}<ImageIcon {size} />{:else if kind === 'pdf'}<FileText {size} />{:else}<FileIcon {size} />{/if}

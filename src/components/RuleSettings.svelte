@@ -16,6 +16,7 @@
   import IconPicker from './IconPicker.svelte';
   import { settings } from '../lib/settings.svelte';
   import { defaultRules, FIELD_LABEL, hueColor, KIND_LABEL, newRule, OP_LABEL, type AppearanceRule, type RuleCondition, type RuleField, type RuleLook, type RuleOp } from '../lib/rules';
+  import Icon from '@3pino/ui-kit-web/Icon.svelte';
   import { iconOf } from '../lib/ruleIcons';
 
   // 設定の「見た目のルール」: 条件に合うファイル・フォルダに、一覧のアイコン・色・不透明度を与える。
@@ -139,7 +140,7 @@
         <SettingRow name={summary(r)} description={r.conditions.length > 0 ? undefined : '条件がないので、当たりません'} class="rule-row">
           {#snippet control()}
             <span class="rule-sample" style:color={lookColor(r.look)} style:opacity={r.look.opacity} aria-hidden="true">
-              {#if icon && typeof icon === 'function'}{@const Icon = icon}<Icon size={16} />{:else if icon}<img src={icon.src} alt="" width="16" height="16" />{/if}
+              {#if icon && 'iconName' in icon}<Icon icon={icon.iconName} size={16} />{/if}
             </span>
             <IconButton class="rule-edit" label={`「${summary(r)}」を編集`} title="編集" onclick={() => startEdit(r)}><Pencil size={16} /></IconButton>
             <Toggle checked={r.enabled} label={`「${summary(r)}」を使う`} onchange={(on) => update(r.id, { enabled: on })} />
@@ -202,7 +203,7 @@
       </div>
 
       <h3 class="rule-sub">見た目</h3>
-      <IconPicker value={d.look.icon} onpick={(name) => (d.look = { ...d.look, icon: name })} />
+      <IconPicker value={d.look.icon} onpick={(name) => { d.look = { ...d.look, icon: name }; }} />
 
       <div class="rule-line rule-line-color">
         <label class="rule-line-on"><input class="rule-color-on" type="checkbox" checked={colorOn} onchange={(ev) => setColorOn(ev.currentTarget.checked)} /> 色を設定する</label>
@@ -224,7 +225,7 @@
       <div class="rule-preview" aria-label="見え方">
         <span class="muted">見え方:</span>
         <span class="rule-preview-item" style:color={lookColor(d.look)} style:opacity={d.look.opacity}>
-          {#if previewIcon && typeof previewIcon === 'function'}{@const Icon = previewIcon}<Icon size={18} />{:else if previewIcon}<img src={previewIcon.src} alt="" width="18" height="18" />{/if}
+          {#if previewIcon && 'iconName' in previewIcon}<Icon icon={previewIcon.iconName} size={18} />{/if}
           名前
         </span>
       </div>

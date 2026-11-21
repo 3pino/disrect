@@ -1,7 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Entry } from '@3pino/explorer-kit';
-import { defaultRules, fieldValue, hueColor, lookOf, matchesCondition, matchesRule, newRule, parseRules, type AppearanceRule } from './rules';
-import { hasLucideIcon, LUCIDE_NAMES, lucideAliases, lucideCanonical, searchLucide } from './lucideIcons.svelte';
+import { type RuleLook, defaultRules, fieldValue, hueColor, lookOf, matchesCondition, matchesRule, newRule, parseRules, type AppearanceRule } from './rules';
+import { loadLucide, lookupIcon } from '@3pino/ui-kit-web/icons';
+import { defineBrandIcons } from '@3pino/ui-kit-web/brandIcons';
+import { isLucideName, LUCIDE_NAMES, lucideAliases, lucideCanonical, searchLucide } from './lucideIcons';
 import aliasTable from './lucideAliases.json';
 import { entryStyleOf } from './ruleStyle';
 import { iconOf, searchIcons } from './ruleIcons';
@@ -45,15 +47,13 @@ describe('見た目を重ねる', () => {
     expect(lookOf(e('x', 'dir'), rules)).toBeNull();
     expect(lookOf(e('x.md'), [rule('z', [{ field: 'ext', op: 'is', value: 'md' }], { color: 'red', hue: 10 })])).toEqual({ color: 'red' });
   });
-  it('一覧に渡す見た目: アイコンは名前から、色相は色に。何も無ければ null。ゴミ箱の項目には与えない。ロゴは画像', async () => {
-    const rules = [rule('a', [{ field: 'stem', op: 'is', value: 'desktop' }], { icon: 'monitor', hue: 200, opacity: 0.8 }), rule('l', [{ field: 'stem', op: 'is', value: 'app' }], { icon: 'logo' }), rule('u', [{ field: 'stem', op: 'is', value: 'u' }], { icon: 'no-such-icon' })];
-    // lucide のアイコンは、使うときに読み込む（読み込みが終わるまでは、既定のアイコンのまま）
-    await vi.waitFor(() => expect(iconOf('monitor')).toBeTypeOf('function'));
+  it('一覧に渡す見た目: アイコンは名前から、色相は色に。何も無ければ null。ゴミ箱の項目には与えない。ロゴは共通の独自アイコン', async () => {
+    const rules = [rule('a', [{ field: 'stem', op: 'is', value: 'desktop' }], { icon: 'monitor', hue: 200, opacity: 0.8 }), rule('l', [{ field: 'stem', op: 'is', value: 'app' }], { icon: 'fixplor-logo' }), rule('u', [{ field: 'stem', op: 'is', value: 'u' }], { icon: 'no-such-icon' })];
     const s = entryStyleOf(e('Desktop', 'dir'), rules)!;
-    expect(s.icon).toBe(iconOf('monitor'));
+    expect(s.icon).toEqual(iconOf('monitor'));
     expect(s.color).toBe(hueColor(200));
     expect(s.opacity).toBe(0.8);
-    expect(entryStyleOf(e('app', 'dir'), rules)!.icon).toEqual({ src: '/icon.svg' });
+    expect(entryStyleOf(e('app', 'dir'), rules)!.icon).toEqual({ iconName: 'fixplor-logo' });
     expect(entryStyleOf(e('u'), rules)).toBeNull(); // 知らないアイコンだけ: 見た目は変えない
     expect(entryStyleOf(e('zzz'), rules)).toBeNull();
     expect(entryStyleOf({ ...e('Desktop', 'dir'), trash: { kind: 'root' } } as Entry, rules)).toBeNull();
@@ -62,8 +62,11 @@ describe('見た目を重ねる', () => {
   it('lucide のアイコンは全部を名前で呼べ、別名も解ける。絞り込める（-はあってもなくても、前方一致を先に）。以前の名前も使える', async () => {
     expect(LUCIDE_NAMES.length).toBeGreaterThan(1500);
     expect(LUCIDE_NAMES).toContain('folder');
-    expect(hasLucideIcon('music')).toBe(true); // 別名
-    expect(hasLucideIcon('no-such-icon')).toBe(false);
+    expect(isLucideName('music')).toBe(true); // 別名
+    expect(isLucideName('no-such-icon')).toBe(false);
+    // 一覧の名前も別名も、共通の登録簿（ui-kit-web の Icon が引く）で、実際にアイコンとして引ける
+    await loadLucide();
+    for (const name of [...LUCIDE_NAMES, ...Object.keys(aliasTable)]) expect(lookupIcon(name), name).toMatchObject({ body: expect.any(String) });
     expect(searchLucide('arrow up').slice(0, 3)).toContain('arrow-up');
     expect(searchLucide('arrow up').every((n) => n.includes('arrow') && n.includes('up'))).toBe(true);
     expect(searchLucide('arrowup')).toContain('arrow-up');
@@ -78,28 +81,92 @@ describe('見た目を重ねる', () => {
     for (const [alias, canonical] of Object.entries(aliasTable)) {
       expect(LUCIDE_NAMES, alias).toContain(canonical);
     }
-    // ロゴは lucide のように、名前（fixplor）で探せる
-    expect(searchIcons('fixplor')[0]).toBe('fixplor');
-    expect(searchIcons('fix')[0]).toBe('fixplor');
-    expect(searchIcons('folder')).not.toContain('fixplor');
+    // ロゴ（共通の独自アイコン）も、lucide のように、名前で探せる
+    expect(searchIcons('fixplor')[0]).toBe('fixplor-logo');
+    expect(searchIcons('fix')[0]).toBe('fixplor-logo');
+    expect(searchIcons('disnans')[0]).toBe('disnans-logo');
+    expect(searchIcons('folder')).not.toContain('fixplor-logo');
     expect(searchLucide('zzzzzz')).toEqual([]);
     expect(searchLucide('')).toHaveLength(LUCIDE_NAMES.length);
-    for (const name of ['folder', 'music', 'folder-git', 'gamepad', 'trash']) await vi.waitFor(() => expect(iconOf(name)).toBeTypeOf('function'));
+    // 保存した名前は、別名・以前のロゴの名前も、今の名前に直して引く
+    expect(iconOf('folder')).toEqual({ iconName: 'folder' });
+    expect(iconOf('music')).toEqual({ iconName: 'eighth-notes' });
+    for (const name of ['folder-git', 'gamepad', 'trash']) expect(iconOf(name)).toEqual({ iconName: lucideCanonical(name) });
     expect(iconOf('no-such-icon')).toBeUndefined();
-    expect(iconOf('logo')).toEqual({ src: '/icon.svg' });
+    for (const old of ['logo', 'fixplor', 'fixplor-logo']) expect(iconOf(old)).toEqual({ iconName: 'fixplor-logo' });
+    // 共通の独自アイコンは、登録簿の独自のアイコンとして引ける
+    defineBrandIcons();
+    expect(lookupIcon('fixplor-logo')).toMatchObject({ body: expect.stringContaining('<path') });
   });
-  it('最初から入っているルール: フォルダは白い folder。Desktop は monitor で白、隠しファイルは薄く、ファイルは file（画像・PDF はそれぞれのアイコン）。表示は設定に任せる', () => {
+  it('最初から入っているルール: よくあるフォルダ・フォルダ全般（色相 104）・隠しファイル・名前や拡張子で決まるファイルの種類。表示は設定に任せる', () => {
     const d = defaultRules();
     expect(new Set(d.map((r) => r.id)).size).toBe(d.length);
-    expect(lookOf(e('Documents', 'dir'), d)).toEqual({ icon: 'file-text', color: 'var(--text)' });
-    expect(lookOf(e('Desktop', 'dir'), d)).toEqual({ icon: 'monitor', color: 'var(--text)' });
-    expect(lookOf(e('src', 'dir'), d)).toEqual({ icon: 'folder', color: 'var(--text)' });
-    expect(lookOf(e('.git', 'dir'), d)).toEqual({ icon: 'folder', color: 'var(--text)', opacity: 0.55 });
-    expect(lookOf(e('.env'), d)).toEqual({ icon: 'file', opacity: 0.55 });
-    expect(lookOf(e('a.txt'), d)).toEqual({ icon: 'file' });
-    expect(lookOf(e('Photo.PNG'), d)).toEqual({ icon: 'image' });
-    expect(lookOf(e('x.pdf'), d)).toEqual({ icon: 'file-text' });
     expect(parseRules(JSON.stringify(d))).toEqual(d);
+    // アイコンは、みんな引ける（lucide の名前か、共通の独自アイコン）
+    for (const r of d) if (r.look.icon) expect(iconOf(r.look.icon), r.id).toBeDefined();
+    const dirs: [string, RuleLook][] = [
+      ['Desktop', { icon: 'monitor', hue: 104 }],
+      ['Downloads', { icon: 'folder-down', hue: 104 }],
+      ['Documents', { icon: 'file-text', hue: 104 }],
+      ['Pictures', { icon: 'image', hue: 104 }],
+      ['Music', { icon: 'headphones', hue: 104 }],
+      ['Videos', { icon: 'video', hue: 104 }],
+      ['Library', { icon: 'book', hue: 104 }],
+      ['Public', { icon: 'building', hue: 104 }],
+      ['src', { icon: 'folder', hue: 104 }],
+      ['my.zip', { icon: 'folder', hue: 104 }], // フォルダは、名前がファイルらしくても folder
+      ['config', { icon: 'folder', hue: 104 }],
+      ['.git', { icon: 'brand-git', hue: 104, opacity: 0.55 }],
+      ['.github', { icon: 'brand-github', hue: 104, opacity: 0.55 }],
+      ['.cache', { icon: 'folder', hue: 104, opacity: 0.55 }],
+    ];
+    for (const [name, look] of dirs) expect(lookOf(e(name, 'dir'), d), name).toEqual(look);
+    const files: [string, RuleLook][] = [
+      ['a.txt', { icon: 'file' }],
+      ['.env', { icon: 'file', opacity: 0.55 }],
+      ['Photo.PNG', { icon: 'image' }],
+      ['x.pdf', { icon: 'file-text' }],
+      // Markdown: 文字の色。AI の指示は、アイコンだけ bot
+      ['README.md', { icon: 'brand-markdown', color: 'var(--text)' }],
+      ['a.mdx', { icon: 'brand-markdown', color: 'var(--text)' }],
+      ['CLAUDE.md', { icon: 'bot', color: 'var(--text)' }],
+      ['AGENTS.md', { icon: 'bot', color: 'var(--text)' }],
+      ['copilot-instructions.md', { icon: 'bot', color: 'var(--text)' }],
+      ['QWEN.md', { icon: 'bot', color: 'var(--text)' }],
+      ['playwright.config.ts', { icon: 'brand-playwright', hue: 143 }],
+      ['playwright.config.js', { icon: 'brand-playwright', hue: 143 }],
+      ['main.py', { icon: 'brand-python', hue: 82 }],
+      ['py.typed', { icon: 'brand-python', hue: 82 }],
+      ['a.pyi', { icon: 'brand-python', hue: 82 }],
+      ['Dockerfile', { icon: 'brand-docker', hue: 254 }],
+      ['.dockerignore', { icon: 'brand-docker', hue: 254, opacity: 0.55 }],
+      ['x.dockerfile', { icon: 'brand-docker', hue: 254 }],
+      ['clip.MP4', { icon: 'film', hue: 62 }],
+      ['a.mkv', { icon: 'film', hue: 62 }],
+      ['a.flac', { icon: 'eighth-notes', hue: 240 }],
+      ['a.mp3', { icon: 'eighth-notes', hue: 240 }],
+      ['a.zip', { icon: 'folder-archive', hue: 76 }],
+      ['a.tgz', { icon: 'folder-archive', hue: 76 }],
+      ['a.sqlite3', { icon: 'database' }],
+      ['a.sql', { icon: 'database' }],
+      ['a.xlsx', { icon: 'file-spreadsheet', hue: 155 }],
+      ['a.csv', { icon: 'table', hue: 145 }],
+      ['a.tsv', { icon: 'table', hue: 145 }],
+      ['a.json', { icon: 'braces', hue: 109 }],
+      ['a.jsonl', { icon: 'braces', hue: 109 }],
+      ['a.epub', { icon: 'book-open', hue: 70 }],
+    ];
+    for (const [name, look] of files) expect(lookOf(e(name), d), name).toEqual(look);
+    // 設定ファイル（色は指定なし）: 名前が一覧のどれかで終わる（ドットファイルも）
+    for (const name of ['.bashrc', '.zshrc', '.zprofile', '.zshenv', '.bash_profile', '.gitconfig', '.clang-format', '.clang-tidy', '.DS_Store', '.luacheckrc', '.luaurc', '.pylintrc', 'web.config', 'config', 'Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props', 'a.bat', 'a.cfg', 'a.conf', 'a.ini', 'a.yaml', 'a.yml']) {
+      const look = lookOf(e(name), d)!;
+      expect(look.icon, name).toBe('settings');
+      expect(look.hue, name).toBeUndefined();
+      expect(look.color, name).toBeUndefined();
+    }
+    // 設定ファイルに見えるだけのものは当てない
+    for (const name of ['myconfig.txt', 'bashrc.txt', 'a.yml.bak', 'tsconfig']) expect(lookOf(e(name), d)!.icon, name).not.toBe('settings');
+    expect(lookOf(e('a.ymll'), d)!.icon).toBe('file');
   });
 });
 
