@@ -150,7 +150,7 @@ export function parseRules(raw: string | null): AppearanceRule[] {
 }
 
 /**
- * 初めから入っているルール（「デフォルトに戻す」でこの状態になる）。上のものほど優先: よくあるフォルダのアイコン → 隠しファイルを薄く → フォルダは白い folder
+ * 初めから入っているルール（「デフォルトに戻す」でこの状態になる）。上のものほど優先: よくあるフォルダのアイコン → 隠しファイルを薄く → フォルダは白い folder → 画像・PDF・そのほかのファイルのアイコン（表示はこの設定に任せる）
  * （見た目の項目ごとに最初に当たったものを使うので、Desktop は「monitor で、白」になる）
  */
 export function defaultRules(): AppearanceRule[] {
@@ -168,6 +168,9 @@ export function defaultRules(): AppearanceRule[] {
     named('Videos', 'videos', 'video'),
     { id: 'default-hidden', name: '隠しファイル', enabled: true, conditions: [{ field: 'basename', op: 'startsWith', value: '.' }], look: { opacity: 0.55 } },
     { id: 'default-folder', name: 'フォルダ', enabled: true, conditions: [{ field: 'kind', op: 'is', value: 'dir' }], look: { icon: 'folder', color: 'var(--text)' } },
+    { id: 'default-image', name: '画像', enabled: true, conditions: [{ field: 'ext', op: 'regex', value: '^(png|jpe?g|gif|webp|svg|bmp|avif|ico)$' }], look: { icon: 'image' } },
+    { id: 'default-pdf', name: 'PDF', enabled: true, conditions: [{ field: 'ext', op: 'is', value: 'pdf' }], look: { icon: 'file-text' } },
+    { id: 'default-file', name: 'ファイル', enabled: true, conditions: [{ field: 'kind', op: 'is', value: 'file' }], look: { icon: 'file' } },
   ];
 }
 

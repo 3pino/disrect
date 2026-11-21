@@ -66,7 +66,7 @@
   let menu = $state.raw<{ entry: NavEntry; x: number; y: number } | null>(null);
   /** フォルダをドラッグして、「追加」の空きの上に来ている */
   let addDropping = $state(false);
-  /** フォルダをドラッグして、左の欄（場所の欄）の上に来ている（「追加」の空きの説明は、このときだけ出す） */
+  /** フォルダをドラッグして、左の欄（場所の欄）の上に来ている（「追加」の空きは、このときだけ出す） */
   let dirOverNav = $state(false);
   function windowDragOver(ev: DragEvent): void {
     dirOverNav = isDirDrag(ev) && ev.target instanceof Element && ev.target.closest('.places') !== null;
@@ -308,12 +308,14 @@
       {@render row(e, true, k)}
     {/each}
   </div>
-  <!-- 末尾の空き: フォルダをここへドラッグして落とすと、ブックマークに足せる -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="places-add-slot" class:places-add-slot-drop={addDropping} ondragover={addOver} ondragleave={addLeave} ondrop={addDrop}>
-    <Plus size={14} />
-    {#if dirOverNav}<span class="muted">フォルダをここへドロップして追加</span>{/if}
-  </div>
+  <!-- 末尾の空き: フォルダをドラッグして左の欄の上に持ってきたときだけ出る。ここへ落とすと、ブックマークに足せる -->
+  {#if dirOverNav || addDropping}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="places-add-slot" class:places-add-slot-drop={addDropping} ondragover={addOver} ondragleave={addLeave} ondrop={addDrop}>
+      <Plus size={14} />
+      <span class="muted">フォルダをここへドロップして追加</span>
+    </div>
+  {/if}
 </section>
 
 <section class="places-section" aria-label="ドライブ">

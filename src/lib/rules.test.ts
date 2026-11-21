@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Entry } from '@3pino/explorer-kit';
 import { defaultRules, fieldValue, hueColor, lookOf, matchesCondition, matchesRule, newRule, parseRules, type AppearanceRule } from './rules';
-import { hasLucideIcon, LUCIDE_NAMES, searchLucide } from './lucideIcons.svelte';
+import { hasLucideIcon, LUCIDE_NAMES, lucideAliases, lucideCanonical, searchLucide } from './lucideIcons.svelte';
+import aliasTable from './lucideAliases.json';
 import { entryStyleOf } from './ruleStyle';
-import { iconOf } from './ruleIcons';
+import { iconOf, searchIcons } from './ruleIcons';
 
 const e = (name: string, kind: 'file' | 'dir' = 'file', path = `home/me/${name}`): Entry => ({ name, path, kind, size: 1, modified: 0, mime: null }) as Entry;
 const rule = (id: string, conditions: AppearanceRule['conditions'], look: AppearanceRule['look'], enabled = true): AppearanceRule => ({ id, name: id, enabled, conditions, look });
@@ -67,21 +68,37 @@ describe('見た目を重ねる', () => {
     expect(searchLucide('arrow up').every((n) => n.includes('arrow') && n.includes('up'))).toBe(true);
     expect(searchLucide('arrowup')).toContain('arrow-up');
     expect(searchLucide('folder')[0]).toBe('folder');
+    // 別名でも見つかる（見つかるのは今の名前。eighth-notes の別名は music）
+    expect(searchLucide('music')).toContain('eighth-notes');
+    expect(searchLucide('alarm-check')).toContain('alarm-clock-check');
+    expect(lucideAliases('eighth-notes')).toContain('music');
+    expect(lucideCanonical('music')).toBe('eighth-notes');
+    expect(lucideCanonical('folder')).toBe('folder');
+    // 別名の行き先は、みんな実在する
+    for (const [alias, canonical] of Object.entries(aliasTable)) {
+      expect(LUCIDE_NAMES, alias).toContain(canonical);
+    }
+    // ロゴは lucide のように、名前（fixplor）で探せる
+    expect(searchIcons('fixplor')[0]).toBe('fixplor');
+    expect(searchIcons('fix')[0]).toBe('fixplor');
+    expect(searchIcons('folder')).not.toContain('fixplor');
     expect(searchLucide('zzzzzz')).toEqual([]);
     expect(searchLucide('')).toHaveLength(LUCIDE_NAMES.length);
     for (const name of ['folder', 'music', 'folder-git', 'gamepad', 'trash']) await vi.waitFor(() => expect(iconOf(name)).toBeTypeOf('function'));
     expect(iconOf('no-such-icon')).toBeUndefined();
     expect(iconOf('logo')).toEqual({ src: '/icon.svg' });
   });
-  it('最初から入っているルール: フォルダは白い folder。Desktop は monitor で白、隠しファイルは薄く、普通のファイルはそのまま', () => {
+  it('最初から入っているルール: フォルダは白い folder。Desktop は monitor で白、隠しファイルは薄く、ファイルは file（画像・PDF はそれぞれのアイコン）。表示は設定に任せる', () => {
     const d = defaultRules();
     expect(new Set(d.map((r) => r.id)).size).toBe(d.length);
     expect(lookOf(e('Documents', 'dir'), d)).toEqual({ icon: 'file-text', color: 'var(--text)' });
     expect(lookOf(e('Desktop', 'dir'), d)).toEqual({ icon: 'monitor', color: 'var(--text)' });
     expect(lookOf(e('src', 'dir'), d)).toEqual({ icon: 'folder', color: 'var(--text)' });
     expect(lookOf(e('.git', 'dir'), d)).toEqual({ icon: 'folder', color: 'var(--text)', opacity: 0.55 });
-    expect(lookOf(e('.env'), d)).toEqual({ opacity: 0.55 });
-    expect(lookOf(e('a.txt'), d)).toBeNull();
+    expect(lookOf(e('.env'), d)).toEqual({ icon: 'file', opacity: 0.55 });
+    expect(lookOf(e('a.txt'), d)).toEqual({ icon: 'file' });
+    expect(lookOf(e('Photo.PNG'), d)).toEqual({ icon: 'image' });
+    expect(lookOf(e('x.pdf'), d)).toEqual({ icon: 'file-text' });
     expect(parseRules(JSON.stringify(d))).toEqual(d);
   });
 });

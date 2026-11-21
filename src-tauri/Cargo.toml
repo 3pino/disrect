@@ -1,6 +1,6 @@
 [package]
 name = "fixplor"
-version = "0.1.14"
+version = "0.1.15"
 description = "fixplor: ファイルエクスプローラー"
 edition = "2021"
 publish = false

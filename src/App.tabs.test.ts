@@ -735,7 +735,7 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     await menuClick('.places-menu-anchor', 'ブックマークから削除');
     expect(marks()).toEqual([]);
     expect(target.querySelectorAll('section[aria-label="ブックマーク"] .place-row')).toHaveLength(0);
-    expect(target.querySelector('.places-add-slot')).not.toBeNull(); // 追加できる空きは、いつも出ている
+    expect(target.querySelector('.places-add-slot')).toBeNull(); // 追加の空きは、フォルダをドラッグしてきたときだけ出る
   });
 
   it('ホットキー（設定で付ける）: ブックマークの n 番目を開く。ブックマークから検索（絞り込み・Enter で開く・Ctrl+Enter で新しいタブ・Esc で閉じる）', async () => {
@@ -771,6 +771,18 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     await key('p');
     // 下に、開き方のキーを小さく出す（「フォルダを」は付けない。キーが無いものは出さない）
     expect([...document.querySelectorAll('.bookmark-search-hint')].map((h) => h.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['開く Enter', '新しいタブで開いて移る Ctrl+Enter']);
+    // 1 つの操作に複数のキーがあれば、全部出す（開き方ごとに 1 行）。文字・Shift+文字は、入力に使うので、ここでは出さず、働かせない
+    await key('Escape', {});
+    hotkeys.set('file.openNewTab', ['Ctrl+Alt+Enter', 'a', 'Shift+B', 'F2']);
+    await key('p');
+    expect([...document.querySelectorAll('.bookmark-search-hint')].map((h) => h.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['開く Enter', '新しいタブで開く Ctrl+Alt+Enter F2', '新しいタブで開いて移る Ctrl+Enter']);
+    expect(document.querySelectorAll('.bookmark-search-hint')).toHaveLength(3);
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true }));
+    await settle();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull(); // 文字は、ホットキーとして働かない
+    await key('Escape', {});
+    hotkeys.reset('file.openNewTab');
+    await key('p');
     expect(document.querySelector('[role="dialog"] input')!.getAttribute('placeholder')).toBeNull();
     input().value = 'doc';
     input().dispatchEvent(new Event('input', { bubbles: true }));
@@ -846,12 +858,14 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
   it('一覧のフォルダを左の欄の末尾の空きへ落とすと、ブックマークに足せる。ブックマークの上へ落とすと、その中へ移す（Ctrl でコピー）', async () => {
     await start();
     const types = ['application/x-explorer-kit-items', 'application/x-explorer-kit-has-dir'];
-    const slot = target.querySelector<HTMLElement>('.places-add-slot')!;
     expect(marks()).toEqual(['me']);
-    // フォルダのドラッグ（ドラッグしている項目は、一覧の dragstart が覚える）
+    expect(target.querySelector('.places-add-slot')).toBeNull(); // ふだんは、空きを出さない
+    // フォルダのドラッグ（ドラッグしている項目は、一覧の dragstart が覚える）。左の欄の上に来ると、空きが出る
     const folder = target.querySelector<HTMLElement>('.file-explorer-item[data-path="home/me/docs"]')!;
     folder.dispatchEvent(drag('dragstart', [], {}));
-    expect(slot.textContent).not.toContain('ドロップ'); // ドラッグしていないときは、説明を出さない（+ だけ）
+    target.querySelector('.places')!.dispatchEvent(drag('dragover', types));
+    await settle();
+    const slot = target.querySelector<HTMLElement>('.places-add-slot')!;
     slot.dispatchEvent(drag('dragover', types));
     await settle();
     expect(slot.textContent).toContain('フォルダをここへドロップして追加');
@@ -859,8 +873,9 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     slot.dispatchEvent(drag('drop', types));
     await settle();
     expect(marks()).toEqual(['me', 'docs']);
-    expect(slot.textContent).not.toContain('ドロップ');
     folder.dispatchEvent(drag('dragend', []));
+    await settle();
+    expect(target.querySelector('.places-add-slot')).toBeNull();
     // 項目のドラッグ（ファイルでもよい）を、ブックマークの上へ: その中へ移す。ドロップの前から、その行に印が付く
     const file = target.querySelector<HTMLElement>('.file-explorer-item[data-path="home/me/a.txt"]')!;
     file.dispatchEvent(drag('dragstart', []));

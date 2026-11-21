@@ -1,5 +1,6 @@
 import type { Component } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
+import ALIASES from './lucideAliases.json';
 
 // lucide のアイコン全部（約 2000 個）を、名前で呼べるようにする。
 // 全部を先に読み込むと大きいので、使うときに 1 つずつ読む（Vite の import.meta.glob。キーだけを先に持つ）。
@@ -38,14 +39,30 @@ export function lucideIcon(name: string): Component<{ size?: number | string }> 
 /** その名前のアイコンがあるか（別名も含む） */
 export const hasLucideIcon = (name: string): boolean => byName.has(name);
 
+/** 名前と別名（昔の名前・別の呼び名）のどちらでも、その語がすべて含まれるか */
+const matchesAll = (name: string, terms: string[]): boolean => terms.every((t) => name.includes(t) || name.replace(/-/g, '').includes(t));
+
+/** 今の名前 → その別名の一覧 */
+const aliasesOf = new Map<string, string[]>();
+for (const [alias, canonical] of Object.entries(ALIASES)) aliasesOf.set(canonical, [...(aliasesOf.get(canonical) ?? []), alias]);
+
 /**
- * 一覧を、名前で絞り込む（lucide の公式サイトと同じく、名前に含まれる語で）。
- * 語は空白で区切り、すべてを含むもの。`-` はあってもなくてもよい（`arrow up` で `arrow-up` が見つかる）。前方一致の名前を先に並べる
+ * 一覧を、名前で絞り込む（lucide の公式サイトと同じく、別名でも見つかる。カテゴリ・タグでの検索はしない）。
+ * 語は空白で区切り、すべてを含むもの。`-` はあってもなくてもよい（`arrow up` で `arrow-up` が見つかる）。
+ * 見つかるのは、いつも今の名前（別名で探しても、今の名前のアイコンが出る）。名前が前方一致するものを先に並べる
  */
 export function searchLucide(query: string): string[] {
   const terms = query.toLowerCase().split(/[\s-]+/).filter(Boolean);
   if (terms.length === 0) return [...LUCIDE_NAMES];
-  const hit = LUCIDE_NAMES.filter((n) => terms.every((t) => n.replace(/-/g, '').includes(t) || n.includes(t)));
+  const byName = LUCIDE_NAMES.filter((n) => matchesAll(n, terms));
+  const named = new Set(byName);
+  const byAlias = LUCIDE_NAMES.filter((n) => !named.has(n) && (aliasesOf.get(n) ?? []).some((a) => matchesAll(a, terms)));
   const head = terms.join('-');
-  return [...hit.filter((n) => n.startsWith(head)), ...hit.filter((n) => !n.startsWith(head))];
+  return [...byName.filter((n) => n.startsWith(head)), ...byName.filter((n) => !n.startsWith(head)), ...byAlias];
 }
+
+/** そのアイコンの別名（昔の名前・別の呼び名） */
+export const lucideAliases = (name: string): readonly string[] => aliasesOf.get(name) ?? [];
+
+/** 別名なら今の名前に直す（今の名前・知らない名前は、そのまま） */
+export const lucideCanonical = (name: string): string => (ALIASES as Record<string, string>)[name] ?? name;

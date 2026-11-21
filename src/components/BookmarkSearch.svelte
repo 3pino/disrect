@@ -3,7 +3,7 @@
   import SuggestList from '@3pino/ui-kit-web/SuggestList.svelte';
   import TextInput from '@3pino/ui-kit-web/TextInput.svelte';
   import type { NavEntry } from './PlacesNav.svelte';
-  import { formatHotkey } from '@3pino/app-kit-web/core/hotkeys';
+  import { formatHotkey, matchesHotkey } from '@3pino/app-kit-web/core/hotkeys';
   import { hotkeys } from '../lib/hotkeys.svelte';
 
   // ブックマークから検索: 名前や場所を打って絞り込む。↑↓で選ぶ。Esc で閉じる。
@@ -21,7 +21,17 @@
   } = $props();
 
   type How = 'here' | 'tab' | 'stay' | 'window';
-  /** 下に出す、開き方とキー（キーの無いものは出さない） */
+  /**
+   * 検索欄で文字を打つのに使うキー（Ctrl・Alt・Meta を含まない、文字・Shift+文字）か。
+   * この種類のホットキーは、ここでは無視する（出さない・動かさない）。Enter・矢印・F キーなどは文字ではないので、使える
+   */
+  function isTextKey(text: string): boolean {
+    const first = text.split(' ')[0];
+    if (/(?:^|\+)(?:Ctrl|Alt|Meta|Mod)\+/.test(first)) return false;
+    const last = first.endsWith('++') ? '+' : (first.split('+').at(-1) ?? '');
+    return [...last].length === 1 || last === 'Space';
+  }
+  /** 下に出す、開き方とキー（キーの無いものは出さない。複数あれば、全部） */
   const hints = $derived(
     (
       [
@@ -31,7 +41,7 @@
         ...(canWindow ? [{ how: 'window', id: 'file.openNewWindow', label: '新しいウィンドウで開く' }] : []),
       ] as { how: How; id: 'open' | 'file.openNewTab' | 'file.openNewTabFocus' | 'file.openNewWindow'; label: string }[]
     )
-      .map((h) => ({ ...h, keys: hotkeys.keys(h.id) }))
+      .map((h) => ({ ...h, keys: hotkeys.keys(h.id).filter((k) => !isTextKey(k)) }))
       .filter((h) => h.keys.length > 0),
   );
 
@@ -66,7 +76,7 @@
     if (hit) {
       // 設定のホットキーのとおりに開く（Enter は、既定の「開く」。↑↓・Esc は、一覧が受ける）
       for (const h of hints) {
-        if (hotkeys.matches(ev, h.id)) {
+        if (matchesHotkey(ev, h.keys)) {
           ev.preventDefault();
           pick(hit, h.how);
           return;
@@ -92,7 +102,7 @@
   {#if hints.length > 0}
     <p class="muted bookmark-search-hints">
       {#each hints as h (h.how)}
-        <span class="bookmark-search-hint">{h.label} <kbd class="kbd">{formatHotkey(h.keys[0])}</kbd></span>
+        <span class="bookmark-search-hint">{h.label} {#each h.keys as k (k)}<kbd class="kbd">{formatHotkey(k)}</kbd>{' '}{/each}</span>
       {/each}
     </p>
   {/if}
@@ -116,9 +126,10 @@
     white-space: nowrap;
   }
   .bookmark-search-hints {
+    /* 開き方ごとに 1 行 */
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-4);
+    flex-direction: column;
+    gap: var(--space-1);
     margin: var(--space-3) 0 0;
     font-size: var(--fs-sm);
   }
