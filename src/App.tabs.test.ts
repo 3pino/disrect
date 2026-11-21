@@ -784,7 +784,7 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('ブックマークは並べ替えられる: ドラッグ・Alt+↑↓・メニューの「上へ」「下へ」。並びは保存される（ほかのブックマークのパターンは変えない）', async () => {
+  it('ブックマークは並べ替えられる: ドラッグ・設定のホットキー（既定なし）・メニューの「上へ」「下へ」。並びは保存される（ほかのブックマークのパターンは変えない）', async () => {
     await start();
     await goTo('/home/me/docs');
     await click(target.querySelector('button[aria-label="いま開いているフォルダをブックマークに追加"]')!);
@@ -797,12 +797,28 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     expect([...document.querySelectorAll('.places-menu-anchor .menu-item')].find((b) => b.textContent?.includes('上へ'))!.hasAttribute('disabled')).toBe(true);
     await menuClick('.places-menu-anchor', '下へ移動');
     expect(marks()).toEqual(['docs', 'me', 'pics']);
-    // Alt+↓（フォーカスは、動かしたブックマークに残る）
+    // 既定のキーは無い（Ctrl+Alt+↓ では動かない）。ホットキーを決めると、フォーカスしているブックマークを動かす（フォーカスは残る）
     btn(1).focus();
-    btn(1).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }));
+    await key('ArrowDown', { ctrlKey: true, altKey: true });
+    expect(marks()).toEqual(['docs', 'me', 'pics']);
+    hotkeys.set('bookmark.moveDown', ['Ctrl+Alt+ArrowDown']);
+    hotkeys.set('bookmark.moveUp', ['Ctrl+Alt+ArrowUp']);
+    btn(1).focus();
+    await key('ArrowDown', { ctrlKey: true, altKey: true });
     await settle();
     expect(marks()).toEqual(['docs', 'pics', 'me']);
     expect(document.activeElement?.textContent?.trim()).toBe('me');
+    await key('ArrowDown', { ctrlKey: true, altKey: true }); // 端では何もしない
+    expect(marks()).toEqual(['docs', 'pics', 'me']);
+    // フォーカスが無ければ、いま開いているフォルダのブックマーク
+    (document.activeElement as HTMLElement).blur();
+    await goTo('/home/me/pics');
+    await key('ArrowUp', { ctrlKey: true, altKey: true });
+    expect(marks()).toEqual(['pics', 'docs', 'me']);
+    await key('ArrowDown', { ctrlKey: true, altKey: true });
+    expect(marks()).toEqual(['docs', 'pics', 'me']);
+    hotkeys.reset('bookmark.moveDown');
+    hotkeys.reset('bookmark.moveUp');
     // ドラッグ: ホームをいちばん上へ（最初の行の上半分へ落とす）
     const rowEl = (i: number): HTMLElement => btn(i).closest<HTMLElement>('.place-row')!;
     // jsdom には DragEvent・DataTransfer が無い
@@ -835,12 +851,15 @@ describe('左の欄: ブックマークとドライブ・戻る／進む', () =>
     // フォルダのドラッグ（ドラッグしている項目は、一覧の dragstart が覚える）
     const folder = target.querySelector<HTMLElement>('.file-explorer-item[data-path="home/me/docs"]')!;
     folder.dispatchEvent(drag('dragstart', [], {}));
+    expect(slot.textContent).not.toContain('ドロップ'); // ドラッグしていないときは、説明を出さない（+ だけ）
     slot.dispatchEvent(drag('dragover', types));
     await settle();
+    expect(slot.textContent).toContain('フォルダをここへドロップして追加');
     expect(slot.classList.contains('places-add-slot-drop')).toBe(true);
     slot.dispatchEvent(drag('drop', types));
     await settle();
     expect(marks()).toEqual(['me', 'docs']);
+    expect(slot.textContent).not.toContain('ドロップ');
     folder.dispatchEvent(drag('dragend', []));
     // 項目のドラッグ（ファイルでもよい）を、ブックマークの上へ: その中へ移す。ドロップの前から、その行に印が付く
     const file = target.querySelector<HTMLElement>('.file-explorer-item[data-path="home/me/a.txt"]')!;

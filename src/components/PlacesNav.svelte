@@ -26,7 +26,6 @@
   import Pencil from '@lucide/svelte/icons/pencil';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import Trash from '@lucide/svelte/icons/trash-2';
-  import { tick } from 'svelte';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import ArrowDown from '@lucide/svelte/icons/arrow-down';
   import IconButton from '@3pino/ui-kit-web/IconButton.svelte';
@@ -67,10 +66,18 @@
   let menu = $state.raw<{ entry: NavEntry; x: number; y: number } | null>(null);
   /** フォルダをドラッグして、「追加」の空きの上に来ている */
   let addDropping = $state(false);
+  /** フォルダをドラッグして、左の欄（場所の欄）の上に来ている（「追加」の空きの説明は、このときだけ出す） */
+  let dirOverNav = $state(false);
+  function windowDragOver(ev: DragEvent): void {
+    dirOverNav = isDirDrag(ev) && ev.target instanceof Element && ev.target.closest('.places') !== null;
+  }
+  const windowDragEnd = (): void => {
+    dirOverNav = false;
+  };
   /** 一覧の項目をドラッグして、上に来ているブックマーク（落とすと、その中へ移る） */
   let moveInto = $state<string | null>(null);
 
-  // ---- ブックマークの並べ替え（ドラッグ・Alt+↑↓・メニューの「上へ」「下へ」）。タブと同じく、ほかの行がずれて空き、落とすと滑って収まる ----
+  // ---- ブックマークの並べ替え（ドラッグ・メニューの「上へ」「下へ」）。タブと同じく、ほかの行がずれて空き、落とすと滑って収まる ----
   /** ドラッグしているブックマークの番号 */
   let dragging = $state<number | null>(null);
   /** 落とす席（いま指の下の、行の席の番号） */
@@ -226,19 +233,6 @@
     const to = indexOf(key) + step;
     if (to >= 0 && to < bookmarks.length) onmovebookmark(key, to);
   }
-  /** ブックマークのボタンで Alt+↑↓：並べ替え（動かしたあとも、フォーカスを保つ） */
-  async function bookmarkKey(ev: KeyboardEvent, e: NavEntry): Promise<void> {
-    if (!ev.altKey || (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown')) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    const btn = ev.currentTarget as HTMLElement;
-    moveBy(e.key, ev.key === 'ArrowUp' ? -1 : 1);
-    await tick();
-    // 並べ替えで行が作り直されても、同じブックマークのボタンにフォーカスを戻す
-    if (btn.isConnected && document.activeElement === btn) return;
-    [...document.querySelectorAll<HTMLElement>('[data-bookmark]')].find((el) => el.dataset.bookmark === e.key)?.focus();
-  }
-
   function openMenu(ev: MouseEvent, entry: NavEntry): void {
     ev.preventDefault();
     menu = { entry, x: ev.clientX, y: ev.clientY };
@@ -269,6 +263,8 @@
   }
 </script>
 
+<svelte:window ondragover={windowDragOver} ondragend={windowDragEnd} ondrop={windowDragEnd} ondragleave={(ev) => { if (ev.relatedTarget === null) dirOverNav = false; }} />
+
 {#snippet row(e: NavEntry, sortable = false, k = -1)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
@@ -288,7 +284,6 @@
       class="menu-item place-open"
       type="button"
       data-bookmark={sortable ? e.key : undefined}
-      onkeydown={sortable ? (ev) => void bookmarkKey(ev, e) : undefined}
       aria-current={e.current ? 'page' : undefined}
       title={e.broken ? `つながりません: ${e.broken}` : e.title}
       onclick={e.open}
@@ -317,7 +312,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="places-add-slot" class:places-add-slot-drop={addDropping} ondragover={addOver} ondragleave={addLeave} ondrop={addDrop}>
     <Plus size={14} />
-    <span class="muted">フォルダをここへドロップして追加</span>
+    {#if dirOverNav}<span class="muted">フォルダをここへドロップして追加</span>{/if}
   </div>
 </section>
 
@@ -383,6 +378,7 @@
     gap: var(--space-2);
     margin: var(--space-1) var(--space-2) 0;
     padding: var(--space-1) var(--space-2);
+    min-height: 26px;
     border: 1px dashed var(--border);
     border-radius: var(--radius-sm);
     color: var(--text-muted);

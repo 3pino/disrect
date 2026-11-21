@@ -37,6 +37,8 @@ export type AppCommandId =
   | 'tab.moveLeft'
   | 'tab.moveRight'
   | 'bookmark.search'
+  | 'bookmark.moveUp'
+  | 'bookmark.moveDown'
   | 'bookmark.goto1'
   | 'bookmark.goto2'
   | 'bookmark.goto3'
@@ -92,6 +94,8 @@ export const COMMANDS: readonly Command[] = [
 
   { id: 'bookmark.search', name: 'ブックマークから検索', group: 'ブックマーク', defaults: [] },
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(gotoBookmark),
+  { id: 'bookmark.moveUp', name: 'ブックマークを上へ並べ替え（フォーカス中・開いているフォルダ）', group: 'ブックマーク', defaults: [] },
+  { id: 'bookmark.moveDown', name: 'ブックマークを下へ並べ替え（フォーカス中・開いているフォルダ）', group: 'ブックマーク', defaults: [] },
 
   { id: 'selectAll', name: 'すべて選ぶ', group: '選択', defaults: EXPLORER_HOTKEYS.selectAll },
   { id: 'clearSelection', name: '選択解除', group: '選択', defaults: EXPLORER_HOTKEYS.clearSelection },

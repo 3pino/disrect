@@ -68,6 +68,8 @@ export interface ExplorerApi {
    * 部品は確認を取って、`remove` で完全に削除する（元に戻せない）
    */
   trashable?(path: string): boolean;
+  /** ホームのフォルダのパス（任意。パス欄の `~` が指す。省くと `~` は解かない） */
+  home?(): string;
   size(path: string): Promise<Size>;
   /**
    * 一覧の「サイズ」の列に出す、フォルダの大きさ（任意。持たない置き場所は、フォルダの欄を空にする）。
@@ -253,7 +255,7 @@ export type EntryStyle = {
   opacity?: number;
 };
 
-export type ColumnWidths = Partial<Record<'kind' | 'size' | 'modified' | 'created', number>>;
+export type ColumnWidths = Partial<Record<'name' | 'kind' | 'size' | 'modified' | 'created', number>>;
 
 export type ViewStore = {
   /** 保存されている値（形は部品が確かめる） */

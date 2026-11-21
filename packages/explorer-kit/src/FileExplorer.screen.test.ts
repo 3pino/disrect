@@ -3056,7 +3056,7 @@ describe('列の幅・待つカーソル・戻ったときのフォーカス・�
     expect(explorerSelection.paths()).toEqual([]);
   });
 
-  it('詳細の見出しの境目をつまんで列の幅を変えられる（左へで広がり、変えたら知らせる）。ダブルクリックで既定に戻す', async () => {
+  it('詳細の見出しの右の境目をつまんで列の幅を変えられる（右へで広がり、変えたら知らせる）。ダブルクリックで既定に戻す', async () => {
     const saved: unknown[] = [];
     target = document.createElement('div');
     document.body.appendChild(target);
@@ -3074,19 +3074,47 @@ describe('列の幅・待つカーソル・戻ったときのフォーカス・�
     };
     // jsdom は幅を測れない（つまんだ列の幅は 0 扱い）ので、動いた距離だけを見る
     ptr('pointerdown', 300);
-    ptr('pointermove', 240);
+    ptr('pointermove', 360);
     expect(root.style.getPropertyValue('--col-kind')).toBe('60px');
-    ptr('pointermove', -400); // 左へ行きすぎても上限で止まる
-    expect(root.style.getPropertyValue('--col-kind')).toBe('480px');
-    ptr('pointermove', 400); // 右へ行きすぎても下限で止まる
+    ptr('pointermove', 5000); // 右へ行きすぎても上限で止まる
+    expect(root.style.getPropertyValue('--col-kind')).toBe('1000px');
+    ptr('pointermove', -400); // 左へ行きすぎても下限で止まる
     expect(root.style.getPropertyValue('--col-kind')).toBe('48px');
     expect(saved).toEqual([]);
-    ptr('pointerup', 400);
+    ptr('pointerup', -400);
     expect(saved).toEqual([{ size: 100, kind: 48 }]);
     grip.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     flushSync();
     expect(root.style.getPropertyValue('--col-kind')).toBe('');
     expect(saved.at(-1)).toEqual({ size: 100 });
+  });
+
+  it('名前の列も、つまんで幅を決められる（決めるまでは残りの幅を使う。決めると、全体の幅は列の合計になる）。ダブルクリックで元に戻る', async () => {
+    const saved: unknown[] = [];
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    instance = mount(FileExplorer, { target, props: { explorer, oncolumnwidths: (w: unknown) => saved.push(w) } });
+    flushSync();
+    await vi.waitFor(() => expect(target!.querySelector('.file-explorer-list')).not.toBeNull());
+    const root = target.querySelector<HTMLElement>('.file-explorer')!;
+    expect(root.classList.contains('file-explorer-name-fixed')).toBe(false);
+    const grip = target.querySelector<HTMLElement>('.file-explorer-columns .file-explorer-col-name .file-explorer-col-grip')!;
+    const ptr = (type: string, x: number): void => {
+      const ev = new MouseEvent(type, { clientX: x, button: 0, bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'pointerId', { value: 1 });
+      grip.dispatchEvent(ev);
+      flushSync();
+    };
+    ptr('pointerdown', 100);
+    ptr('pointermove', 400);
+    ptr('pointerup', 400);
+    expect(root.style.getPropertyValue('--col-name')).toBe('300px');
+    expect(root.classList.contains('file-explorer-name-fixed')).toBe(true);
+    expect(saved).toEqual([{ name: 300 }]);
+    grip.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    flushSync();
+    expect(root.classList.contains('file-explorer-name-fixed')).toBe(false);
+    expect(saved.at(-1)).toEqual({});
   });
 
   it('同じフォルダへ貼り付けて、一覧に現れないまま 0.5 秒を超えたら、完了するまでカーソルを「待つ」にする', async () => {

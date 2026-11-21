@@ -99,4 +99,24 @@ describe('パス欄の文字（pathToText・textToPath）', () => {
     // 往復
     for (const d of ['', 'home/me', 'C:/Users', '\\\\nas\\share/a']) expect(listing.textToPath(listing.pathToText(d))).toBe(d);
   });
+  it('resolveTypedPath: ~ はホームから、. や .. は今いるフォルダから。それ以外は、いちばん上から', () => {
+    const r = listing.resolveTypedPath;
+    expect(r('~', 'a/b', 'home/me')).toBe('home/me');
+    expect(r('~/docs', 'a/b', 'home/me')).toBe('home/me/docs');
+    expect(r('~\\docs\\..', 'a/b', 'home/me')).toBe('home/me');
+    expect(r('~', 'C:/x', 'C:/Users/me')).toBe('C:/Users/me');
+    expect(r('~me', 'a/b', 'home/me')).toBe('~me'); // ~me は、ユーザー名の指定ではないので、そのまま
+    expect(r('~', 'a/b')).toBe('~'); // ホームが無い置き場所: 解かない（開けない、と出る）
+    expect(r('..', 'a/b/c')).toBe('a/b');
+    expect(r('../..', 'a/b/c')).toBe('a');
+    expect(r('../x/', 'a/b/c')).toBe('a/b/x');
+    expect(r('.', 'a/b')).toBe('a/b');
+    expect(r('./docs', 'a/b')).toBe('a/b/docs');
+    expect(r('..', '')).toBe('');
+    expect(r('..', 'C:/Users/me')).toBe('C:/Users');
+    expect(r('..\\..', '\\\\nas\\share/a')).toBe('\\\\nas');
+    expect(r('/home/me/../you', 'a/b')).toBe('home/you');
+    expect(r('home/me', 'a/b')).toBe('home/me');
+    expect(r('.hidden', 'a/b')).toBe('.hidden'); // .hidden は、.. や . ではない
+  });
 });

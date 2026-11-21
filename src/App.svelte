@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import Eye from '@lucide/svelte/icons/eye';
@@ -784,6 +784,19 @@
       case 'bookmark.search':
         bookmarkSearchOpen = true;
         return true;
+      case 'bookmark.moveUp':
+      case 'bookmark.moveDown': {
+        // フォーカスしているブックマーク。無ければ、いま開いているフォルダのブックマーク
+        const focused = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.bookmark : undefined;
+        const key = focused ?? bookmarkEntries.find((b) => b.current)?.key;
+        const from = bookmarkEntries.findIndex((b) => b.key === key);
+        const to = from + (id === 'bookmark.moveUp' ? -1 : 1);
+        if (from < 0 || to < 0 || to >= bookmarkEntries.length) return false;
+        moveBookmark(bookmarkEntries[from].key, to);
+        // 並べ替えで行が作り直されても、フォーカスを保つ
+        if (focused) void tick().then(() => [...document.querySelectorAll<HTMLElement>('[data-bookmark]')].find((el) => el.dataset.bookmark === focused)?.focus());
+        return true;
+      }
       case 'app.settings':
         openSettings();
         return true;

@@ -1,6 +1,9 @@
 import { getItem, setItem } from '@3pino/app-kit-web/core/storage';
 import { parseMenuLayouts, type ColumnWidths, type MenuLayouts } from '@3pino/explorer-kit';
-import { parseRules, type AppearanceRule } from './rules';
+import { defaultRules, parseRules, type AppearanceRule } from './rules';
+
+/** 見た目のルール。保存したものが無ければ、初めから入っているルール（全部消したときは「[]」を保存するので、空のまま） */
+const initialRules = (raw: string | null): AppearanceRule[] => (raw === null ? defaultRules() : parseRules(raw));
 
 // 各デバイスに保存する設定（localStorage）。隠しファイルを出すか・フォルダごとの表示方法と並び順。
 // 使うキーは localKeys.ts に登録する（試験が止める）。
@@ -25,7 +28,7 @@ export function parseColumns(raw: string | null): ColumnWidths {
   const v = parse(raw);
   const out: ColumnWidths = {};
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return out;
-  for (const k of ['kind', 'size', 'modified', 'created'] as const) {
+  for (const k of ['name', 'kind', 'size', 'modified', 'created'] as const) {
     const w = (v as Record<string, unknown>)[k];
     if (typeof w === 'number' && Number.isFinite(w) && w >= 24 && w <= 1000) out[k] = Math.round(w);
   }
@@ -39,7 +42,7 @@ class Settings {
 
   #columns = $state.raw<ColumnWidths>(parseColumns(read(KEYS.columns)));
   #menus = $state.raw<MenuLayouts>(parseMenuLayouts(read(KEYS.menus)));
-  #rules = $state.raw<AppearanceRule[]>(parseRules(read(KEYS.rules)));
+  #rules = $state.raw<AppearanceRule[]>(initialRules(read(KEYS.rules)));
 
   get showHidden(): boolean {
     return this.#showHidden;

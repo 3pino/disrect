@@ -149,6 +149,28 @@ export function parseRules(raw: string | null): AppearanceRule[] {
   }
 }
 
+/**
+ * 初めから入っているルール（「デフォルトに戻す」でこの状態になる）。上のものほど優先: よくあるフォルダのアイコン → 隠しファイルを薄く → フォルダは白い folder
+ * （見た目の項目ごとに最初に当たったものを使うので、Desktop は「monitor で、白」になる）
+ */
+export function defaultRules(): AppearanceRule[] {
+  const dir = (stem: string): RuleCondition[] => [
+    { field: 'kind', op: 'is', value: 'dir' },
+    { field: 'stem', op: 'is', value: stem },
+  ];
+  const named = (name: string, stem: string, icon: string): AppearanceRule => ({ id: `default-${stem}`, name, enabled: true, conditions: dir(stem), look: { icon } });
+  return [
+    named('Desktop', 'desktop', 'monitor'),
+    named('Downloads', 'downloads', 'download'),
+    named('Documents', 'documents', 'file-text'),
+    named('Pictures', 'pictures', 'image'),
+    named('Music', 'music', 'music'),
+    named('Videos', 'videos', 'video'),
+    { id: 'default-hidden', name: '隠しファイル', enabled: true, conditions: [{ field: 'basename', op: 'startsWith', value: '.' }], look: { opacity: 0.55 } },
+    { id: 'default-folder', name: 'フォルダ', enabled: true, conditions: [{ field: 'kind', op: 'is', value: 'dir' }], look: { icon: 'folder', color: 'var(--text)' } },
+  ];
+}
+
 /** 新しいルール（フォルダ・名前が一致するだけの、空の見た目） */
 export function newRule(id: string): AppearanceRule {
   return { id, name: '', enabled: true, conditions: [{ field: 'kind', op: 'is', value: 'dir' }], look: {} };

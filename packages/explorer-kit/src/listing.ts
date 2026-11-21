@@ -65,6 +65,20 @@ export function textToPath(text: string): string {
 }
 
 /**
+ * パス欄に打った文字を、移る先の画面のパスにする。`textToPath` に加えて、次を解く。
+ * - `~`・`~/docs`（`~\docs`）: ホーム（`home`。無い置き場所では、そのまま `textToPath` に渡す）から
+ * - `.`・`..`・`./a`・`../a`: 今いるフォルダ（`cwd`）から
+ * 先頭が `/`・`\`・ドライブ・`\\`・ほかの名前なら、これまでどおり、いちばん上からのパス
+ */
+export function resolveTypedPath(text: string, cwd: string, home?: string): string {
+  const t = text.trim();
+  const tilde = /^~(?=$|[\\/])/.test(t);
+  if (tilde && home !== undefined) return textToPath(`${pathToText(home)}/${t.slice(1)}`);
+  if (/^\.\.?(?=$|[\\/])/.test(t)) return textToPath(`${pathToText(cwd)}/${t}`);
+  return textToPath(t);
+}
+
+/**
  * 項目を押したときの動き: フォルダは中へ（enter）、拡大表示で見られるものはその種類（image・pdf など。lib/viewers.ts）、
  * ほかはファイルとして開く・保存する（file）
  */

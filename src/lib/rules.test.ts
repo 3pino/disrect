@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Entry } from '@3pino/explorer-kit';
-import { fieldValue, hueColor, lookOf, matchesCondition, matchesRule, newRule, parseRules, type AppearanceRule } from './rules';
+import { defaultRules, fieldValue, hueColor, lookOf, matchesCondition, matchesRule, newRule, parseRules, type AppearanceRule } from './rules';
+import { hasLucideIcon, LUCIDE_NAMES, searchLucide } from './lucideIcons.svelte';
 import { entryStyleOf } from './ruleStyle';
-import { iconOf, RULE_ICONS } from './ruleIcons';
+import { iconOf } from './ruleIcons';
 
 const e = (name: string, kind: 'file' | 'dir' = 'file', path = `home/me/${name}`): Entry => ({ name, path, kind, size: 1, modified: 0, mime: null }) as Entry;
 const rule = (id: string, conditions: AppearanceRule['conditions'], look: AppearanceRule['look'], enabled = true): AppearanceRule => ({ id, name: id, enabled, conditions, look });
@@ -43,8 +44,10 @@ describe('見た目を重ねる', () => {
     expect(lookOf(e('x', 'dir'), rules)).toBeNull();
     expect(lookOf(e('x.md'), [rule('z', [{ field: 'ext', op: 'is', value: 'md' }], { color: 'red', hue: 10 })])).toEqual({ color: 'red' });
   });
-  it('一覧に渡す見た目: アイコンは名前から、色相は色に。何も無ければ null。ゴミ箱の項目には与えない。ロゴは画像', () => {
+  it('一覧に渡す見た目: アイコンは名前から、色相は色に。何も無ければ null。ゴミ箱の項目には与えない。ロゴは画像', async () => {
     const rules = [rule('a', [{ field: 'stem', op: 'is', value: 'desktop' }], { icon: 'monitor', hue: 200, opacity: 0.8 }), rule('l', [{ field: 'stem', op: 'is', value: 'app' }], { icon: 'logo' }), rule('u', [{ field: 'stem', op: 'is', value: 'u' }], { icon: 'no-such-icon' })];
+    // lucide のアイコンは、使うときに読み込む（読み込みが終わるまでは、既定のアイコンのまま）
+    await vi.waitFor(() => expect(iconOf('monitor')).toBeTypeOf('function'));
     const s = entryStyleOf(e('Desktop', 'dir'), rules)!;
     expect(s.icon).toBe(iconOf('monitor'));
     expect(s.color).toBe(hueColor(200));
@@ -55,8 +58,31 @@ describe('見た目を重ねる', () => {
     expect(entryStyleOf({ ...e('Desktop', 'dir'), trash: { kind: 'root' } } as Entry, rules)).toBeNull();
     expect(entryStyleOf(e('Desktop', 'dir'), [])).toBeNull();
   });
-  it('アイコンの名前は重ならない', () => {
-    expect(new Set(RULE_ICONS.map((i) => i.name)).size).toBe(RULE_ICONS.length);
+  it('lucide のアイコンは全部を名前で呼べ、別名も解ける。絞り込める（-はあってもなくても、前方一致を先に）。以前の名前も使える', async () => {
+    expect(LUCIDE_NAMES.length).toBeGreaterThan(1500);
+    expect(LUCIDE_NAMES).toContain('folder');
+    expect(hasLucideIcon('music')).toBe(true); // 別名
+    expect(hasLucideIcon('no-such-icon')).toBe(false);
+    expect(searchLucide('arrow up').slice(0, 3)).toContain('arrow-up');
+    expect(searchLucide('arrow up').every((n) => n.includes('arrow') && n.includes('up'))).toBe(true);
+    expect(searchLucide('arrowup')).toContain('arrow-up');
+    expect(searchLucide('folder')[0]).toBe('folder');
+    expect(searchLucide('zzzzzz')).toEqual([]);
+    expect(searchLucide('')).toHaveLength(LUCIDE_NAMES.length);
+    for (const name of ['folder', 'music', 'folder-git', 'gamepad', 'trash']) await vi.waitFor(() => expect(iconOf(name)).toBeTypeOf('function'));
+    expect(iconOf('no-such-icon')).toBeUndefined();
+    expect(iconOf('logo')).toEqual({ src: '/icon.svg' });
+  });
+  it('最初から入っているルール: フォルダは白い folder。Desktop は monitor で白、隠しファイルは薄く、普通のファイルはそのまま', () => {
+    const d = defaultRules();
+    expect(new Set(d.map((r) => r.id)).size).toBe(d.length);
+    expect(lookOf(e('Documents', 'dir'), d)).toEqual({ icon: 'file-text', color: 'var(--text)' });
+    expect(lookOf(e('Desktop', 'dir'), d)).toEqual({ icon: 'monitor', color: 'var(--text)' });
+    expect(lookOf(e('src', 'dir'), d)).toEqual({ icon: 'folder', color: 'var(--text)' });
+    expect(lookOf(e('.git', 'dir'), d)).toEqual({ icon: 'folder', color: 'var(--text)', opacity: 0.55 });
+    expect(lookOf(e('.env'), d)).toEqual({ opacity: 0.55 });
+    expect(lookOf(e('a.txt'), d)).toBeNull();
+    expect(parseRules(JSON.stringify(d))).toEqual(d);
   });
 });
 

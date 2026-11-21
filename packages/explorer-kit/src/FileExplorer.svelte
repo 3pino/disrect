@@ -34,7 +34,7 @@
   import Menu from '@3pino/ui-kit-web/Menu.svelte';
   import MenuItem from '@3pino/ui-kit-web/MenuItem.svelte';
   import { applyMenuLayout, ENTRY_MENU_ITEMS, SPACE_MENU_ITEMS, type MenuLayouts } from './menuLayout';
-  import { breadcrumbs, entryAction, kindLabel, pathToText, sortEntries, textToPath, type SortKey } from './listing';
+  import { breadcrumbs, entryAction, kindLabel, pathToText, resolveTypedPath, sortEntries, type SortKey } from './listing';
   import type { ViewMode } from './stores/view.svelte';
   import { baseName, parentOf } from './path';
   import { childPath, DOUBLE_CLICK_MS, EXPLORER_DRAG_DIR_TYPE, EXPLORER_DRAG_TYPE, inSpecialDir, setExplorerDragItems, overwriteConfirm, permanentDeleteConfirm, planUpload, renameAllowed, renameTarget, ruleTexts, sameNameEntry } from './ops';
@@ -278,9 +278,9 @@
       sizeGen++;
     };
   });
-  // ---- 詳細の列の幅（見出しの境目をつまんで変える。名前の列が、残りの幅を使う） ----
+  // ---- 詳細の列の幅（見出しの右の境目をつまんで変える。どの列も変えられ、右に余りがあってもよい。名前の列は、変えるまで残りの幅を使う） ----
   const COL_MIN_PX = 48;
-  const COL_MAX_PX = 480;
+  const COL_MAX_PX = 1000;
   type ColumnKey = keyof ColumnWidths;
   // 初めの幅だけを受け取る（あとはここで持ち、変えたら oncolumnwidths で知らせる）
   let colWidths = $state<ColumnWidths>(untrack(() => ({ ...props.columnWidths })));
@@ -291,18 +291,20 @@
       .join(';') || undefined,
   );
   let colDrag: { key: ColumnKey; x: number; width: number } | null = null;
-  /** 列の左の境目をつまむ。左へ動かすと、その列が広がる（名前の列が縮む）。右へ動かすと狭まる */
+  /** 列の右の境目をつまむ。右へ動かすと、その列が広がる（右の列は、そのまま右へずれる）。左へ動かすと狭まる */
   function startColResize(ev: PointerEvent, key: ColumnKey): void {
     if (ev.button !== 0) return;
     ev.preventDefault();
     ev.stopPropagation();
     const grip = ev.currentTarget as HTMLElement;
-    colDrag = { key, x: ev.clientX, width: grip.parentElement?.getBoundingClientRect().width ?? 0 };
+    // 名前の列は、見出しの幅にアイコンの分が入っているので、行の名前の幅を測る
+    const measured = key === 'name' ? (bodyEl?.querySelector<HTMLElement>('.file-explorer-view-details .file-explorer-name')?.getBoundingClientRect().width ?? 0) : (grip.parentElement?.getBoundingClientRect().width ?? 0);
+    colDrag = { key, x: ev.clientX, width: measured };
     grip.setPointerCapture?.(ev.pointerId);
   }
   function moveColResize(ev: PointerEvent): void {
     if (!colDrag) return;
-    const width = Math.round(Math.min(COL_MAX_PX, Math.max(COL_MIN_PX, colDrag.width + colDrag.x - ev.clientX)));
+    const width = Math.round(Math.min(COL_MAX_PX, Math.max(COL_MIN_PX, colDrag.width + ev.clientX - colDrag.x)));
     colWidths = { ...colWidths, [colDrag.key]: width };
   }
   function endColResize(): void {
@@ -310,7 +312,7 @@
     colDrag = null;
     props.oncolumnwidths?.({ ...colWidths });
   }
-  /** 境目をダブルクリックすると、その列の幅を既定に戻す */
+  /** 境目をダブルクリックすると、その列の幅を既定に戻す（名前の列は、残りの幅を使う状態に戻る） */
   function resetColWidth(key: ColumnKey): void {
     const { [key]: _drop, ...rest } = colWidths;
     colWidths = rest;
@@ -392,7 +394,7 @@
   /** 打ったパスへ移る。開けないパス（無い・フォルダでない）なら、理由を出して、書き換えを続ける */
   async function commitPath(): Promise<void> {
     if (pathBusy) return;
-    const dir = textToPath(pathText);
+    const dir = resolveTypedPath(pathText, fileExplorer.dir, api.home?.());
     if (dir === fileExplorer.dir) {
       pathEditing = false;
       return;
@@ -2182,7 +2184,7 @@
 
 <svelte:window onkeydown={(ev) => { searchWindowKey(ev); escapeKey(ev); explorerKey(ev); }} />
 
-<div class="file-explorer" class:file-explorer-wait={waitCursor} role="region" aria-label="ファイルエクスプローラー" style={colStyle}
+<div class="file-explorer" class:file-explorer-wait={waitCursor} class:file-explorer-name-fixed={colWidths.name !== undefined} role="region" aria-label="ファイルエクスプローラー" style={colStyle}
   ondragenter={explorerDragEnter}
   ondragleave={explorerDragLeave}
 >
@@ -2355,15 +2357,15 @@
       {@const sorted = shownEntries}
       {#if dirView.view === 'details'}
         <div class="file-explorer-columns" aria-hidden="true">
-          <span class="file-explorer-col-name">名前</span>
           {#snippet grip(key: ColumnKey)}
-            <!-- 列の左の境目（つまんで動かすと、幅が変わる。ダブルクリックで既定の幅） -->
+            <!-- 列の右の境目（つまんで動かすと、幅が変わる。ダブルクリックで既定の幅） -->
             <span class="file-explorer-col-grip" role="presentation" onpointerdown={(ev) => startColResize(ev, key)} onpointermove={moveColResize} onpointerup={endColResize} onpointercancel={endColResize} ondblclick={() => resetColWidth(key)}></span>
           {/snippet}
-          <span class="file-explorer-col-kind">{@render grip('kind')}種類</span>
-          <span class="file-explorer-col-size">{@render grip('size')}サイズ</span>
-          <span class="file-explorer-col-date">{@render grip('modified')}更新日時</span>
-          {#if hasCreated}<span class="file-explorer-col-date file-explorer-col-created">{@render grip('created')}作成日時</span>{/if}
+          <span class="file-explorer-col-name">名前{@render grip('name')}</span>
+          <span class="file-explorer-col-kind">種類{@render grip('kind')}</span>
+          <span class="file-explorer-col-size">サイズ{@render grip('size')}</span>
+          <span class="file-explorer-col-date">更新日時{@render grip('modified')}</span>
+          {#if hasCreated}<span class="file-explorer-col-date file-explorer-col-created">作成日時{@render grip('created')}</span>{/if}
           {#if !explorerSelection.desktop}<span class="file-explorer-col-actions"></span>{/if}
         </div>
       {/if}
@@ -3048,6 +3050,12 @@
   .file-explorer-view-details {
     min-width: 540px;
   }
+  /* 名前の列の幅を決めたとき: 全体の幅は、列の幅の合計（広い画面では、右に余りが出る。狭ければ横にスクロール） */
+  .file-explorer-name-fixed .file-explorer-columns,
+  .file-explorer-name-fixed .file-explorer-view-details {
+    width: max-content;
+    min-width: 100%;
+  }
   /* 下に項目 1 つ分の空き（押すと選択を解除できる場所） */
   .file-explorer-view-details {
     padding-bottom: calc(2 * var(--space-4) + 1.5em);
@@ -3055,6 +3063,17 @@
   .file-explorer-view-details .file-explorer-name,
   .file-explorer-columns .file-explorer-col-name {
     min-width: 120px;
+  }
+  /* 名前の列の幅を決めたとき（見出しは、行のアイコン 18px と隙間の分も足して、行の名前とそろえる） */
+  .file-explorer-name-fixed .file-explorer-view-details .file-explorer-name {
+    flex: none;
+    width: var(--col-name);
+    min-width: 0;
+  }
+  .file-explorer-name-fixed .file-explorer-columns .file-explorer-col-name {
+    flex: none;
+    width: calc(var(--col-name) + 18px + var(--space-3));
+    min-width: 0;
   }
   /* 「…」は、横にスワイプしても右端に残す */
   .file-explorer-view-details .file-explorer-item > :global(.explorer-entry-actions) {
@@ -3084,6 +3103,16 @@
   .file-explorer-col-name {
     flex: 1;
     min-width: 0;
+  }
+  /* 列の文字は折り返さない。幅が足りなければ、はみ出た分は隠れる */
+  .file-explorer-view-details .file-explorer-col-kind,
+  .file-explorer-view-details .file-explorer-col-size,
+  .file-explorer-view-details .file-explorer-col-date,
+  .file-explorer-columns .file-explorer-col-kind,
+  .file-explorer-columns .file-explorer-col-size,
+  .file-explorer-columns .file-explorer-col-date {
+    white-space: nowrap;
+    overflow: hidden;
   }
   .file-explorer-view-details .file-explorer-col-kind {
     flex: none;
@@ -3124,7 +3153,8 @@
   .file-explorer-columns .file-explorer-col-created {
     width: var(--col-created, var(--col-modified, 8em));
   }
-  /* 見出しの列の左の境目（つまむところ）。列の左の隙間の真ん中に置く */
+  /* 見出しの列の右の境目（つまむところ）。はみ出た分を隠す列でも切れないよう、列の右の端の内側に置く */
+  .file-explorer-columns .file-explorer-col-name,
   .file-explorer-columns .file-explorer-col-kind,
   .file-explorer-columns .file-explorer-col-size,
   .file-explorer-columns .file-explorer-col-date {
@@ -3132,9 +3162,9 @@
   }
   .file-explorer-col-grip {
     position: absolute;
-    top: -4px;
-    bottom: -4px;
-    left: calc(var(--space-3) / -2 - 5px);
+    top: 0;
+    bottom: 0;
+    right: 0;
     width: 10px;
     cursor: col-resize;
     touch-action: none;
@@ -3142,9 +3172,9 @@
   .file-explorer-col-grip::after {
     content: '';
     position: absolute;
-    top: 4px;
-    bottom: 4px;
-    left: 4px;
+    top: 2px;
+    bottom: 2px;
+    right: 1px;
     width: 2px;
     border-radius: 1px;
     background: transparent;

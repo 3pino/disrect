@@ -81,6 +81,6 @@ npm test -w @3pino/explorer-kit        # 決まり・状態・画面の試験（
 
 詳細の列の幅は、`columnWidths`（px。`kind`・`size`・`modified`・`created`）で渡し、見出しの境目をつまんで変えたら `oncolumnwidths` で知らせます（保存は本体）。数えたフォルダのサイズの写しは `createExplorer({ folderSizeCache })` で、同じ置き場所のエクスプローラー（タブ）どうしで共有できます。
 
-そのほか、置き場所の `api.trashable(path)`（省くと、移せる。偽なら、Delete でも確認して `api.remove` で完全に削除する）、エクスプローラーの `explorer.lastSelected`（フォルダごとの最後に選んだ項目。戻る・入るときに選び直す）、`explorer.dropDragged(destDir, op)`（一覧のドラッグを、一覧の外のドロップ先から移す・コピーする）、`nav.reload(true)`（フォルダのサイズを捨てずに読み直す）があります。
+そのほか、置き場所の `api.trashable(path)`（省くと、移せる。偽なら、Delete でも確認して `api.remove` で完全に削除する）、エクスプローラーの `explorer.lastSelected`（フォルダごとの最後に選んだ項目。戻る・入るときに選び直す）、`explorer.dropDragged(destDir, op)`（一覧のドラッグを、一覧の外のドロップ先から移す・コピーする）、`nav.reload(true)`（フォルダのサイズを捨てずに読み直す）、`api.home()`（パス欄の `~` が指すホーム。省くと `~` は解かない）、`resolveTypedPath(text, cwd, home)`（パス欄に打った文字を、`~`・`.`・`..` を解いてパスにする）があります。詳細表示の列の幅（`columnWidths`）は、`name`・`kind`・`size`・`modified`・`created` すべてを決められます（`name` を決めると、列の合計が全体の幅になり、右に余りが出ても構いません）。
 
 右クリックのメニューは、`menuLayout`（`{ entry, space }`。それぞれ `{ order, hidden }`）で、項目の順番と出さない項目を決められます（項目の ID は `ENTRY_MENU_ITEMS`・`SPACE_MENU_ITEMS`。`menuOrder`・`reorderMenu`・`setMenuHidden`・`parseMenuLayouts` で、設定の画面を作れます）。項目の見た目は、`entryStyle(e)`（`{ icon, color, opacity }` か null。アイコンは部品か `{ src }`）で渡せます。
